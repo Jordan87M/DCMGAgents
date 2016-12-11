@@ -1,0 +1,9 @@
+{
+	"agentid": "home1",
+	"name": "Crunderson",
+	"location": "DC.BRANCH1.BUS1.LOAD1",
+	"message": "home agent up",
+	"resources": [],
+	"demandCurve":[(3.0, 0),(3.0, 1),(0, 1),(0, 3]
+}
+	
