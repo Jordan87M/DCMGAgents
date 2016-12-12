@@ -5,6 +5,8 @@ def isRecipient(list,name):
                 return True
         return False
     elif type(list) is str:
+        if list == "broadcast" or list == "all":
+            return True
         if list == name:
             return True
         else:

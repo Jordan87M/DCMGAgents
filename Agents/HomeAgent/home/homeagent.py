@@ -1,5 +1,5 @@
 from __future__ import absolute_import
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import sys
 import json
@@ -42,6 +42,7 @@ class HomeAgent(Agent):
 
         self.DR_participant = False
         self.gridConnected = False
+        self.registered = False
         
         
     @Core.receiver('onstart')
@@ -53,7 +54,28 @@ class HomeAgent(Agent):
         
         self.vip.pubsub.subscribe('pubsub','energymarket', callback = self.followmarket)
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
+        self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         
+    def customerfeed(self, peer, sender, bus, topic, headers, message):
+        mesdict = json.loads(message)
+        messageTarget = mesdict.get("message_target",None)
+        if isRecipient(messageTarget,self.name):
+            messageSubject = mesdict.get("message_subject",None)
+            messageType = mesdict.get("message_type",None)
+            if messageSubject == "customer_enrollment":
+                if messageType == "new_customer_query":
+                    rereg = mesdict.get("rereg",False)
+                    if self.registered == False or rereg == True:
+                        resdict = {}
+                        resdict["message_subject"] = "customer_enrollment"
+                        resdict["message_type"] = "new_customer_response"
+                        resdict["message_target"] = "ENERCON"
+                        resdict["info"] = [self.name, self.location, self.resources, "residential"]
+                        response = json.dumps(resdict)
+                        self.vip.pubsub.publish(peer = "pubsub", topic = "customerservice", headers = {}, message = response)
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print(response)
+                
     def priceChange(self,newPrice):
         newdemand = lininterp(self.demandCurve,newPrice)
         if newDemand == 0:
@@ -93,23 +115,23 @@ class HomeAgent(Agent):
         if isRecipient(messageTarget,self.name):
             if messageSubject == 'DR_event':
                 # if enrolled, we have to act on the request
-                severity = mesdict.get('message_subject',None)
+                eventType = mesdict.get('event_type',None)
                 eventID = mesdict.get('event_id',None)
                 if DR_participant == True:
-                    if severity == 'normal':
+                    if eventType == 'normal':
                         changeConsumption(1)
-                    elif severity == 'grid_emergency':
+                    elif eventType == 'grid_emergency':
                         changeConsumption(0)
-                    elif severity == 'shed':
+                    elif eventType == 'shed':
                         changeConsumption(0)
-                    elif severity == 'critical_peak':
+                    elif eventType == 'critical_peak':
                         changeConsumption(0)
-                    elif severity == 'load_up':
+                    elif eventType == 'load_up':
                         changeConsumption(1)
                     else:
-                        print('got a weird demand response severity')
+                        print('got a weird demand response eventType')
                     response = {}
-                    response["messge_subject"] = "DR_event"
+                    response["message_subject"] = "DR_event"
                     response["event_id"] = eventID
                     response["opt_in"] = True
                 else:
@@ -173,12 +195,12 @@ class HomeAgent(Agent):
     def disconnectLoad(self):
         #this is where we'll call the CIP stack wrapper to disconnect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
-        setTagValue(tagName,False))
+        setTagValue(tagName,False)
     
     def connectLoad(self):
         #this is where we'll call the CIP stack wrapper to connect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
-        setTagValue(tagName,True))
+        setTagValue(tagName,True)
     
 def main(argv = sys.argv):
     '''Main method called by the eggseccutable'''
