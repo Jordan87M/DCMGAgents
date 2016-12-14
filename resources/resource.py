@@ -10,38 +10,6 @@ class Resource(object):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
         self.owner = newOwner
 
-class Storage(Source):
-    
-    def __init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,soc,**kwargs):
-        super(Storage,self).__init__(self,owner,dischargePower,dischargeChannel,**kwargs)
-        self.chargePower = chargePower
-        self.capacity = capacity
-        self.chargeChannel = chargeChannel
-        self.soc = soc
-        
-        ChargeChannel = Channel(chargeChannel)
-        
-    def charge(self,setpoint):
-        pass
-    
-class LeadAcidBattery(Storage):
-    SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
-    def __init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
-        super(LeadAcidBattery,self).__init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,soc,**kwargs)
-        
-        
-        
-    def getSOC(self):
-        #get SOC from PLC
-        pass
-    
-    def getSOCfromOCV(self):
-        #get battery voltage from PLC
-        tagname = "SOURCE_{num}_REG_VOLTAGE".format(num = self.DischargeChannel.channelNumber)
-        voltage = getTagValue(tagName)
-        soc = lininterp(self.SOCtable,voltage)
-        return soc
-    
 class Source(Resource):
     def __init__(self,owner,dischargePower,dischargeChannel,**kwargs):
         super(Source,self).__init__(self,owner)
@@ -71,6 +39,39 @@ class Source(Resource):
     
     def disconnectSource(self):
         pass
+    
+
+class Storage(Source):
+    
+    def __init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,soc,**kwargs):
+        super(Storage,self).__init__(self,owner,dischargePower,dischargeChannel,**kwargs)
+        self.chargePower = chargePower
+        self.capacity = capacity
+        self.chargeChannel = chargeChannel
+        self.soc = soc
+        
+        ChargeChannel = Channel(chargeChannel)
+        
+    def charge(self,setpoint):
+        pass
+    
+class LeadAcidBattery(Storage):
+    SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
+    def __init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
+        super(LeadAcidBattery,self).__init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,soc,**kwargs)
+        
+        
+        
+    def getSOC(self):
+        #get SOC from PLC
+        pass
+    
+    def getSOCfromOCV(self):
+        #get battery voltage from PLC
+        tagname = "SOURCE_{num}_REG_VOLTAGE".format(num = self.DischargeChannel.channelNumber)
+        voltage = getTagValue(tagName)
+        soc = interpolation.lininterp(self.SOCtable,voltage)
+        return soc
     
         
 class SolarPanel(Source):

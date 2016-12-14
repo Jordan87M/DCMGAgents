@@ -1,13 +1,14 @@
-class customerProfile(object):
-    def __init__(name,location,resources):
+class CustomerProfile(object):
+    def __init__(self,name,location,resources,**kwargs):
         self.name = name
         self.location = location
         self.resources = resources
-    
+        
+        loclist = self.location.split('.')
         if type(loclist) is list:
-            if loclist(0) == "DC":
+            if loclist[0] == "DC":
                 self.grid, self.branch, self.bus, self.load = loclist
-            elif loclist(0) == "AC":
+            elif loclist[0] == "AC":
                 pass
         else:
             print("the first part of the location path should be AC or DC")
@@ -16,14 +17,14 @@ class customerProfile(object):
         self.DRenrollee = False
     
 
-class ResidentialCustomerProfile(customer):
-    def __init__(self,name,location,**kwargs):
-        super(ResidentialCustomerProfile,self).__init__(name,location,**kwargs)
+class ResidentialCustomerProfile(CustomerProfile):
+    def __init__(self,name,location,resources,**kwargs):
+        super(ResidentialCustomerProfile,self).__init__(name,location,resources,**kwargs)
 
 
-class CommercialCustomerProfile(customer):
-    def __init__(self,name,location,**kwargs):
-        super(CommercialCustomerProfile,self).__init__(name,location,**kwargs)
+class CommercialCustomerProfile(CustomerProfile):
+    def __init__(self,name,location,resources,**kwargs):
+        super(CommercialCustomerProfile,self).__init__(name,location,resources,**kwargs)
         
 
 class Account(object):

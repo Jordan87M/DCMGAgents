@@ -10,6 +10,7 @@ from volttron.platform.messaging import headers as headers_mod
 
 from DCMGClasses.CIP import wrapper
 from DCMGClasses.resources.misc import listparse
+from DCMGClasses.resources.math import interpolation
 from DCMGClasses.resources import resource
 
 
@@ -30,11 +31,11 @@ class HomeAgent(Agent):
         self.resources = self.config["resources"]
         self.demandCurve = self.config["demandCurve"]
         
-        loclist = self.location.strsplit('.')
+        loclist = self.location.split('.')
         if type(loclist) is list:
-            if loclist(0) == "DC":
+            if loclist[0] == "DC":
                 self.grid, self.branch, self.bus, self.load = loclist
-            elif loclist(0) == "AC":
+            elif loclist[0] == "AC":
                 pass
             else:
                 print("the first part of the location path should be AC or DC")
@@ -57,11 +58,16 @@ class HomeAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         
     def customerfeed(self, peer, sender, bus, topic, headers, message):
+        print("customerfeed->home")
         mesdict = json.loads(message)
-        messageTarget = mesdict.get("message_target",None)
-        if isRecipient(messageTarget,self.name):
+        messageTarget = mesdict.get("message_target",None)        
+        if listparse.isRecipient(messageTarget,self.name, True):  
             messageSubject = mesdict.get("message_subject",None)
             messageType = mesdict.get("message_type",None)
+            messageSender = mesdict.get("message_sender",None)
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("{name} home agent received: {mes}".format(name = self.name, mes = message))
+                
             if messageSubject == "customer_enrollment":
                 if messageType == "new_customer_query":
                     rereg = mesdict.get("rereg",False)
@@ -69,15 +75,20 @@ class HomeAgent(Agent):
                         resdict = {}
                         resdict["message_subject"] = "customer_enrollment"
                         resdict["message_type"] = "new_customer_response"
-                        resdict["message_target"] = "ENERCON"
+                        resdict["message_target"] = messageSender
+                        resdict["message_sender"] = self.name
                         resdict["info"] = [self.name, self.location, self.resources, "residential"]
+                        
                         response = json.dumps(resdict)
                         self.vip.pubsub.publish(peer = "pubsub", topic = "customerservice", headers = {}, message = response)
+                                                
                         if settings.DEBUGGING_LEVEL >= 1:
                             print(response)
-                
+                elif messageType == "new_customer_confirm":
+                    self.registered = True
+                    
     def priceChange(self,newPrice):
-        newdemand = lininterp(self.demandCurve,newPrice)
+        newdemand = interpolation.lininterp(self.demandCurve,newPrice)
         if newDemand == 0:
             self.disconnectLoad()
             print("{name} has attempted to disconnect from the grid".format(name = self.name))
@@ -93,7 +104,11 @@ class HomeAgent(Agent):
         
         messageSubject = mesdict.get('message_subject',None)
         messageTarget = mesdict.get('message_target',None)
-        if isRecipient(messageTarget,self.name):
+        
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("{name} received a {top} message: {sub}".format(name = self.name, top = topic, sub = messageSubject))
+        
+        if listparse.isRecipient(messageTarget,self.name):
             if messageSubject == 'bid_solicitation':
                 if len(self.resources) != 0:                
                     self.generate_bid()
@@ -112,11 +127,17 @@ class HomeAgent(Agent):
         mesdict = json.loads(message)
         messageSubject = mesdict.get('message_subject',None)
         messageTarget = mesdict.get('message_target',None)
-        if isRecipient(messageTarget,self.name):
+        messageSender = mesdict.get("message_sender",None)
+        if listparse.isRecipient(messageTarget,self.name):
+            print("{name} home agent has received a DRfeed message".format(name = self.name))
             if messageSubject == 'DR_event':
                 # if enrolled, we have to act on the request
                 eventType = mesdict.get('event_type',None)
                 eventID = mesdict.get('event_id',None)
+                response = {}
+                response["message_subject"] = "DR_event"
+                response["message_target"] = messageSender
+                response["event_id"] = eventID
                 if DR_participant == True:
                     if eventType == 'normal':
                         changeConsumption(1)
@@ -130,14 +151,9 @@ class HomeAgent(Agent):
                         changeConsumption(1)
                     else:
                         print('got a weird demand response eventType')
-                    response = {}
-                    response["message_subject"] = "DR_event"
-                    response["event_id"] = eventID
+                    
                     response["opt_in"] = True
                 else:
-                    response = {}
-                    response["message_subject"] = "DR_event"
-                    response["event_id"] = eventID
                     response["opt_in"] = False
                     
                 mes = json.dumps(response)
@@ -146,15 +162,24 @@ class HomeAgent(Agent):
             elif messageSubject == 'DR_enrollment':
                 type = mesdict.get("message_type")
                 if type == "enrollment_query":
-                    response = {}
-                    response["message_subject"] = "DR_enrollment"
-                    response["message_type"] = "enrollment_reply"
-                    response["payload"] = "IN"
-                    #response["payload"] = "OUT"
+                    if self.DR_participant == False:
+                        response = {}
+                        response["message_target"] = messageSender
+                        response["message_subject"] = "DR_enrollment"
+                        response["message_type"] = "enrollment_reply"
+                        response["message_sender"] = self.name
+                        response["opt_in"] = True
+                        #response["payload"] = False
+                        
+                        mes = json.dumps(response)
+                        self.vip.pubsub.publish("pubsub","demandresponse",{},mes)
+                        
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print("{me} opted in to DR program".format(me = self.name), )
                     
-                    mes = json.dumps(ctadict)
-                    self.vip.pubsub.publish("pubsub","demandresponse",{},mes)
-                
+                elif type == "enrollment_confirm":
+                    self.DR_participant = True    
+                    
     @Core.periodic(settings.REASSESS_INTERVAL)
     def reassess_utility(self):
         pass

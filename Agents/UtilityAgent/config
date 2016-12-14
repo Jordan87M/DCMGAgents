@@ -1,6 +1,6 @@
 {
 	"agentid": "utility",
-	"name": "ENERCO"
-	"message": "utility agent starting up"
+	"name": "ENERCON",
+	"message": "utility agent starting up",
 	"resources": []
 }
