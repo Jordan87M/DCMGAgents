@@ -3,7 +3,7 @@ from DCMGClasses.CIP import wrapper
 
 class Resource(object):
     
-    def __init__(self,owner,**kwargs):
+    def __init__(self,owner,capCost,**kwargs):
         self.owner = owner
         
     def setOwner(self,newOwner):
@@ -11,10 +11,13 @@ class Resource(object):
         self.owner = newOwner
 
 class Source(Resource):
-    def __init__(self,owner,dischargePower,dischargeChannel,**kwargs):
-        super(Source,self).__init__(self,owner)
-        self.dischargePower = dischargePower
+    def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs):
+        super(Source,self).__init__(owner,capCost)
+        self.maxDischargePower = maxDischargePower
         self.dischargeChannel = dischargeChannel
+        
+        self.availDischargePower = 0
+        
         
         DischargeChannel = Channel(dischargeChannel)
         
@@ -43,12 +46,15 @@ class Source(Resource):
 
 class Storage(Source):
     
-    def __init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,soc,**kwargs):
-        super(Storage,self).__init__(self,owner,dischargePower,dischargeChannel,**kwargs)
-        self.chargePower = chargePower
+    def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
+        super(Storage,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
+        self.chargePower = maxChargePower
         self.capacity = capacity
         self.chargeChannel = chargeChannel
-        self.soc = soc
+        
+        
+        self.SOC = 0
+        self.energy = 0
         
         ChargeChannel = Channel(chargeChannel)
         
@@ -57,8 +63,8 @@ class Storage(Source):
     
 class LeadAcidBattery(Storage):
     SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
-    def __init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
-        super(LeadAcidBattery,self).__init__(self,owner,dischargePower,chargePower,capacity,chargeChannel,dischargeChannel,soc,**kwargs)
+    def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
+        super(LeadAcidBattery,self).__init__(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs)
         
         
         
@@ -75,8 +81,8 @@ class LeadAcidBattery(Storage):
     
         
 class SolarPanel(Source):
-    def __init__(self,owner,dischargePower,dischargeChannel,Voc,Vmpp,**kwargs):
-        super(SolarPanel,self).__init__(self,owner,dischargePower,dischargeChannel,**kwargs)
+    def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,Voc,Vmpp,**kwargs):
+        super(SolarPanel,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
         self.Voc = Voc
         self.Vmpp = Vmpp
         

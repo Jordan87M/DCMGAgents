@@ -11,7 +11,7 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import wrapper
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation
-from DCMGClasses.resources import resource
+from DCMGClasses.resources import resource, customer
 
 
 from . import settings
@@ -31,6 +31,8 @@ class HomeAgent(Agent):
         self.resources = self.config["resources"]
         self.demandCurve = self.config["demandCurve"]
         
+        self.Resources = []
+        
         loclist = self.location.split('.')
         if type(loclist) is list:
             if loclist[0] == "DC":
@@ -40,7 +42,41 @@ class HomeAgent(Agent):
             else:
                 print("the first part of the location path should be AC or DC")
         
-
+        #create resource objects for resources
+        if type(self.resources) is list:            
+            if len(self.resources) > 1:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("dealing with a list of resources: {length}".format(length = self.resources))
+                for item in self.resources:
+                    if type(item) is dict:
+                        resType = item.pop("type",None)
+                        if resType == "solar":
+                            res = SolarPanel(**item)
+                        elif resType == "lead_acid_battery":
+                            res = LeadAcidBattery(**item)
+                        else:
+                            pass
+                        self.Resources.append(res)
+            if len(self.resources) == 1:
+                print("dealing with a single resource")
+                item = self.resources[0]
+                if type(item) is dict:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("recognized a dict: {it}".format(it = item))
+                    resType = item.pop("type",None)
+                    if resType == "solar":
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("creating a solar panel object")
+                        res = resource.SolarPanel(**item)
+                    elif resType == "lead_acid_battery":
+                        res = resource.LeadAcidBattery(**item)
+                    else:
+                        pass
+                    self.Resources.append(res)
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("LOOK HERE LOOK HERE LOOK HERE")
+            print(self.Resources)
+                    
         self.DR_participant = False
         self.gridConnected = False
         self.registered = False
@@ -138,7 +174,7 @@ class HomeAgent(Agent):
                 response["message_subject"] = "DR_event"
                 response["message_target"] = messageSender
                 response["event_id"] = eventID
-                if DR_participant == True:
+                if self.DR_participant == True:
                     if eventType == 'normal':
                         changeConsumption(1)
                     elif eventType == 'grid_emergency':

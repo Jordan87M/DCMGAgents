@@ -94,6 +94,30 @@ class UtilityAgent(Agent):
                     else:
                         pass
                     
+                    #add resources to resource pool if present
+                    if resources:
+                        def addOneToPool(self,res):
+                            resType = res.pop("type",None)
+                            if resType == "solar":
+                                profile = customer.SolarProfile(**res)                                
+                                #profile = customer.SolarProfile(owner,location,name,capCost,maxDischargePower)
+                                
+                            elif resType == "lead_acid_battery":
+                                profile = customer.LeadAcidBatteryProfile(**res)                                
+                                #profile = customer.LeadAcidBatteryProfile(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity)
+                            else:
+                                pass
+                            self.resourcePool.append(profile)
+                            
+                            
+                        #create new resource profile
+                        #add it to resource pool
+                        if type(resources) is list:
+                            for resource in resources:
+                                addOneToPool(self,resource)                                
+                        elif type(resources) is str or type(resources) is unicode:
+                            addOneToPool(self,resource)
+                    
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("customer_enrolled! {mes}".format(mes = message))
                         print(self.customers)
@@ -177,7 +201,10 @@ class UtilityAgent(Agent):
                         
                         response = json.dumps(resdict)
                         self.vip.pubsub.publish("pubsub","demandresponse",{},response)
-
+                        
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print("{me} enrolled {them} in DR scheme".format(me = self.name, them = messageSender))
+                            print(self.DRparticipants)
     def lookUpByName(self,name,list):
         for customer in list:
             if customer.name == name:
