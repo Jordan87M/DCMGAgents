@@ -2,5 +2,5 @@
 	"agentid": "utility",
 	"name": "ENERCON",
 	"message": "utility agent starting up",
-	"resources": []
+	"resources": [{"type":"solar","owner":"ENERCON", "location": "DC.BRANCH1.BUS1.LOAD1", "name":"a37ed", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}]
 }

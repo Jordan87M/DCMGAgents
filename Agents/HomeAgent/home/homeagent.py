@@ -43,39 +43,8 @@ class HomeAgent(Agent):
                 print("the first part of the location path should be AC or DC")
         
         #create resource objects for resources
-        if type(self.resources) is list:            
-            if len(self.resources) > 1:
-                if settings.DEBUGGING_LEVEL >= 2:
-                    print("dealing with a list of resources: {length}".format(length = self.resources))
-                for item in self.resources:
-                    if type(item) is dict:
-                        resType = item.pop("type",None)
-                        if resType == "solar":
-                            res = SolarPanel(**item)
-                        elif resType == "lead_acid_battery":
-                            res = LeadAcidBattery(**item)
-                        else:
-                            pass
-                        self.Resources.append(res)
-            if len(self.resources) == 1:
-                print("dealing with a single resource")
-                item = self.resources[0]
-                if type(item) is dict:
-                    if settings.DEBUGGING_LEVEL >= 2:
-                        print("recognized a dict: {it}".format(it = item))
-                    resType = item.pop("type",None)
-                    if resType == "solar":
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("creating a solar panel object")
-                        res = resource.SolarPanel(**item)
-                    elif resType == "lead_acid_battery":
-                        res = resource.LeadAcidBattery(**item)
-                    else:
-                        pass
-                    self.Resources.append(res)
-        if settings.DEBUGGING_LEVEL >= 2:
-            print("LOOK HERE LOOK HERE LOOK HERE")
-            print(self.Resources)
+        resource.addResource(self.resources,self.Resources,True)
+        
                     
         self.DR_participant = False
         self.gridConnected = False
@@ -119,7 +88,10 @@ class HomeAgent(Agent):
                         self.vip.pubsub.publish(peer = "pubsub", topic = "customerservice", headers = {}, message = response)
                                                 
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print(response)
+                            print("responding to enrollment request: {res}".format(res = response))
+                    else:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("{me} ignoring enrollment request, already enrolled".format(me = self.name))
                 elif messageType == "new_customer_confirm":
                     self.registered = True
                     

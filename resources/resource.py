@@ -58,6 +58,7 @@ class Storage(Source):
         
         ChargeChannel = Channel(chargeChannel)
         
+            
     def charge(self,setpoint):
         pass
     
@@ -115,4 +116,36 @@ class Channel():
         value = getTagValue(tagName)
         return value
     
+def addResource(strlist,classlist,debug = False):
+    def addOne(item,classlist):
+        if type(item) is dict:
+            resType = item.get("type",None)
+            if resType == "solar":
+                res = SolarPanel(**item)
+            elif resType == "lead_acid_battery":
+                res = LeadAcidBattery(**item)
+            else:
+                pass
+            classlist.append(res)
+        
+    if type(strlist) is list:
+        if len(strlist) > 1:
+            if debug:
+                print("list contains multiple resources")
+            for item in strlist:
+                if debug:
+                    print("working on new element")
+                addOne(item,classlist)                
+        if len(strlist) == 1:
+            if debug:
+                print("list contains one resource")
+            addOne(strlist[0],classlist)
+    elif type(strlist) is dict:
+        if debug:
+            print("no list, just a single dict")
+        addOne(strlist,classlist)
+    if debug:
+        print("here's how the classlist looks now: {cl}".format(cl = classlist))
+        
+        
         

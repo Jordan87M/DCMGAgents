@@ -47,7 +47,10 @@ class UtilityAgent(Agent):
         
         
         self.name = self.config["name"]
+        self.resources = self.config["resources"]
+        self.Resources = []
         
+        resource.addResource(self.resources,self.Resources,True)
         
         self.customers = []
         self.DRparticipants = []
@@ -80,7 +83,10 @@ class UtilityAgent(Agent):
             messageSubject = mesdict.get("message_subject",None)
             messageType = mesdict.get("message_type",None)
             if messageSubject == "customer_enrollment":
+                print(self.customers)
                 if messageType == "new_customer_response":
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("{me} received a customer enrollment response".format(me = self.name))
                     try:
                         name, location, resources, customerType = mesdict.get("info")                        
                     except Exception as e:
@@ -91,12 +97,12 @@ class UtilityAgent(Agent):
                         self.customers.append(cust)
                     elif customerType == "commercial":
                         self.customers.append(customer.CommercialCustomerProfile(name,location,resources))
-                    else:
+                    else:                        
                         pass
                     
                     #add resources to resource pool if present
                     if resources:
-                        def addOneToPool(self,res):
+                        def addOneToPool(list,res):
                             resType = res.pop("type",None)
                             if resType == "solar":
                                 profile = customer.SolarProfile(**res)                                
@@ -106,17 +112,21 @@ class UtilityAgent(Agent):
                                 profile = customer.LeadAcidBatteryProfile(**res)                                
                                 #profile = customer.LeadAcidBatteryProfile(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity)
                             else:
-                                pass
-                            self.resourcePool.append(profile)
+                                print("Why am I here? {type}".format(type = resType))
+                            list.append(profile)
                             
                             
                         #create new resource profile
                         #add it to resource pool
+                        print(resources)
                         if type(resources) is list:
-                            for resource in resources:
-                                addOneToPool(self,resource)                                
+                            if len(resources) > 1:
+                                for resource in resources:
+                                    addOneToPool(self.resourcePool,resource) 
+                            if len(resources) == 1:
+                                addOneToPool(self.resourcePool,resources[0])                               
                         elif type(resources) is str or type(resources) is unicode:
-                            addOneToPool(self,resource)
+                            addOneToPool(self.resourcePool,resources)
                     
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("customer_enrolled! {mes}".format(mes = message))
@@ -176,6 +186,8 @@ class UtilityAgent(Agent):
         
         if settings.DEBUGGING_LEVEL >= 1:
             print(message)
+    
+    
     
     def marketfeed(self, peer, sender, bus, topic, headers, message):
         pass
