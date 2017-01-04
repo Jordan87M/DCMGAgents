@@ -10,7 +10,7 @@ from volttron.platform.messaging import headers as headers_mod
 
 from DCMGClasses.CIP import wrapper
 from DCMGClasses.resources.misc import listparse
-from DCMGClasses.resources.math import interpolation
+from DCMGClasses.resources.math import interpolation, graph
 from DCMGClasses.resources import resource
 from DCMGClasses.resources import customer
 
@@ -19,6 +19,8 @@ from . import settings
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
+''''the UtilityAgent class represents the owner of the distribution 
+infrastructure and chief planner for grid operations'''
 class UtilityAgent(Agent):
     resourcePool = []
     standardCustomerEnrollment = {"message_subject" : "customer_enrollment",
@@ -39,6 +41,7 @@ class UtilityAgent(Agent):
                        "event_duration": 0,
                        "event_type" : "shed"
                        }
+    
     
     def __init__(self,config_path,**kwargs):
         super(UtilityAgent,self).__init__(**kwargs)
@@ -63,11 +66,33 @@ class UtilityAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','energymarket', callback = self.marketfeed)
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
+        self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
+        
+        
+        
+        self.connMatrix = [[1,1,1,0,0],[1,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[0,0,1,0,1]]
+        self.groupMembership = {"DC.main": "maingroup",
+                                "DC.BRANCH1.BUS1": "maingroup",
+                                "DC.BRANCH1.BUS2": "maingroup",
+                                "DC.BRANCH2.BUS1": "maingroup",
+                                "DC.BRANCH2.BUS2": "maingroup"}
+        self.nodeMap = {0:"DC.main",
+                        1:"DC.BRANCH1.BUS1",
+                        2:"DC.BRANCH1.BUS2",
+                        3:"DC.BRANCH2.BUS1",
+                        4:"DC.BRANCH2.BUS2"}
         
         if settings.DEBUGGING_LEVEL >= 1:
             print("utility agent {name} trying to discover customers".format(name = self.name))
         self.discoverCustomers()
+    
+    '''callback for weatherfeed topic'''
+    def weatherfeed(self, peer, sender, bus, topic, headers, message):
+        mesdict = json.loads(message)
         
+    
+    '''callback for customer service topic. This topic is used to enroll customers
+    and manage customer accounts.'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
         try:
             mesdict = json.loads(message)
@@ -144,7 +169,10 @@ class UtilityAgent(Agent):
             else:
                 pass
         pass
-        
+    
+    '''called to send a DR enrollment message. when a customer has been enrolled
+    they can be called on to increase or decrease consumption to help the utility
+    meet its goals'''    
     def solicitDREnrollment(self, name = "broadcast"):
         mesdict = {}
         mesdict["message_subject"] = "DR_enrollment"
@@ -159,6 +187,7 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 1:
             print("{name} is trying to enroll DR participants: {mes}".format(name = self.name, mes = message))
     
+    
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
         pass
@@ -167,6 +196,8 @@ class UtilityAgent(Agent):
     def planShortTerm(self):
         pass
     
+    '''solicit participation in DR scheme from all customers who are not
+    currently participants'''
     @Core.periodic(settings.DR_SOLICITATION_INTERVAL)
     def DREnrollment(self):
         if settings.DEBUGGING_LEVEL >= 2:
@@ -175,6 +206,7 @@ class UtilityAgent(Agent):
             if entry.DRenrollee == False:
                 self.solicitDREnrollment(entry.name)
     
+    '''broadcast message in search of new customers'''
     @Core.periodic(settings.CUSTOMER_SOLICITATION_INTERVAL)
     def discoverCustomers(self):
         if settings.DEBUGGING_LEVEL >= 2:
@@ -187,11 +219,54 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 1:
             print(message)
     
+    '''find out how much power is available from utility owned resources at the moment'''    
+    def getAvailablePower(self):
+        #first check to see what the grid topology is
+        total = 0
+        for elem in self.Resources:
+            if elem is SolarPanel:
+                pass
+            elif elem is LeadAcidBattery:
+                if elem.SOC > .2:
+                    contrib = 0
+                elif elem.SOC > .4:
+                    contrib = 20
+                
+                    
+            else:
+                pass
     
+    def getCurrentMarginalCost(self):
+        pass
+    
+    
+    '''update agent's knowledge of the current grid topology'''
+    def getTopology(self):
+        self.rebuildConnMatrix()
+        subs = findDisjointSubgraphs(self.connMatrix)
+        if len(subs) == 1:
+            #all nodes are connected
+            for k in self.groupMembership:
+                self.groupMembership[k] = "maingroup"
+        elif len(subs) > 1:
+            for index,group in enumerate(groups):
+                for node in group:
+                    k = self.nodeMap[node]
+                    if index == 0:
+                        self.groupMembership[k] ="maingroup"
+                    else:
+                        self.groupMembership[k] = "group{i}".format(i = index)
+        else:
+            print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
+    
+    '''builds the connectivity matrix for the grid's infrastructure'''
+    def rebuildConnMatrix(self):
+        pass
     
     def marketfeed(self, peer, sender, bus, topic, headers, message):
         pass
     
+    '''callback for demandresponse topic'''
     def DRfeed(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
         messageSubject = mesdict.get("message_subject",None)
@@ -217,6 +292,9 @@ class UtilityAgent(Agent):
                         if settings.DEBUGGING_LEVEL >= 1:
                             print("{me} enrolled {them} in DR scheme".format(me = self.name, them = messageSender))
                             print(self.DRparticipants)
+                            
+    '''helper function to get the name of a resource or customer from a list of
+    class objects'''                        
     def lookUpByName(self,name,list):
         for customer in list:
             if customer.name == name:

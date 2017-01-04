@@ -61,7 +61,9 @@ class HomeAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','energymarket', callback = self.followmarket)
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
-        
+        self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
+    
+    '''callback for customerservice topic'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
         print("customerfeed->home")
         mesdict = json.loads(message)

@@ -21,6 +21,7 @@ class Source(Resource):
         
         DischargeChannel = Channel(dischargeChannel)
         
+        
     def getInputUnregVoltage(self):
         voltage = self.DischargeChannel.getUnregV()
         return voltage
@@ -66,7 +67,7 @@ class LeadAcidBattery(Storage):
     SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
     def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
         super(LeadAcidBattery,self).__init__(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs)
-        
+        self.SOC = self.getSOCfromOCV()
         
         
     def getSOC(self):
