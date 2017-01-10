@@ -1,8 +1,9 @@
 from __future__ import absolute_import
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import sys
 import json
+import operator
 
 from volttron.platform.vip.agent import Agent, Core, PubSub, compat
 from volttron.platform.agent import utils
@@ -11,7 +12,7 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import wrapper
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation, graph
-from DCMGClasses.resources import resource
+from DCMGClasses.resources import resource, groups, financial
 from DCMGClasses.resources import customer
 
 
@@ -42,54 +43,81 @@ class UtilityAgent(Agent):
                        "event_type" : "shed"
                        }
     
+    standardPowerBidSolicitation = {"message_subject": "bid_solicitation",
+                               "message_target": "broadcast",
+                               "service": "standard",
+                               "uid":0}
+    
+    standardReserveBidSolicitation = {"message_subject": "bid_solicitation",
+                                      "message_target": "broadcast",
+                                      "service": "reserve",
+                                      "uid":0}
+    uid = 0
+    
     
     def __init__(self,config_path,**kwargs):
         super(UtilityAgent,self).__init__(**kwargs)
         self.config = utils.load_config(config_path)
         self._agent_id = self.config['agentid']
-        
+        self.state = "init"
         
         self.name = self.config["name"]
         self.resources = self.config["resources"]
         self.Resources = []
+        self.groupList = []
+        self.bidList = []
         
+        self.nodes = [groups.Node("DC.MAIN"),
+                        groups.Node("DC.BRANCH1.BUS1"),
+                        groups.Node("DC.BRANCH1.BUS2"),
+                        groups.Node("DC.BRANCH2.BUS1"),
+                        groups.Node("DC.BRANCH2.BUS2")]
+        #import list of utility resources and make into object
         resource.addResource(self.resources,self.Resources,True)
+        #add resources to node objects based on location
+        for res in self.Resources:
+            for node in self.nodes:
+                if res.location == node.name:
+                    node.resources.append(res)
+            
         
+        self.perceivedInsol = 75 #as a percentage of nominal
         self.customers = []
         self.DRparticipants = []
+        
+        
+        #short term planning interval counter
+        self.STPinterval = 0
+        self.STPlan  = Plan(self,self.STPinterval + 1)
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
         _log.info(self.config['message'])
         self._agent_id = self.config['agentid']
+        self.state = "setup"
         
         self.vip.pubsub.subscribe('pubsub','energymarket', callback = self.marketfeed)
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
-        
-        
+                
         
         self.connMatrix = [[1,1,1,0,0],[1,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[0,0,1,0,1]]
-        self.groupMembership = {"DC.main": "maingroup",
-                                "DC.BRANCH1.BUS1": "maingroup",
-                                "DC.BRANCH1.BUS2": "maingroup",
-                                "DC.BRANCH2.BUS1": "maingroup",
-                                "DC.BRANCH2.BUS2": "maingroup"}
-        self.nodeMap = {0:"DC.main",
-                        1:"DC.BRANCH1.BUS1",
-                        2:"DC.BRANCH1.BUS2",
-                        3:"DC.BRANCH2.BUS1",
-                        4:"DC.BRANCH2.BUS2"}
         
-        if settings.DEBUGGING_LEVEL >= 1:
-            print("utility agent {name} trying to discover customers".format(name = self.name))
-        self.discoverCustomers()
+        #self.discoverCustomers()
     
     '''callback for weatherfeed topic'''
     def weatherfeed(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
+        messageSubject = mesdict.get('message_subject',None)
+        messageTarget = mesdict.get('message_target',None)
+        messageSender = mesdict.get('message_sender',None)
+        messageType = mesdict.get("message_type",None)
         
+        if listparse.isRecipient(messageTarget,self.name):    
+            if messageSubject == "nowcast":
+                if messageType == "solar_irradiance":
+                    self.perceivedInsol = mesdict.get("info",None)
     
     '''callback for customer service topic. This topic is used to enroll customers
     and manage customer accounts.'''    
@@ -111,7 +139,7 @@ class UtilityAgent(Agent):
                 print(self.customers)
                 if messageType == "new_customer_response":
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("{me} received a customer enrollment response".format(me = self.name))
+                        print("UTILITY {me} RECEIVED A RESPONSE TO CUSTOMER ENROLLMENT SOLICITATION".format(me = self.name))
                     try:
                         name, location, resources, customerType = mesdict.get("info")                        
                     except Exception as e:
@@ -154,7 +182,7 @@ class UtilityAgent(Agent):
                             addOneToPool(self.resourcePool,resources)
                     
                     if settings.DEBUGGING_LEVEL >= 1:
-                        print("customer_enrolled! {mes}".format(mes = message))
+                        print("UTILITY {me} enrolled customer {them}: {mes}".format(me = self.name, them = name, mes = message))
                         print(self.customers)
                     
                     resdict = {}
@@ -185,7 +213,7 @@ class UtilityAgent(Agent):
         self.vip.pubsub.publish(peer = "pubsub", topic = "demandresponse", headers = {}, message = message)
         
         if settings.DEBUGGING_LEVEL >= 1:
-            print("{name} is trying to enroll DR participants: {mes}".format(name = self.name, mes = message))
+            print("UTILITY {name} IS TRYING TO ENROLL DR PARTICIPANTS: {mes}".format(name = self.name, mes = message))
     
     
     @Core.periodic(settings.LT_PLAN_INTERVAL)
@@ -193,15 +221,130 @@ class UtilityAgent(Agent):
         pass
     
     @Core.periodic(settings.ST_PLAN_INTERVAL)
+    def solicitBids(self):
+        if settings.DEBUGGING_LEVEL >=2 :
+            print("UTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.STPinterval))
+        subs = self.getTopology()
+        
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
+        
+            '''first we have to find out how much it will cost to get power
+            from various sources, both those owned by the utility and by 
+            customers'''
+            #clear the bid list in preparation for receiving new bids
+            self.bidList = []
+            #send bid solicitations to all customers who are known to have behind the meter resources
+            for cust in self.groupList.customers:
+                if cust.resources:
+                    #ask about bulk power
+                    mesdict = standardPowerBidSolicitation
+                    mesdict["message_target"] = cust.name
+                    mesdict["period"] = self.STPinterval
+                    self.uid += 1
+                    mess = json.dumps(mesdict)
+                    self.vip.pubsub.publish(peer = "pubsub", topic = "energymarket", headers = {}, message = mess)
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("UTILITY {me} SOLICITING BULK POWER BID: {mes}".format(me = self.name, mes = mess))
+                    #ask about reserves
+                    mesdict = standardReserveBidSolicitation
+                    mesdict["message_target"] = cust.name
+                    mesdict["uid"] = self.uid
+                    self.uid += 1
+                    mess = json.dumps(mesdict)
+                    self.vip.pubsub.publish(peer = "pubsub", topic = "energymarket", headers = {}, message = mess)
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("UTILITY {me} SOLICITING RESERVE POWER BID: {mes}".format(me = self.name, mes = mess))
+        sched = datetime.utcnow() + timedelta(seconds = 30)            
+        delaycall = Core.schedule(sched,planShortTerm)
+        print(delaycall)
+        print(dir(delaycall))
+        
     def planShortTerm(self):
-        pass
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} IS FORMING A NEW SHORT TERM PLAN".format(me = self.name))
+           
+        for group in self.groupList:
+            
+            self.STPlan = Plan(self,STPinterval + 1)
+            expLoad = self.getExpectedGroupLoad(group)
+            maxLoad = self.getMaxGroupLoad(group)
+            #find lowest cost option for fulfilling expected demand
+            #we leave determining the cost of distributed resources to their owners
+            #but, we still have to figure out how to value energy from utility resources
+            for res in self.Resources:
+                if type(res) is SolarPanel:
+                    amount = res.maxDischargePower*self.perceivedInsol/100
+                    rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                elif type(res) is LeadAcidBattery:
+                    amount = 10
+                    rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                else:
+                    print("trying to plan for unknown resource type")
+            #sort array of bids by rate from low to high
+            bidList.sort(key = operator.attrgetter("rate"))
+            supply = 0      
+            for bid in bidList:
+                if bid.service == "power":
+                    if supply < expLoad:
+                        supply += bid.amount
+                        if supply > expLoad:
+                            #we only need part of the last bid amount
+                            bid.accepted = True
+                            bid.modified = True
+                            bid.amount = bid.amount-(supply-expLoad)
+                            #set price at the margin
+                            rate = bid.rate
+                            self.STPlan.wholesaleRate = rate
+                            self.STPlan.addbid(bid)
+                        else:
+                            #we accept all of this bid and keep going
+                            bid.accepted = True
+                            self.STPlan.addBid(bid)
+                    else:
+                        #we have enough power already, decline remaining bids
+                        bid.accepted = False
+                
+                #notify the counterparties of the terms on which they will supply power
+            for bid in bidList:
+                if bid.accepted:
+                    sendBidAcceptance(bid, rate)
+                else:
+                    sendBidRejected(bid, rate)    
+            # now book enough reserves to handle worst case         
+            resupply = supply
+            for bid in bidList:
+                if bid.service == "reserve":
+                    if resupply < maxLoad:
+                        resupply += bid.amount
+                        if supply > maxLoad:
+                            #now we have enough reserves
+                            bid.accepted = True
+                            bid.modified = True
+                            amount = bid.amount-(resupply-maxLoad)
+                        else:
+                            #need more 
+                            bid.accepted = True
+                    else:
+                        bid.accepted = False
+                else:
+                    pass
+                
+            
+            #not enough supply available to meet demand, we'll have to shed load or something
+            if supply < expLoad:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("UTILITY {me} IS EXPERIENCING A SUPPLY SHORTFALL IN GROUP {group}".format(me = self.name, group = group.name))
+            
+            
+        
     
     '''solicit participation in DR scheme from all customers who are not
     currently participants'''
     @Core.periodic(settings.DR_SOLICITATION_INTERVAL)
     def DREnrollment(self):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("{me} trying to enroll customers in DR scheme".format(me = self.name))
+            print("UTILITY {me} TRYING TO ENROLL CUSTOMERS IN A DR SCHEME".format(me = self.name))
         for entry in self.customers:
             if entry.DRenrollee == False:
                 self.solicitDREnrollment(entry.name)
@@ -210,7 +353,7 @@ class UtilityAgent(Agent):
     @Core.periodic(settings.CUSTOMER_SOLICITATION_INTERVAL)
     def discoverCustomers(self):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("{me} trying to find more customers".format(me = self.name))
+            print("UTILITY {me} TRYING TO FIND CUSTOMERS".format(me = self.name))
         mesdict = self.standardCustomerEnrollment
         mesdict["message_sender"] = self.name
         message = json.dumps(mesdict)
@@ -218,23 +361,38 @@ class UtilityAgent(Agent):
         
         if settings.DEBUGGING_LEVEL >= 1:
             print(message)
+            
+    '''move into the next planning period'''        
+    @Core.periodic(settings.ST_PLAN_INTERVAL)
+    def nextPeriod(self):
+        self.STPinterval += 1
+        #execute corresponding plan
     
-    '''find out how much power is available from utility owned resources at the moment'''    
-    def getAvailablePower(self):
+    '''find out how much power is available from utility owned resources for a group at the moment'''    
+    def getAvailableGroupPower(self,group):
         #first check to see what the grid topology is
         total = 0
-        for elem in self.Resources:
+        for elem in group.resources:
             if elem is SolarPanel:
-                pass
+                total += elem.maxDischargePower*self.perceivedInsol/100
             elif elem is LeadAcidBattery:
-                if elem.SOC > .2:
-                    contrib = 0
+                if elem.SOC < .2:
+                    total += 0
                 elif elem.SOC > .4:
-                    contrib = 20
-                
-                    
+                    total += 20
             else:
                 pass
+        return total
+    
+            
+    def getAvailableGroupDR(self,group):
+        pass
+    
+    def getMaxGroupLoad(self,group):
+        total = 0
+        for load in group.resources:
+            total += group.resources.maxDraw
+        return total
     
     def getCurrentMarginalCost(self):
         pass
@@ -243,28 +401,48 @@ class UtilityAgent(Agent):
     '''update agent's knowledge of the current grid topology'''
     def getTopology(self):
         self.rebuildConnMatrix()
-        subs = findDisjointSubgraphs(self.connMatrix)
-        if len(subs) == 1:
-            #all nodes are connected
-            for k in self.groupMembership:
-                self.groupMembership[k] = "maingroup"
-        elif len(subs) > 1:
-            for index,group in enumerate(groups):
-                for node in group:
-                    k = self.nodeMap[node]
-                    if index == 0:
-                        self.groupMembership[k] ="maingroup"
-                    else:
-                        self.groupMembership[k] = "group{i}".format(i = index)
+        subs = graph.findDisjointSubgraphs(self.connMatrix)
+        if len(subs) >= 1:
+            self.groupList = []
+            for i in range(1,len(subs)+1):
+                #create a new group class for each disjoint subgraph
+                self.groupList.append(groups.Group("group{i}".format(i = i)))            
+            for index,sub in enumerate(subs):
+                #for concision
+                cGroup = self.groupList[index]
+                for node in sub:
+                    #for concision
+                    cNode = self.nodes[node]
+                    #update the node's membership field to indicate which group it belongs to
+                    cNode.membership = self.groupList[index].name
+                    #add the node to the group's membership array
+                    cGroup.membership.append(cNode)
+                    #add the node's resources to the group's resource array
+                    cGroup.resources.extend(cNode.resources)
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
+        return subs
     
     '''builds the connectivity matrix for the grid's infrastructure'''
     def rebuildConnMatrix(self):
         pass
     
     def marketfeed(self, peer, sender, bus, topic, headers, message):
-        pass
+        mesdict = json.loads(message)
+        messageSubject = mesdict.get("message_subject",None)
+        messageTarget = mesdict.get("message_target",None)
+        messageSender = mesdict.get("message_sender",None)
+        
+        if listparse.isRecipient(messageTarget,self.name):
+            if messageSubject == "bid_response":
+                service = mesdict.get("service",None)
+                rate =  mesdict.get("rate",None)
+                power = mesdict.get("power",None)
+                duration = mesdict.get("power",None)
+                amount = mesdict.get("amount",None)
+                period = mesdict.get("period",None)
+                
+                self.bidList.append(financial.Bid(service,amount,rate,messageSender,period))
     
     '''callback for demandresponse topic'''
     def DRfeed(self, peer, sender, bus, topic, headers, message):
@@ -290,7 +468,7 @@ class UtilityAgent(Agent):
                         self.vip.pubsub.publish("pubsub","demandresponse",{},response)
                         
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print("{me} enrolled {them} in DR scheme".format(me = self.name, them = messageSender))
+                            print("ENROLLMENT SUCCESSFUL! {me} enrolled {them} in DR scheme".format(me = self.name, them = messageSender))
                             print(self.DRparticipants)
                             
     '''helper function to get the name of a resource or customer from a list of
@@ -299,6 +477,21 @@ class UtilityAgent(Agent):
         for customer in list:
             if customer.name == name:
                 return customer
+    
+    def displayState(self,verbosity):
+        print("~~SUMMARY OF UTILITY KNOWLEDGE~~")
+        print("UTILITY NAME: {name}".format(name = self.name))
+        
+        print("LIST ALL UTILITY OWNED RESOURCES")
+        for res in self.Resources:
+            res.printInfo()
+        print("LIST ALL {n} CUSTOMERS".format(n=len(self.customers)))
+        for cust in self.customers:
+            cust.printInfo
+        if verbosity > 1:
+            print("LIST ALL {n} DR PARTICIPANTS".format(n = len(self.DRparticipants)))
+            for part in self.DRparticipants:
+                part.printInfo
         
 def main(argv = sys.argv):
     try:
@@ -308,3 +501,18 @@ def main(argv = sys.argv):
         
 if __name__ == '__main__':
     sys.exit(main())
+    
+class Plan(object):
+    def __init__(self,planner,period):
+        self.planner = planner
+        self.period = period
+        
+        self.acceptedBids = []
+        self.ownBids = []
+        self.wholesaleRate = None
+        
+    def addBid(self,newbid):
+        self.acceptedBids.append(newbid)
+        if newbid.counterparty == planner.name:
+            self.ownBids.append(newbid)
+    

@@ -4,7 +4,7 @@ import logging
 import sys
 import json
 
-from volttron.platform.vip.agent import Agent, Core, Pubsub, compat
+from volttron.platform.vip.agent import Agent, Core, PubSub, compat
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
@@ -44,16 +44,16 @@ class WeatherAgent(Agent):
         messageSender = mesdict.get("message_sender",None)
         messageType = mesdict.get("message_type",None)
         if listparse.isRecipient(messageTarget,self.name):
-            print("{name} has received a request for weather info: {type} {sub}".format(type = messageType, sub = messageSubject))
-            response = {}
-            response["message_subject"] = messageSubject
-            response["message_type"] = messageType
-            response["message_target"] = messageSender
-            response["message_sender"] = self.name
+            print("WEATHER SERVICE {name} has received a request for weather info: {type} {sub}".format(type = messageType, sub = messageSubject))
+            resd = {}
+            resd["message_subject"] = messageSubject
+            resd["message_type"] = messageType
+            resd["message_target"] = messageSender
+            resd["message_sender"] = self.name
             if messageSubject == "nowcast":
                 if messageType == "solar_irradiance":
                     #this is just temporary until the Python wrapper fns are complete
-                    response["info"] = 10
+                    resd["info"] = 80
                 elif messageType == "wind_speed":
                     pass
                 else:
@@ -62,6 +62,10 @@ class WeatherAgent(Agent):
                 pass
             else:
                 pass
+        response = json.dumps(resd)    
+        if settings.DEBUGGING_LEVEL > 1:
+            print("WEATHER AGENT {name} sending a report: {message}".format(name = self.name, message = response))
+        self.vip.pubsub.publish(peer="pubsub", topic = "weatherservice", headers = {}, message = response)
                 
     
 def main(argv = sys.argv):

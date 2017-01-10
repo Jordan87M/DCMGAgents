@@ -3,16 +3,22 @@ from DCMGClasses.CIP import wrapper
 
 class Resource(object):
     
-    def __init__(self,owner,capCost,**kwargs):
+    def __init__(self,owner,location,capCost,**kwargs):
         self.owner = owner
+        self.location = location
+        self.capCost = capCost
+        
         
     def setOwner(self,newOwner):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
         self.owner = newOwner
+        
+    def printInfo(self):
+        print("RESOURCE: {name} owned by {owner}\n    TYPE:{type}\n    LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
 
 class Source(Resource):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs):
-        super(Source,self).__init__(owner,capCost)
+        super(Source,self).__init__(owner,location,capCost)
         self.maxDischargePower = maxDischargePower
         self.dischargeChannel = dischargeChannel
         
@@ -69,6 +75,7 @@ class LeadAcidBattery(Storage):
         super(LeadAcidBattery,self).__init__(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs)
         self.SOC = self.getSOCfromOCV()
         
+        self.cyclelife = 1000
         
     def getSOC(self):
         #get SOC from PLC
@@ -87,6 +94,8 @@ class SolarPanel(Source):
         super(SolarPanel,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
         self.Voc = Voc
         self.Vmpp = Vmpp
+        
+        self.amortizationPeriod = 1000
         
     def powerAvailable(self):
         pass

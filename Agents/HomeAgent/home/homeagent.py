@@ -30,6 +30,7 @@ class HomeAgent(Agent):
         self.location = self.config["location"]
         self.resources = self.config["resources"]
         self.demandCurve = self.config["demandCurve"]
+        self.perceivedInsol = 0
         
         self.Resources = []
         
@@ -50,6 +51,8 @@ class HomeAgent(Agent):
         self.gridConnected = False
         self.registered = False
         
+        self.avgEnergyCost = 1
+        
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -65,16 +68,13 @@ class HomeAgent(Agent):
     
     '''callback for customerservice topic'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
-        print("customerfeed->home")
         mesdict = json.loads(message)
         messageTarget = mesdict.get("message_target",None)        
-        if listparse.isRecipient(messageTarget,self.name, True):  
+        if listparse.isRecipient(messageTarget,self.name, False):  
             messageSubject = mesdict.get("message_subject",None)
             messageType = mesdict.get("message_type",None)
             messageSender = mesdict.get("message_sender",None)
-            if settings.DEBUGGING_LEVEL >= 2:
-                print("{name} home agent received: {mes}".format(name = self.name, mes = message))
-                
+            
             if messageSubject == "customer_enrollment":
                 if messageType == "new_customer_query":
                     rereg = mesdict.get("rereg",False)
@@ -90,10 +90,10 @@ class HomeAgent(Agent):
                         self.vip.pubsub.publish(peer = "pubsub", topic = "customerservice", headers = {}, message = response)
                                                 
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print("responding to enrollment request: {res}".format(res = response))
+                            print("HOME {me} responding to enrollment request: {res}".format(me = self.name, res = response))
                     else:
                         if settings.DEBUGGING_LEVEL >= 2:
-                            print("{me} ignoring enrollment request, already enrolled".format(me = self.name))
+                            print("HOME {me} ignoring enrollment request, already enrolled".format(me = self.name))
                 elif messageType == "new_customer_confirm":
                     self.registered = True
                     
@@ -101,29 +101,54 @@ class HomeAgent(Agent):
         newdemand = interpolation.lininterp(self.demandCurve,newPrice)
         if newDemand == 0:
             self.disconnectLoad()
-            print("{name} has attempted to disconnect from the grid".format(name = self.name))
+            print("HOME {name} has attempted to disconnect from the grid".format(name = self.name))
         else:
             if self.gridConnected:
                 pass
             else:
                 self.connectLoad()
-                print("{name} has attempted to connect to the grid".format(name = self.name))
+                print("HOME {name} has attempted to connect to the grid".format(name = self.name))
         
     def followmarket(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
         
         messageSubject = mesdict.get('message_subject',None)
+        messageSender = mesdict.get("message_sender",None)
         messageTarget = mesdict.get('message_target',None)
         
         if settings.DEBUGGING_LEVEL >= 2:
-            print("{name} received a {top} message: {sub}".format(name = self.name, top = topic, sub = messageSubject))
+            print("HOME {name} received a {top} message: {sub}".format(name = self.name, top = topic, sub = messageSubject))
         
         if listparse.isRecipient(messageTarget,self.name):
             if messageSubject == 'bid_solicitation':
-                if len(self.resources) != 0:                
-                    self.generate_bid()
-                else:
-                    return 0
+                service = mesdict.get("service",None)
+                service = mesdict.get("period",None)
+                counterparty = messageSender
+                if self.resources:
+                    bid = {}
+                    bid["message_subject"] = "bid_response"
+                    bid["message_target"] = "message_sender"
+                    bid["message_sender"] = self.name
+        
+                    for res in self.resources:
+                        if type(res) is resource.SolarPanel:
+                            amount = res.maxDischargePower*self.perceivedInsol/100
+                            rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                        elif type(res) is resource.LeaadAcidBattery:
+                            amount = 10
+                            rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                        else:
+                            pass
+                        bid["amount"] = amount
+                        bid["service"] = service
+                        bid["rate"] = rate
+                        bid["counterparty"] = counterparty
+                        bid["duration"] = 1
+                        bid["period"] = period
+        
+                        mess = json.dumps(bid)
+                        self.vip.publish.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
+        
             elif messageSubject == 'bid_response':
                 #if acceptable, we'll have to follow through
                 pass
@@ -131,7 +156,17 @@ class HomeAgent(Agent):
                 self.energySpot = mesdict.get("new_spot")
                 priceChanged(self.energySpot)
                 
+    def weatherfeed(self,peer,sender,bus,topic,headers,message):
+        mesdict = json.loads(message)
+        messageSubject = mesdict.get('message_subject',None)
+        messageTarget = mesdict.get('message_target',None)
+        messageSender = mesdict.get('message_sender',None)
+        messageType = mesdict.get("message_type",None)
         
+        if listparse.isRecipient(messageTarget,self.name):    
+            if messageSubject == "nowcast":
+                if messageType == "solar_irradiance":
+                    self.perceivedInsol = mesdict.get("info",None)
                 
     def DRfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -139,7 +174,6 @@ class HomeAgent(Agent):
         messageTarget = mesdict.get('message_target',None)
         messageSender = mesdict.get("message_sender",None)
         if listparse.isRecipient(messageTarget,self.name):
-            print("{name} home agent has received a DRfeed message".format(name = self.name))
             if messageSubject == 'DR_event':
                 # if enrolled, we have to act on the request
                 eventType = mesdict.get('event_type',None)
@@ -185,7 +219,7 @@ class HomeAgent(Agent):
                         self.vip.pubsub.publish("pubsub","demandresponse",{},mes)
                         
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print("{me} opted in to DR program".format(me = self.name), )
+                            print("HOME {me} opted in to DR program".format(me = self.name), )
                     
                 elif type == "enrollment_confirm":
                     self.DR_participant = True    
@@ -196,10 +230,8 @@ class HomeAgent(Agent):
     
     def generate_bid(self):
         bid = {}
-        service = None
-        price = 0 
-        power = 0
-        duration = 0
+        bid["message_subject"] = "bid_response"
+        bid["message_target"]
         
         for source in self.resources:
             if isinstance(source,Source):
@@ -214,10 +246,13 @@ class HomeAgent(Agent):
                 
                 
         
-        bid['service'] = service
-        bid['price'] = price
-        bid['power'] = power
-        bid['duration'] = duration
+        bid["service"] = service
+        bid["price"] = price
+        bid["power"] = power
+        bid["duration"] = duration
+        
+        mess = json.dumps(bid)
+        self.vip.publish.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
         
     def changeConsumption(self, level):
         if level == 0:
@@ -238,7 +273,7 @@ class HomeAgent(Agent):
         setTagValue(tagName,True)
     
 def main(argv = sys.argv):
-    '''Main method called by the eggseccutable'''
+    '''Main method called by the eggsecutable'''
     try:
         utils.vip_main(HomeAgent)
     except Exception as e:

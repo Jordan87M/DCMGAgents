@@ -15,16 +15,25 @@ class CustomerProfile(object):
         
         self.customerAccount = Account(self.name,0.0)
         self.DRenrollee = False
-    
+        
+    #change maximum power draw for a customer
+    def updateService(self,amount):
+        self.maxDraw = amount
+            
+    def printInfo(self):
+        print("CUSTOMER: {name} is a {type}\n    LOCATION: {loc}\n    RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
+        for res in self.resources:
+            res.printInfo()
 
 class ResidentialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):
         super(ResidentialCustomerProfile,self).__init__(name,location,resources,**kwargs)
-
-
+        self.maxDraw = 3
+        
 class CommercialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):
         super(CommercialCustomerProfile,self).__init__(name,location,resources,**kwargs)
+        self.maxDraw = 6
         
 class Account(object):
     def __init__(self,holder,initialBalance = 0):
@@ -47,6 +56,10 @@ class ResourceProfile(object):
             
     def setOwner(self,newOwner):
         self.owner = newOwner
+        
+    def printInfo(self):
+        print("        RESOURCE: {name} is a {type}".format(name = self.name, type = self.__class__.__name__))
+        print("            LOCATION: {loc}".format(loc = self.location))
 
 class SourceProfile(ResourceProfile):
     def __init__(self,owner,location,name,capCost,maxDischargePower,**kwargs):
