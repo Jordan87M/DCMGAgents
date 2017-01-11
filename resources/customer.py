@@ -23,7 +23,9 @@ class CustomerProfile(object):
     def printInfo(self):
         print("CUSTOMER: {name} is a {type}\n    LOCATION: {loc}\n    RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
         for res in self.resources:
-            res.printInfo()
+            #res.printInfo()
+            print("        type: {type}\n        name: {name}".format(type = res["type"],name = res["name"]))
+            
 
 class ResidentialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):

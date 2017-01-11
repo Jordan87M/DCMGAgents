@@ -11,10 +11,11 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import wrapper
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation
-from DCMGClasses.resources import resource, customer
+from DCMGClasses.resources import resource, customer, control
 
 
 from . import settings
+from zmq.backend.cython.constants import RATE
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ class HomeAgent(Agent):
         self.registered = False
         
         self.avgEnergyCost = 1
-        
+        self.cPlan = control.Plan(self,1)
+        self.outstandingBids = []
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -65,7 +67,9 @@ class HomeAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
-    
+        
+        self.printInfo(1)
+        
     '''callback for customerservice topic'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
@@ -145,13 +149,44 @@ class HomeAgent(Agent):
                         bid["counterparty"] = counterparty
                         bid["duration"] = 1
                         bid["period"] = period
-        
+                        
+                        
+                        self.outstandingBids.append(financial.Bid(service,amount,rate,counterparty,period))
+                        
                         mess = json.dumps(bid)
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print("HOME {me} HAS HAD A BID FOR {service} ACCEPTED".format(me = self.name, service = service))
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("    MESSAGE: {mes}".format(mes = mess))
                         self.vip.publish.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
         
-            elif messageSubject == 'bid_response':
-                #if acceptable, we'll have to follow through
-                pass
+            elif messageSubject == 'bid_acceptance':
+                #if acceptable, update the plan
+                
+                service = mesdict.get("service",None)
+                amount = mesdict.get("amount",None)
+                rate = mesdict.get("rate",None)
+                period = mesdict.get("period")
+                uid = mesdict.get("uid")
+                
+                #amount or rate may have been changed
+                #service also may have been changed from power to regulation
+                for bid in outstandingBids:
+                    if bid.uid == uid:
+                        bid.service = service
+                        bid.amount = amount
+                        bid.rate = rate
+                        bid.period = period
+                                        
+                        self.cPlan.addBid(bid)
+                
+            elif messageSubject == "bid_rejection":
+                #if the bid is not accepted, just remove the bid from the list of outstanding bids
+                uid = mesdict.get("uid")
+                for bid in self.outstandingBids:
+                    if bid.uid == uid:
+                        self.outstandingBids.remove(bid)
+                
             elif messageSubject == "spot_update":
                 self.energySpot = mesdict.get("new_spot")
                 priceChanged(self.energySpot)
@@ -228,32 +263,7 @@ class HomeAgent(Agent):
     def reassess_utility(self):
         pass
     
-    def generate_bid(self):
-        bid = {}
-        bid["message_subject"] = "bid_response"
-        bid["message_target"]
-        
-        for source in self.resources:
-            if isinstance(source,Source):
-                if isinstance(source,SolarPanel):
-                    pass
-            elif isinstance(source,Storage):
-                if isinstance(source,LeadAcidBattery):
-                    service = "voltage_regulation"
-                    price = 2
-                    power = 10
-                    duration = 120
-                
-                
-        
-        bid["service"] = service
-        bid["price"] = price
-        bid["power"] = power
-        bid["duration"] = duration
-        
-        mess = json.dumps(bid)
-        self.vip.publish.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
-        
+
     def changeConsumption(self, level):
         if level == 0:
             self.disconnectLoad()
@@ -271,6 +281,15 @@ class HomeAgent(Agent):
         #this is where we'll call the CIP stack wrapper to connect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
         setTagValue(tagName,True)
+        
+    def printInfo(self,verbosity):
+        print("~~SUMMARY OF HOME STATE~~")
+        print("HOME NAME: {name}".format(name = self.name))
+        
+        print("LIST ALL OWNED RESOURCES")
+        for res in self.Resources:
+            res.printInfo()
+        
     
 def main(argv = sys.argv):
     '''Main method called by the eggsecutable'''

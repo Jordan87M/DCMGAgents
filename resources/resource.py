@@ -3,11 +3,11 @@ from DCMGClasses.CIP import wrapper
 
 class Resource(object):
     
-    def __init__(self,owner,location,capCost,**kwargs):
+    def __init__(self,owner,location,name,capCost,**kwargs):
         self.owner = owner
         self.location = location
         self.capCost = capCost
-        
+        self.name = name
         
     def setOwner(self,newOwner):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
@@ -18,7 +18,7 @@ class Resource(object):
 
 class Source(Resource):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs):
-        super(Source,self).__init__(owner,location,capCost)
+        super(Source,self).__init__(owner,location,name,capCost)
         self.maxDischargePower = maxDischargePower
         self.dischargeChannel = dischargeChannel
         
