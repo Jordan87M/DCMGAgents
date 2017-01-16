@@ -9,7 +9,8 @@ from volttron.platform.vip.agent import Agent, Core, PubSub, compat
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
-from DCMGClasses.CIP import wrapper
+#from DCMGClasses.CIP import wrapper
+from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation, graph
 from DCMGClasses.resources import resource, groups, financial, control, customer
@@ -67,7 +68,7 @@ class UtilityAgent(Agent):
         self.groupList = []
         self.bidList = []
         
-        self.nodes = [groups.Node("DC.MAIN"),
+        self.nodes = [groups.Node("DC.MAIN.MAIN"),
                         groups.Node("DC.BRANCH1.BUS1"),
                         groups.Node("DC.BRANCH1.BUS2"),
                         groups.Node("DC.BRANCH2.BUS1"),
@@ -530,6 +531,14 @@ class UtilityAgent(Agent):
                     cust.printInfo()
                 for res in group.resources:
                     res.printInfo()
+                    
+    
+    def closeInfRelay(self,rname):
+        tagClient.writeTags([rname],[False])
+        
+    def openInfRelay(self,rname):
+        tagClient.writeTags([rname],[True])
+        
         
 def main(argv = sys.argv):
     try:

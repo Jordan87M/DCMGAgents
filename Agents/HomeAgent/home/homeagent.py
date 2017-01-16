@@ -248,7 +248,6 @@ class HomeAgent(Agent):
                         response["message_type"] = "enrollment_reply"
                         response["message_sender"] = self.name
                         response["opt_in"] = True
-                        #response["payload"] = False
                         
                         mes = json.dumps(response)
                         self.vip.pubsub.publish("pubsub","demandresponse",{},mes)
@@ -275,12 +274,25 @@ class HomeAgent(Agent):
     def disconnectLoad(self):
         #this is where we'll call the CIP stack wrapper to disconnect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
-        setTagValue(tagName,False)
+        #setTagValue(tagName,False)
+        tagClient.writeTags([tagName],[False])
     
     def connectLoad(self):
         #this is where we'll call the CIP stack wrapper to connect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
-        setTagValue(tagName,True)
+        #setTagValue(tagName,True)
+        tagClient.writeTags([tagName],[True])
+        
+    def measureVoltage(self):
+        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        return tagClient.readTags([tag])
+    
+    def measureCurrent(self):
+        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        return tagClient.readTags([tag])
+    
+    def measurePower(self):
+        return self.measureVoltage()*self.measureCurrent()
         
     def printInfo(self,verbosity):
         print("~~SUMMARY OF HOME STATE~~")

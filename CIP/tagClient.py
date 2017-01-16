@@ -4,8 +4,9 @@ import subprocess
 
 def startTagServer():
     try:
-        subprocess.call("ReadTagsAllDay&")
-    except Exception:
+        subprocess.call(["~/Downloads/TagServer/prod/ServeTagsTemporarily&"],shell = True)
+    except Exception as e:
+        print(e.args)
         print("problem starting tag server")
         
 
@@ -21,7 +22,7 @@ def writeTags(names,values,plc = "user"):
         
         message = "write {plc}".format(plc = plc)
         for index,name in enumerate(names):
-            message = message + " {name}:{value}".format(name = name, value = values[index])
+            message = message + " {name}:{value}".format(name = name, value = str(values[index]))
         message = message + "\n"
         sock.sendall(message)
         

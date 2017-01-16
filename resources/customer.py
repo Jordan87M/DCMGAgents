@@ -1,3 +1,5 @@
+from DCMGClasses.CIP import tagClient
+
 class CustomerProfile(object):
     def __init__(self,name,location,resources,**kwargs):
         self.name = name
@@ -26,7 +28,22 @@ class CustomerProfile(object):
             #res.printInfo()
             print("        type: {type}\n        name: {name}".format(type = res["type"],name = res["name"]))
             
-
+    def disconnectCustomer(self):
+        signal = "BRANCH{branch}_BUS{bus}_LOAD{load}_DUMMY".format(branch = self.branch, bus = self.bus, load = self.load)
+        tagClient.writeTags([signal],[False])
+        
+    def measureVoltage(self):
+        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        return tagClient.readTags([tag])
+    
+    def measureCurrent(self):
+        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        return tagClient.readTags([tag])
+    
+    def measurePower(self):
+        return self.measureVoltage()*self.measureCurrent()
+                
+        
 class ResidentialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):
         super(ResidentialCustomerProfile,self).__init__(name,location,resources,**kwargs)

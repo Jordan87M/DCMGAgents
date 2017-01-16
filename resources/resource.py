@@ -1,5 +1,6 @@
 from DCMGClasses.resources.math import interpolation
-from DCMGClasses.CIP import wrapper
+#from DCMGClasses.CIP import wrapper
+from DCMGClasses.CIP import tagClient
 
 class Resource(object):
     
@@ -45,10 +46,10 @@ class Source(Resource):
         return current
     
     def connectSource(self,mode,setpoint):
-        pass
+        self.DischargeChannel.connect(mode,setpoint)
     
     def disconnectSource(self):
-        pass
+        self.DischargeChannel.disconnect()
     
 
 class Storage(Source):
@@ -65,10 +66,7 @@ class Storage(Source):
         
         ChargeChannel = Channel(chargeChannel)
         
-            
-    def charge(self,setpoint):
-        pass
-    
+                
 class LeadAcidBattery(Storage):
     SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
     def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
@@ -88,6 +86,8 @@ class LeadAcidBattery(Storage):
         soc = interpolation.lininterp(self.SOCtable,voltage)
         return soc
     
+    def charge(self,setpoint):
+        self.chargeChannel.connect("BattCharge",setpoint)
         
 class SolarPanel(Source):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,Voc,Vmpp,**kwargs):
@@ -106,25 +106,67 @@ class Channel():
         self.channelNumber = channelNumber
         
     def getRegV(self):
-        tagName = "SOURCE_{d}_REG_VOLTAGE".format(d = self.channelNumber)     
+        tagName = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)     
         #call to CIP wrapper
-        value = getTagValue(tagName)
+        #value = getTagValue(tagName)
+        value = tagClient([tagName])
         return value   
         
     def getUnregV(self):
-        tagName = "SOURCE_{d}_UNREG_VOLTAGE".format(d = self.channelNumber)
-        value = getTagValue(tagName)
+        tagName = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
+        #value = wrapper.getTagValue(tagName)
+        value = tagClient([tagName])
         return value
     
     def getRegI(self):
-        tagName = "SOURCE_{d}_REG_CURRENT".format(d = self.channelNumber)
-        value = getTagValue(tagName)
+        tagName = "SOURCE_{d}_RegCurrent".format(d = self.channelNumber)
+        #value = getTagValue(tagName)
+        value = tagClient([tagName])
         return value
     
     def getUnregI(self):
-        tagName = "SOURCE_{d}_UNREG_CURRENT".format(d = self.channelNumber)
-        value = getTagValue(tagName)
+        tagName = "SOURCE_{d}_UnregCurrent".format(d = self.channelNumber)
+        #value = getTagValue(tagName)
+        value = tagClient([tagName])
         return value
+    
+    '''connects the channel converter and puts it in one of several operating modes.
+    Behaviors in each of these modes are governed by the PLC ladder code'''
+    def connect(self,mode,setpoint):
+        ch = self.channelNumber
+        
+        if mode == "Vreg":
+            tag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = ch)
+            tagClient.writeTags([tag],[0])
+            tags = ["SOURCE_{d}_BATTERY_CHARGE_SElECT_DUMMY".format(d = ch),
+                    "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = ch),
+                    "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = ch)]
+            tagClient.writeTags([tags],[False,False,True])
+            tag = "SOURCE_{d}_DUMMY".format(d = ch)
+            tagClient.writeTags([tag],[True])
+            tag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = ch)
+            tagClient.writeTags([tag],[setpoint])
+        elif mode == "Preg":
+            tag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = ch)
+            tagClient.writeTags([tag],[0])
+            tags = ["SOURCE_{d}_BATTERY_CHARGE_SELECT_DUMMY".format(d = ch),
+                    "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = ch),
+                    "SOURCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = ch)]
+            tagClient.writeTags([tags],[False,True,False])
+            tag = "SOURCE_{d}_DUMMY".format(d = ch)
+            tagClient.writeTags([tag],[True])
+            tag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = ch)
+            tagClient([tag],[setpoint])
+        elif mode == "BattCharge":
+            tags = ["SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber),
+                   "SOURCE_{d}_BATTERY_CHARGE_SELECT_DUMMY".format(d = self.channelNumber)]
+            tagClient.writeTags([tags],[0,True])
+            tag = "SOURCE_{d}_BatteryReqCharge_DUMMY".format(d = self.channelNumber)
+            tagClient.writeTags([tag],[True])
+            tag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber)
+            tagClient.writeTags([tag],[setpoint])
+        else:
+            print("CHANNEL{ch} received a bad mode request: {mode}".format(ch = self.channelNumber,mode = mode))
     
 def addResource(strlist,classlist,debug = False):
     def addOne(item,classlist):
