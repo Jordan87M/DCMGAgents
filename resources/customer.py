@@ -5,6 +5,7 @@ class CustomerProfile(object):
         self.name = name
         self.location = location
         self.resources = resources
+        self.Resources = []
         
         loclist = self.location.split('.')
         if type(loclist) is list:
@@ -23,21 +24,20 @@ class CustomerProfile(object):
         self.maxDraw = amount
             
     def printInfo(self):
-        print("CUSTOMER: {name} is a {type}\n    LOCATION: {loc}\n    RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
-        for res in self.resources:
-            #res.printInfo()
-            print("        type: {type}\n        name: {name}".format(type = res["type"],name = res["name"]))
+        print("    CUSTOMER: {name} is a {type}\n        LOCATION: {loc}\n        RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
+        for res in self.Resources:
+            res.printInfo()
             
     def disconnectCustomer(self):
-        signal = "BRANCH{branch}_BUS{bus}_LOAD{load}_DUMMY".format(branch = self.branch, bus = self.bus, load = self.load)
+        signal = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_DUMMY".format(branch = self.branch, bus = self.bus, load = self.load)
         tagClient.writeTags([signal],[False])
         
     def measureVoltage(self):
-        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
         return tagClient.readTags([tag])
     
     def measureCurrent(self):
-        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
         return tagClient.readTags([tag])
     
     def measurePower(self):
@@ -48,11 +48,13 @@ class ResidentialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):
         super(ResidentialCustomerProfile,self).__init__(name,location,resources,**kwargs)
         self.maxDraw = 3
+        self.rateAdjustment = 1
         
 class CommercialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):
         super(CommercialCustomerProfile,self).__init__(name,location,resources,**kwargs)
         self.maxDraw = 6
+        self.rateAdjustment = 1
         
 class Account(object):
     def __init__(self,holder,initialBalance = 0):
@@ -72,6 +74,8 @@ class ResourceProfile(object):
     def __init__(self,owner,location,name,capCost,**kwargs):
         self.owner = owner
         self.capCost = capCost
+        self.location = location
+        self.name = name
             
     def setOwner(self,newOwner):
         self.owner = newOwner

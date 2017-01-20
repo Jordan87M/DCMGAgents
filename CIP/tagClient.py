@@ -4,7 +4,7 @@ import subprocess
 
 def startTagServer():
     try:
-        subprocess.call(["~/Downloads/TagServer/prod/ServeTagsTemporarily&"],shell = True)
+        subprocess.call(["ServeTagsTemporarily&"])
     except Exception as e:
         print(e.args)
         print("problem starting tag server")
@@ -24,6 +24,7 @@ def writeTags(names,values,plc = "user"):
         for index,name in enumerate(names):
             message = message + " {name}:{value}".format(name = name, value = str(values[index]))
         message = message + "\n"
+        print(message)
         sock.sendall(message)
         
         data = sock.recv(1024)
@@ -50,22 +51,46 @@ def readTags(names, plc = "user"):
         for index,name in enumerate(names):
             message = message + " " + name
         message = message + "\n"
+        print(message)
         sock.sendall(message)
         
         data = sock.recv(1024)
-        print("tag client received: {info}".format(info = data))
-        pairs = data.split(",")
-        for pair in pairs:
-            name,value = data.split(":")
-            outdict[name] = value
-        return outdict
-        
             
     except Exception:
         print("tag client experiencing problem")
+        print(Exception)
     finally:
         print("closing tag client socket")
         sock.close()
     
     
-    
+    #print("tag client received: {info}".format(info = data))
+    pairs = data.split(",")
+    for pair in pairs:
+        name,value = pair.split(":")
+        #print(" name = {n}\n value = {v}".format(n = name, v = value))
+        try:
+            value = float(value)
+            #print("float: {v}".format(v = value))
+        except Exception:
+            #string isn't a number so it should be a boolean
+            #make string lowercase
+            value.lower()
+            print("val to lower: {v}".format(v = value))
+            if value.find("true") >= 0:
+                #print("val is true")
+                value = True
+            elif value.find("false") >= 0:
+                #print("val is false")
+                value = False
+            else:
+                print("can't process properly")
+                                    
+            
+        outdict[name] = value
+        
+    #return an atom if we can
+    if len(outdict) == 1:
+        return outdict[names[0]]
+    else:
+        return outdict

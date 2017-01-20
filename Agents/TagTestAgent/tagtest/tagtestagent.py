@@ -24,11 +24,15 @@ class TagTestAgent(Agent):
         _log.info(self.config['message'])
         self._agent_id = self.config['agentid']
         
-        tagClient.startTagServer()
-        print(tagClient.readTags(["BRANCH1_BUS1_LOAD2_DUMMY"]))
-        print(tagClient.readTags(["BRANCH1_BUS1_LOAD2_Voltage"]))
-        print(tagClient.readTags(["BRANCH1_BUS2_LOAD2_Voltage","BRANCH1_BUS2_LOAD2_Current"]))
-
+        #tagClient.startTagServer()
+        print(tagClient.readTags(["BRANCH_1_BUS_1_DISTAL_DUMMY"]))
+        print(tagClient.readTags(["BRANCH_1_BUS_1_LOAD_2_CurrentRaw"]))
+        print(tagClient.readTags(["SOURCE_3_RegVoltageRaw","BRANCH_1_BUS_2_LOAD_2_CurrentRaw"]))
+        tagClient.writeTags(["SOURCE_3_VoltageSetpoint_DUMMY"],[11.7])
+        
+        print(tagClient.readTags(["BRANCH_1_BUS_1_LOAD_3_NC", "SolarSetpoint1Alias"],"SG"))
+        tagClient.writeTags(["SolarSetpoint1Alias", "BRANCH_2_BUS_1_LOAD_2_NC"], [1.0, True], "SG")
+        
         
 def main(argv = sys.argv):
     try:

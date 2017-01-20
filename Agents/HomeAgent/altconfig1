@@ -4,6 +4,6 @@
 	"location": "DC.BRANCH1.BUS2.LOAD1",
 	"message": "home agent up",
 	"demandCurve":[[3.0, 0],[3.0, 1],[0, 1],[0, 3]],
-	"resources": [{"type":"solar","owner":"Crunderson", "location": "DC.BRANCH1.BUS1.LOAD1", "name":"a32cd", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}]
+	"resources": [{"type":"solar","owner":"Ganderley", "location": "DC.BRANCH1.BUS2.LOAD1", "name":"Helios", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}]
 }
 	

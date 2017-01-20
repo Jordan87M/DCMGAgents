@@ -11,7 +11,16 @@ class Bid(object):
         
         self.accepted = False
         self.modified = False
-        
+    
+    def printInfo(self,verbosity = 1):
+        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+        print("BID INFORMATION for BID {id}".format(id = self.uid))
+        print("SERVICE: {service}".format(id = self.service))
+        print("AMOUNT: {amt} AT: {rate} Credits/Joule".format(self.amount, self.rate))
+        print("FOR PERIOD: {per}".format(per = self.period))
+        print("COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
+        print("STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
+        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 
 #determine daily rate based on capital cost and rate of return        
 def dailyratecalc(capitalCost,discountRate,term):

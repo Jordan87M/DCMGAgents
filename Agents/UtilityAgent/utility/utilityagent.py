@@ -5,7 +5,7 @@ import sys
 import json
 import operator
 
-from volttron.platform.vip.agent import Agent, Core, PubSub, compat
+from volttron.platform.vip.agent import Agent, BasicCore, core, Core, PubSub, compat
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
@@ -55,12 +55,24 @@ class UtilityAgent(Agent):
                                       "uid":0}
     uid = 0
     
+    infrastructureTags = ["BRANCH_1_BUS_1_PROXIMAL_User",
+                          "BRANCH_1_BUS_2_PROXIMAL_User",
+                          "BRANCH_2_BUS_1_PROXIMAL_User",
+                          "BRANCH_2_BUS_2_PROXIMAL_User",
+                          "BRANCH_1_BUS_1_DISTAL_User",
+                          "BRANCH_1_BUS_2_DISTAL_User",
+                          "BRANCH_2_BUS_1_DISTAL_User",
+                          "BRANCH_2_BUS_2_DISTAL_User",
+                          "INTERCONNECT_1_User",
+                          "INTERCONNECT_2_User"]
+    
     
     def __init__(self,config_path,**kwargs):
         super(UtilityAgent,self).__init__(**kwargs)
         self.config = utils.load_config(config_path)
         self._agent_id = self.config['agentid']
         self.state = "init"
+        self.rates = {"retail_spot": .1, "wholesale_spot": .05}   #energy cost in credits per Joule
         
         self.name = self.config["name"]
         self.resources = self.config["resources"]
@@ -68,17 +80,17 @@ class UtilityAgent(Agent):
         self.groupList = []
         self.bidList = []
         
-        self.nodes = [groups.Node("DC.MAIN.MAIN"),
-                        groups.Node("DC.BRANCH1.BUS1"),
-                        groups.Node("DC.BRANCH1.BUS2"),
-                        groups.Node("DC.BRANCH2.BUS1"),
-                        groups.Node("DC.BRANCH2.BUS2")]
+        self.nodes = [groups.Node("DC.MAIN.MAIN",[],None,[]),
+                        groups.Node("DC.BRANCH1.BUS1",[],None,[]),
+                        groups.Node("DC.BRANCH1.BUS2",[],None,[]),
+                        groups.Node("DC.BRANCH2.BUS1",[],None,[]),
+                        groups.Node("DC.BRANCH2.BUS2",[],None,[])]
         #import list of utility resources and make into object
         resource.addResource(self.resources,self.Resources,False)
         #add resources to node objects based on location
         for res in self.Resources:
             for node in self.nodes:
-                if res.location == node.name:
+                if res.location.split(".")[0:3] == node.name.split("."):
                     node.resources.append(res)
             
         
@@ -86,6 +98,8 @@ class UtilityAgent(Agent):
         self.customers = []
         self.DRparticipants = []
         
+        #local storage to ease load on tag server
+        self.tagCache = {}
         
         #short term planning interval counter
         self.STPinterval = 0
@@ -132,7 +146,7 @@ class UtilityAgent(Agent):
         messageTarget = mesdict.get("message_target",None)
         if listparse.isRecipient(messageTarget,self.name):
             
-            if settings.DEBUGGING_LEVEL >= 2:
+            if settings.DEBUGGING_LEVEL >= 3:
                 print(message)
             
             messageSubject = mesdict.get("message_subject",None)
@@ -151,14 +165,21 @@ class UtilityAgent(Agent):
                         cust = customer.ResidentialCustomerProfile(name,location,resources)
                         self.customers.append(cust)
                     elif customerType == "commercial":
-                        self.customers.append(customer.CommercialCustomerProfile(name,location,resources))
+                        cust = customer.CommercialCustomerProfile(name,location,resources)
+                        self.customers.append(cust)
                     else:                        
                         pass
+                    
+                    #add customer to Node object
+                    for node in self.nodes:
+                        if cust.location.split(".")[0:3] == node.name.split("."):
+                            print("should have added node")
+                            node.customers.append(cust)
                     
                     #add resources to resource pool if present
                     if resources:
                         def addOneToPool(list,res):
-                            resType = res.pop("type",None)
+                            resType = res.get("type",None)
                             if resType == "solar":
                                 profile = customer.SolarProfile(**res)                                
                                 #profile = customer.SolarProfile(owner,location,name,capCost,maxDischargePower)
@@ -178,20 +199,26 @@ class UtilityAgent(Agent):
                             if len(resources) > 1:
                                 for resource in resources:
                                     addOneToPool(self.resourcePool,resource)
+                                    print(self.resourcePool)
                                     for node in self.nodes:
-                                        if node.name == resource["location"]:
-                                            addOneToPool(node.resources, resource) 
+                                        if node.name.split(".") == resource["location"].split(".")[0:3]:
+                                            addOneToPool(node.resources, resource)
+                                            addOneToPool(cust.Resources, resource)   
                             if len(resources) == 1:
                                 addOneToPool(self.resourcePool,resources[0])
+                                print(self.resourcePool)
                                 for node in self.nodes:
-                                    if node.name == resources[0]["location"]:
-                                        addOneToPool(node.resources, resources[0])                                
+                                    if node.name.split(".") == resources[0]["location"].split(".")[0:3]:
+                                        print("found node match")
+                                        addOneToPool(node.resources, resources[0]) 
+                                        addOneToPool(cust.Resources, resources[0])                         
                         elif type(resources) is str or type(resources) is unicode:
                             addOneToPool(self.resourcePool,resources)
+                            print(self.resourcePool)
                             for node in self.nodes:
-                                if node.name == resources["location"]:
-                                    addOneToPool(node.resources, resources) 
-                    
+                                if node.name.split(".") == resources["location"].split(".")[0:3]:
+                                    addOneToPool(node.resources, resources)
+                                    addOneToPool(cust.Resources, resources)
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("UTILITY {me} enrolled customer {them}: {mes}".format(me = self.name, them = name, mes = message))
                         print(self.customers)
@@ -207,7 +234,7 @@ class UtilityAgent(Agent):
                         print("let the customer {name} know they've been successfully enrolled by {me}".format(name = name, me = self.name))
             else:
                 pass
-        pass
+    
     
     '''called to send a DR enrollment message. when a customer has been enrolled
     they can be called on to increase or decrease consumption to help the utility
@@ -226,6 +253,15 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 1:
             print("UTILITY {name} IS TRYING TO ENROLL DR PARTICIPANTS: {mes}".format(name = self.name, mes = message))
     
+    ''' the accountUpdate() function polls customer power consumption/production
+    and updates account balances according to their rate '''
+    @Core.periodic(settings.ACCOUNTING_INTERVAL)
+    def accountUpdate(self):
+        for cust in self.customers:
+            power = cust.measurePower()
+            energy = power*settings.ACCOUNTING_INTERVAL
+            balanceAdjustment = -energy*self.rates["retail_spot"]*cust.rateAdjustment
+            cust.customerAccount.adjustBalance(balanceAdjustment)
     
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
@@ -269,8 +305,8 @@ class UtilityAgent(Agent):
                     self.vip.pubsub.publish(peer = "pubsub", topic = "energymarket", headers = {}, message = mess)
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} SOLICITING RESERVE POWER BID: {mes}".format(me = self.name, mes = mess))
-        sched = datetime.utcnow() + timedelta(seconds = 30)            
-        delaycall = Core.schedule(sched,self.planShortTerm)
+        sched = datetime.now() + timedelta(seconds = 10)            
+        delaycall = self.core.schedule(sched,self.planShortTerm)
         print(delaycall)
         print(dir(delaycall))
         
@@ -280,7 +316,7 @@ class UtilityAgent(Agent):
            
         for group in self.groupList:
             
-            self.STPlan = control.Plan(self,STPinterval + 1)
+            self.STPlan = control.Plan(self,self.STPinterval + 1)
             expLoad = self.getExpectedGroupLoad(group)
             maxLoad = self.getMaxGroupLoad(group)
             #find lowest cost option for fulfilling expected demand
@@ -418,20 +454,17 @@ class UtilityAgent(Agent):
         for load in group.resources:
             total += group.resources.maxDraw
         return total
-    
-    def getCurrentMarginalCost(self):
-        pass
-    
+        
     
     '''update agent's knowledge of the current grid topology'''
     def getTopology(self):
         self.rebuildConnMatrix()
         subs = graph.findDisjointSubgraphs(self.connMatrix)
         if len(subs) >= 1:
-            self.groupList = []
+            del self.groupList[:]
             for i in range(1,len(subs)+1):
                 #create a new group class for each disjoint subgraph
-                self.groupList.append(groups.Group("group{i}".format(i = i)))            
+                self.groupList.append(groups.Group("group{i}".format(i = i),[],[],[]))
             for index,sub in enumerate(subs):
                 #for concision
                 cGroup = self.groupList[index]
@@ -451,7 +484,83 @@ class UtilityAgent(Agent):
     
     '''builds the connectivity matrix for the grid's infrastructure'''
     def rebuildConnMatrix(self):
-        pass
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
+        
+        #what is the state of the tags supposed to be?
+        infState = self.getLocalPreferred(self.infrastructureTags,5.1)
+        print(infState)
+        
+        #is main bus connected to BRANCH1.BUS1?
+        if infState["BRANCH_1_BUS_1_PROXIMAL_User"]:
+            self.connMatrix[0][1] = 1
+            self.connMatrix[1][0] = 1
+        else:
+            self.connMatrix[0][1] = 0
+            self.connMatrix[1][0] = 0
+        
+        #is main bus connected to BRANCH2.BUS1?
+        if infState["BRANCH_1_BUS_2_PROXIMAL_User"]:
+            self.connMatrix[0][2] = 1
+            self.connMatrix[2][0] = 1
+        else:
+            self.connMatrix[0][2] = 0
+            self.connMatrix[2][0] = 0
+        
+        #is BRANCH1.BUS1 connected to BRANCH2.BUS1
+        if infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
+            self.connMatrix[1][3] = 1
+            self.connMatrix[3][1] = 1
+        else:
+            self.connMatrix[1][3] = 0
+            self.connMatrix[3][1] = 0
+            
+        #is BRANCH1.BUS1 connected to BRANCH1.BUS2
+        if infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"]:
+            self.connMatrix[1][2] = 1
+            self.connMatrix[2][1] = 1
+        else:
+            self.connMatrix[1][2] = 0
+            self.connMatrix[2][1] = 0
+            
+        #is BRANCH2.BUS1 connected to BRANCH2.BUS2
+        if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"]:
+            self.connMatrix[4][3] = 1
+            self.connMatrix[3][4] = 1
+        else:
+            self.connMatrix[4][3] = 0
+            self.connMatrix[3][4] = 0
+        
+        #is BRANCH2.BUS2 connected to BRANCH1.BUS2
+        if infState["BRANCH_1_BUS_2_DISTAL_User"] and infState["BRANCH_2_BUS_2_DISTAL_User"] and infState["INTERCONNECT_2_User"]:
+            self.connMatrix[2][4] = 1
+            self.connMatrix[4][2] = 1
+        else:
+            self.connMatrix[2][4] = 0
+            self.connMatrix[4][2] = 0
+            
+        #is BRANCH2.BUS1 connected to BRANCH1.BUS2?
+        if infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["INTERCONNECT_1_User"]:
+            self.connMatrix[2][3] = 1
+            self.connMatrix[3][2] = 1
+        else:
+            self.connMatrix[2][3] = 0
+            self.connMatrix[3][2] = 0
+            
+        #is BRANCH1.BUS1 connected to BRANCH2.BUS2?
+        if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
+            self.connMatrix[1][4] = 1
+            self.connMatrix[4][1] = 1
+        else:
+            self.connMatrix[1][4] = 0
+            self.connMatrix[4][1] = 0
+        
+        #we should do more to validate this in case there is a fault...
+        #does current through branch match bus voltage differential?
+        
+        #is there current at all?
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} HAS FINISHED REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
     
     def marketfeed(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
@@ -510,7 +619,9 @@ class UtilityAgent(Agent):
             if customer.name == name:
                 return customer
     
+    '''prints information about the utility and its assets'''
     def printInfo(self,verbosity):
+        print("************************************************************************")
         print("~~SUMMARY OF UTILITY KNOWLEDGE~~")
         print("UTILITY NAME: {name}".format(name = self.name))
         
@@ -524,18 +635,68 @@ class UtilityAgent(Agent):
             print("--LIST ALL {n} DR PARTICIPANTS----------".format(n = len(self.DRparticipants)))
             for part in self.DRparticipants:
                 part.printInfo()
-            print("--THERE ARE {n} GROUPS------------------".format(n = len(self.groupList)))
+            print("--LIST ALL {n} GROUPS------------------".format(n = len(self.groupList)))
             for group in self.groupList:
-                print("    {name} INCLUDES THE FOLLOWING CUSTOMERS:".format(name = group.name))
-                for cust in group.customers:
-                    cust.printInfo()
-                for res in group.resources:
-                    res.printInfo()
-                    
+                group.printInfo()
+        print("~~~END UTILITY SUMMARY~~~~~~")
+        print("*************************************************************************")
     
+    
+    '''get tag value by name, but use the tag client only if the locally cached
+    value is too old, as defined in seconds by threshold'''
+    def getLocalPreferred(self,tags,threshold, plc = "user"):
+        reqlist = []
+        outdict = {}
+        indict = {}
+        
+        for tag in tags:
+            try:
+                #check cache to see if the tag is fresher than the threshold
+                val, time = self.tagCache.get(tag,[None,None])
+                #how much time has passed since the tag was last read from the server?
+                diff = datetime.now()-time
+                #convert to seconds
+                et = diff.total_seconds()                
+            except Exception:
+                val = None
+                et = threshold
+                
+            #if it's too old, add it to the list to be requested from the server    
+            if et > threshold or val is None:
+                reqlist.append(tag)
+            #otherwise, add it to the output
+            else:
+                outdict[tag] = val
+                
+        #if there are any tags to be read from the server get them all at once
+        if reqlist:
+            indict = tagClient.readTags(reqlist,plc)
+            if len(indict) == 1:
+                outdict[reqlist[0]] = indict[reqlist[0]]
+            else:
+                for updtag in indict:
+                    #then update the cache
+                    self.tagCache[updtag] = (indict[updtag], datetime.now())
+                    #then add to the output
+                    outdict[updtag] = indict[updtag]
+            
+            #output should be an atom if possible (i.e. the request was for 1 tag
+            if len(outdict) == 1:
+                return outdict[tag]
+            else:
+                return outdict
+    
+    '''get tag by name from tag server'''
+    def getTag(self,tag, plc = "user"):
+         return tagClient.readTags([tag],plc)[tag]
+    
+    '''close an infrastructure relay. note that the logic is backward. this is
+    because I used the NC connection of the SPDT relays for these'''
     def closeInfRelay(self,rname):
         tagClient.writeTags([rname],[False])
         
+    '''open an infrastructure relay. note that the logic is backward. this is
+    because I used the NC connection of the SPDT relays for these'''
     def openInfRelay(self,rname):
         tagClient.writeTags([rname],[True])
         

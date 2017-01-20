@@ -1,4 +1,5 @@
 from DCMGClasses.CIP import tagClient
+from DCMGClasses.resources import resource, customer
 
 class Group(object):
     def __init__(self,name,resources = [],membership = [], customers = [], **kwargs):
@@ -9,16 +10,30 @@ class Group(object):
         
         self.security = -1
         
+    def printInfo(self,verbosity = 1):
+        print(">>>>GROUP {me} CONTAINS THE FOLLOWING...".format(me = self.name))
+        print(">>>>>>>CUSTOMERS ({n}): ------------".format(n = len(self.customers)))
+        for cust in self.customers:
+            cust.printInfo()
+        print(">>>>>>>RESOURCES ({n}): ------------".format(n = len(self.resources)))
+        for res in self.resources:
+            res.printInfo()
+        print(">>>>>>>NODES ({n}): ----------------".format(n = len(self.membership)))
+        for mem in self.membership:
+            mem.printInfo()
+    
 class Node(object):
-    def __init__(self,name,resources = [], membership = [], customers = [], **kwargs):
+    def __init__(self,name,resources = [], membership = None, customers = [], **kwargs):
         self.name = name 
         self.resources = resources
+        self.membership = membership
+        self.customers = customers
         
         self.grid, self.branch, self.bus = self.name.split(".")
         
     def getVoltage(self):
         if self.branch != "MAIN":
-            signal = "BRANCH{branch}_BUS{bus}_Voltage".format(branch = self.branch, bus = self.bus)
+            signal = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branch, bus = self.bus)
         else:
             signal = "MAIN_BUS_Voltage"
             
@@ -27,7 +42,7 @@ class Node(object):
     
     def getCurrent(self):
         if self.branch != "MAIN":
-            signal = "BRANCH{branch}_BUS{bus}_Current".format(branch = self.branch, bus = self.bus)
+            signal = "BRANCH_{branch}_BUS_{bus}_Current".format(branch = self.branch, bus = self.bus)
         else:
             signal = "MAIN_BUS_Current"
         resdict = tagClient.readTags([signal])
@@ -38,10 +53,17 @@ class Node(object):
     
     def isolateNode(self):
         if self.branch == "MAIN":
-            signals = ["BRANCH1_BUS1_PROX_DUMMY","BRANCH2_BUS1_PROX_DUMMY"]
+            signals = ["BRANCH_1_BUS_1_PROX_DUMMY","BRANCH_2_BUS_1_PROX_DUMMY"]
             writeTags(signals,[True, True])
         else:
-            signals = ["BRANCH{branch}_BUS{bus}_DIST_DUMMY", "BRANCH{branch}_BUS{bus}_DIST_PROX_DUMMY"]
+            signals = ["BRANCH_{branch}_BUS_{bus}_DIST_DUMMY", "BRANCH_{branch}_BUS_{bus}_DIST_PROX_DUMMY"]
             writeTags(signals,[True, True])
     
-    
+    def printInfo(self,verbosity = 1):
+        print("NODE {me} CONTAINS THE FOLLOWING...".format(me = self.name))
+        print(">>CUSTOMERS ({n}):".format(n = len(self.customers)))
+        for cust in self.customers:
+            cust.printInfo()
+        print(">>RESOURCES ({n}):".format(n = len(self.resources)))
+        for res in self.resources:
+            res.printInfo()
