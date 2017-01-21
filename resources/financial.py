@@ -15,8 +15,8 @@ class Bid(object):
     def printInfo(self,verbosity = 1):
         print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
         print("BID INFORMATION for BID {id}".format(id = self.uid))
-        print("SERVICE: {service}".format(id = self.service))
-        print("AMOUNT: {amt} AT: {rate} Credits/Joule".format(self.amount, self.rate))
+        print("SERVICE: {service}".format(service = self.service))
+        print("AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
         print("FOR PERIOD: {per}".format(per = self.period))
         print("COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
         print("STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
@@ -24,7 +24,8 @@ class Bid(object):
 
 #determine daily rate based on capital cost and rate of return        
 def dailyratecalc(capitalCost,discountRate,term):
-    dailyrate = (discountRate*(1+discountRate)**(term - 1))*capitalCost
+    yearlyrate = ((discountRate*(1+discountRate)**(term - 1))*capitalCost)/(((1+discountRate)**term)-1)
+    dailyrate = yearlyrate/365   #close enough
     return dailyrate
 
 def ratecalc(capitalCost,discountRate,term,capacityFactor):

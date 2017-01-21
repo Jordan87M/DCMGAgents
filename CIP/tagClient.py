@@ -51,7 +51,7 @@ def readTags(names, plc = "user"):
         for index,name in enumerate(names):
             message = message + " " + name
         message = message + "\n"
-        print(message)
+        #print(message)
         sock.sendall(message)
         
         data = sock.recv(1024)
@@ -76,7 +76,7 @@ def readTags(names, plc = "user"):
             #string isn't a number so it should be a boolean
             #make string lowercase
             value.lower()
-            print("val to lower: {v}".format(v = value))
+            #print("val to lower: {v}".format(v = value))
             if value.find("true") >= 0:
                 #print("val is true")
                 value = True

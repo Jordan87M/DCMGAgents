@@ -74,6 +74,7 @@ class LeadAcidBattery(Storage):
         self.SOC = self.getSOCfromOCV()
         
         self.cyclelife = 1000
+        self.amortizationPeriod = 10
         
     def getSOC(self):
         #get SOC from PLC
@@ -95,7 +96,7 @@ class SolarPanel(Source):
         self.Voc = Voc
         self.Vmpp = Vmpp
         
-        self.amortizationPeriod = 1000
+        self.amortizationPeriod = 10
         
     def powerAvailable(self):
         pass

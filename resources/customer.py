@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from DCMGClasses.CIP import tagClient
 
 class CustomerProfile(object):
@@ -6,6 +8,7 @@ class CustomerProfile(object):
         self.location = location
         self.resources = resources
         self.Resources = []
+        self.tagCache = {}
         
         loclist = self.location.split('.')
         if type(loclist) is list:
@@ -33,17 +36,60 @@ class CustomerProfile(object):
         tagClient.writeTags([signal],[False])
         
     def measureVoltage(self):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
-        return tagClient.readTags([tag])
+        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branch, bus = self.bus)
+        tagval = tagClient.readTags([tag])
+        self.tagCache[tag] = (tagval, datetime.now())
+        return tagval
     
     def measureCurrent(self):
         tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
-        return tagClient.readTags([tag])
+        tagval = tagClient.readTags([tag])
+        self.tagCache[tag] = (tagval, datetime.now())
+        return tagval
     
     def measurePower(self):
-        return self.measureVoltage()*self.measureCurrent()
-                
-        
+        tagval = self.measureVoltage()*self.measureCurrent()
+        self.tagCache["BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branch, bus = self.bus, load = self.load)] = (tagval, datetime.now())
+        return tagval
+    
+    '''calls measureCurrent only if cached value isn't fresh'''    
+    def getCurrent(self,threshold = 5.1):
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        val, time = self.tagCache.get(tag,(None, None))
+        if val is not None and time is not None:
+            diff = datetime.now() - time
+            et = diff.total_seconds()    
+                    
+            if et < threshold:
+                return val        
+        return measureCurrent()
+    
+    '''calls measureVoltage only if cached value isn't fresh'''
+    def getVoltage(self,threshold = 5.1):
+        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branch, bus = self.bus)
+        val, time = self.tagCache.get(tag,(None, None))
+        if val is not None and time is not None:
+            diff = datetime.now() - time
+            et = diff.total_seconds()
+            
+            if et < threshold:
+                return val
+            
+        return measureVoltage()
+    
+    '''calls measurePower only if cached value isn't fresh'''
+    def getPower(self,threshold = 5.1):
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branch, bus = self.bus, load = self.load)
+        val, time = self.tagCache.get(tag,(None, None))
+        if val is not None and time is not None:
+            diff = datetime.now() - time
+            et = diff.total_seconds()
+            
+            if et < threshold:
+                return val
+            
+        return measurePower()
+    
 class ResidentialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,**kwargs):
         super(ResidentialCustomerProfile,self).__init__(name,location,resources,**kwargs)

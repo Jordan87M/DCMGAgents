@@ -288,7 +288,7 @@ class UtilityAgent(Agent):
                 print(cust.name)
                 if cust.resources:
                     #ask about bulk power
-                    mesdict = standardPowerBidSolicitation
+                    mesdict = self.standardPowerBidSolicitation
                     mesdict["message_target"] = cust.name
                     mesdict["period"] = self.STPinterval
                     self.uid += 1
@@ -297,7 +297,7 @@ class UtilityAgent(Agent):
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} SOLICITING BULK POWER BID: {mes}".format(me = self.name, mes = mess))
                     #ask about reserves
-                    mesdict = standardReserveBidSolicitation
+                    mesdict = self.standardReserveBidSolicitation
                     mesdict["message_target"] = cust.name
                     mesdict["uid"] = self.uid
                     self.uid += 1
@@ -307,8 +307,6 @@ class UtilityAgent(Agent):
                         print("UTILITY {me} SOLICITING RESERVE POWER BID: {mes}".format(me = self.name, mes = mess))
         sched = datetime.now() + timedelta(seconds = 10)            
         delaycall = self.core.schedule(sched,self.planShortTerm)
-        print(delaycall)
-        print(dir(delaycall))
         
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
@@ -319,22 +317,30 @@ class UtilityAgent(Agent):
             self.STPlan = control.Plan(self,self.STPinterval + 1)
             expLoad = self.getExpectedGroupLoad(group)
             maxLoad = self.getMaxGroupLoad(group)
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("PLANNING for GROUP {group}: expected load is {exp}. max load is {max}".format(group = group.name, exp = expLoad, max = maxLoad))
+                
             #find lowest cost option for fulfilling expected demand
             #we leave determining the cost of distributed resources to their owners
             #but, we still have to figure out how to value energy from utility resources
             for res in self.Resources:
-                if type(res) is SolarPanel:
+                if type(res) is resource.SolarPanel:
                     amount = res.maxDischargePower*self.perceivedInsol/100
                     rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                elif type(res) is LeadAcidBattery:
+                    self.bidList.append(financial.Bid("power",amount, rate, self.name, self.STPinterval))
+                elif type(res) is resource.LeadAcidBattery:
                     amount = 10
                     rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                    self.bidList.append(financial.Bid("power",amount, rate, self.name, self.STPinterval))
                 else:
                     print("trying to plan for unknown resource type")
             #sort array of bids by rate from low to high
-            bidList.sort(key = operator.attrgetter("rate"))
+            self.bidList.sort(key = operator.attrgetter("rate"))
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("PLANNING for GROUP {group}: LET's HAVE A LOOK AT THE BIDS ({length})".format(group = group.name, length = len(self.bidList)))
+                
             supply = 0      
-            for bid in bidList:
+            for bid in self.bidList:
                 if bid.service == "power":
                     if supply < expLoad:
                         supply += bid.amount
@@ -356,14 +362,17 @@ class UtilityAgent(Agent):
                         bid.accepted = False
                 
                 #notify the counterparties of the terms on which they will supply power
-            for bid in bidList:
+            for bid in self.bidList:
                 if bid.accepted:
-                    sendBidAcceptance(bid, rate)
+                    self.sendBidAcceptance(bid, rate)
                 else:
-                    sendBidRejected(bid, rate)    
+                    self.sendBidRejection(bid, rate)   
+                     
+                if settings.DEBUGGING_LEVEL >= 1:
+                    bid.printInfo()
             # now book enough reserves to handle worst case         
             resupply = supply
-            for bid in bidList:
+            for bid in self.bidList:
                 if bid.service == "reserve":
                     if resupply < maxLoad:
                         resupply += bid.amount
@@ -377,10 +386,13 @@ class UtilityAgent(Agent):
                             bid.accepted = True
                     else:
                         bid.accepted = False
+                        
+                    if settings.DEBUGGING_LEVEL >= 1:
+                        bid.printInfo()
                 else:
                     pass
                 
-            
+                                            
             #not enough supply available to meet demand, we'll have to shed load or something
             if supply < expLoad:
                 if settings.DEBUGGING_LEVEL >= 2:
@@ -389,6 +401,20 @@ class UtilityAgent(Agent):
     def sendBidAcceptance(self,bid,rate):
         mesdict = {}
         mesdict["message_subject"] = "bid_acceptance"
+        mesdict["message_target"] = bid.counterparty
+        mesdict["message_sender"] = self.name
+        
+        mesdict["amount"] = bid.amount
+        mesdict["service"] = bid.service
+        mesdict["rate"] = rate        
+        mesdict["period"] = bid.period
+        mesdict["uid"] = bid.uid
+        
+        mess = json.dumps(mesdict)
+        
+    def sendBidRejection(self,bid,rate):
+        mesdict = {}
+        mesdict["message_subject"] = "bid_rejection"
         mesdict["message_target"] = bid.counterparty
         mesdict["message_sender"] = self.name
         
@@ -450,11 +476,24 @@ class UtilityAgent(Agent):
         pass
     
     def getMaxGroupLoad(self,group):
+        print("MAX getting called for {group}".format(group = group.name))
         total = 0
-        for load in group.resources:
-            total += group.resources.maxDraw
+        print(group.customers)
+        for load in group.customers:
+            total += load.maxDraw
+            print("adding {load} to max load".format(load = load.maxDraw))
         return total
-        
+    
+    ''' assume that power consumption won't change much between one short term planning
+    period and the next'''
+    def getExpectedGroupLoad(self,group):
+        print("EXP getting called for {group}".format(group = group.name))
+        total = 0
+        print(group.customers)
+        for load in group.customers:
+            total += load.getPower()
+            print("adding {load} to expected load".format(load = load.getPower()))
+        return total
     
     '''update agent's knowledge of the current grid topology'''
     def getTopology(self):
@@ -477,6 +516,7 @@ class UtilityAgent(Agent):
                     cGroup.membership.append(cNode)
                     #add the node's resources to the group's resource array
                     cGroup.resources.extend(cNode.resources)
+                    cGroup.customers.extend(cNode.customers)
                     
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")

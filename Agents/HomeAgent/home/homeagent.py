@@ -11,7 +11,7 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import wrapper
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation
-from DCMGClasses.resources import resource, customer, control
+from DCMGClasses.resources import resource, customer, control, financial
 
 
 from . import settings
@@ -134,15 +134,15 @@ class HomeAgent(Agent):
                     bid["message_target"] = "message_sender"
                     bid["message_sender"] = self.name
         
-                    for res in self.resources:
+                    for res in self.Resources:
                         if type(res) is resource.SolarPanel:
                             amount = res.maxDischargePower*self.perceivedInsol/100
                             rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                        elif type(res) is resource.LeaadAcidBattery:
+                        elif type(res) is resource.LeadAcidBattery:
                             amount = 10
                             rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
                         else:
-                            pass
+                            print("A PROBLEM: {type} is not a recognized type".format(type = type(res)))
                         bid["amount"] = amount
                         bid["service"] = service
                         bid["rate"] = rate
