@@ -122,12 +122,15 @@ class ResourceProfile(object):
         self.capCost = capCost
         self.location = location
         self.name = name
+        
+        self.state = None
+        self.setpoint = None
             
     def setOwner(self,newOwner):
         self.owner = newOwner
         
     def printInfo(self):
-        print("        RESOURCE: {name} is a {type}".format(name = self.name, type = self.__class__.__name__))
+        print("        **RESOURCE: {name} is a {type}".format(name = self.name, type = self.__class__.__name__))
         print("            LOCATION: {loc}".format(loc = self.location))
 
 class SourceProfile(ResourceProfile):

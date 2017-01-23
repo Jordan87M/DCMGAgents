@@ -7,18 +7,16 @@ class Plan(object):
         
         self.acceptedBids = []
         self.ownBids = []
-        self.wholesaleRate = None
     
     def printInfo(self,verbosity = 1):
         print("------------------------------------")
         print("PLAN FROM {pl} for {per}".format(pl = self.planner, per = self.period))
-        print("WHOLESALE PRICE THIS PERIOD: {price}".format(price = self.wholesaleRate))
         print("INCLUDES THE FOLLOWING BIDS:")
         for bid in self.acceptedBids:
             bid.printInfo()
         
     def addBid(self,newbid):
         self.acceptedBids.append(newbid)
-        if newbid.counterparty == planner.name:
+        if newbid.counterparty == self.planner:
             self.ownBids.append(newbid)
     

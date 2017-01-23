@@ -15,7 +15,7 @@ class Resource(object):
         self.owner = newOwner
         
     def printInfo(self):
-        print("    RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
+        print("    **RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
 
 class Source(Resource):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs):

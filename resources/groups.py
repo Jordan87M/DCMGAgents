@@ -8,6 +8,8 @@ class Group(object):
         self.membership = membership
         self.customers = customers
         
+        self.rates = {"retail": .1, "wholesale": .05}
+        
         self.security = -1
         
     def printInfo(self,verbosity = 1):

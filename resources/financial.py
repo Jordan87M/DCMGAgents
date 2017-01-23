@@ -1,21 +1,26 @@
 import random
 
 class Bid(object):
-    def __init__(self,service,amount,rate,counterparty,period,uid = random.getrandbits(32)):
+    def __init__(self,resourceName,service,amount,rate,counterparty,period,uid = None):
         self.service = service
         self.amount = amount
         self.rate = rate
         self.counterparty = counterparty
         self.period = period
-        self.uid = uid
-        
+        self.resourceName = resourceName
+                
         self.accepted = False
         self.modified = False
+        
+        if uid is None:
+            self.uid = random.getrandbits(32)
+        else:
+            self.uid = uid
     
     def printInfo(self,verbosity = 1):
         print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
         print("BID INFORMATION for BID {id}".format(id = self.uid))
-        print("SERVICE: {service}".format(service = self.service))
+        print("SERVICE: {service} FROM: {res}".format(service = self.service, res = self.resourceName))
         print("AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
         print("FOR PERIOD: {per}".format(per = self.period))
         print("COUNTERPARTY: {ctr}".format(ctr = self.counterparty))

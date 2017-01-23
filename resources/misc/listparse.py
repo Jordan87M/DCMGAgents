@@ -25,3 +25,10 @@ def isRecipient(list,name,debug = False):
         if debug == True:
             print("DEBUG: neither a list nor a string but a {t}".format(t = type(list)))
             return False
+        
+'''helper function to get the name of a resource or customer from a list of
+class objects'''                        
+def lookUpByName(name,list):
+    for entity in list:
+        if entity.name == name:
+            return entity
