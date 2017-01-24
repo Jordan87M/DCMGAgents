@@ -89,9 +89,15 @@ class UtilityAgent(Agent):
         self.tagCache = {}
         
         #short term planning interval counter
-        self.STPinterval = 0
-        self.STActionInterval =  [0, datetime.now()]
+        
         self.STPlan  = control.Plan(self,self.STPinterval)
+        
+        now = datetime.now()
+        end = datetime.now()+timedelta(seconds = settings.ST_PLAN_INTERVAL)
+        self.CurrentPeriod = Period(0,now,end)
+        
+        self.NextPeriod = Period(1,end,end + timedelta(seconds = 30))
+        
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -265,7 +271,7 @@ class UtilityAgent(Agent):
     @Core.periodic(settings.ST_PLAN_INTERVAL)
     def solicitBids(self):
         if settings.DEBUGGING_LEVEL >=2 :
-            print("UTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.STPinterval))
+            print("UTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
         subs = self.getTopology()
         self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
@@ -286,7 +292,7 @@ class UtilityAgent(Agent):
                     mesdict["message_subject"] = "bid_solicitation"
                     mesdict["service"] = "power"
                     mesdict["message_target"] = cust.name
-                    mesdict["period"] = self.STPinterval
+                    mesdict["period"] = self.NextPeriod.periodNumber
                     mesdict["ID"] = self.uid
                     self.uid += 1
                     
@@ -315,7 +321,7 @@ class UtilityAgent(Agent):
            
         for group in self.groupList:
             
-            self.STPlan = control.Plan(self,self.STPinterval)
+            self.STPlan = control.Plan(self,self.NextPeriod.periodNumber)
             expLoad = self.getExpectedGroupLoad(group)
             maxLoad = self.getMaxGroupLoad(group)
             if settings.DEBUGGING_LEVEL >= 2:
@@ -330,11 +336,11 @@ class UtilityAgent(Agent):
                 if type(res) is resource.SolarPanel:
                     amount = res.maxDischargePower*self.perceivedInsol/100
                     rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                    self.bidList.append(financial.Bid(res.name,"power",amount, rate, self.name, self.STPinterval))
+                    self.bidList.append(financial.Bid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
                 elif type(res) is resource.LeadAcidBattery:
                     amount = 10
                     rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                    self.bidList.append(financial.Bid(res.name,"power",amount, rate, self.name, self.STPinterval))
+                    self.bidList.append(financial.Bid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
                 else:
                     print("trying to plan for unknown resource type")
             #sort array of bids by rate from low to high
@@ -438,19 +444,35 @@ class UtilityAgent(Agent):
                     
     '''responsible for enacting the plan which has been defined for a planning period'''
     def enactPlan(self):
-        #determine differences between current state and new state
+        #all changes in setpoints should be made gradually, i.e. by using
+        #resource.connectSoft() or resource.ramp()
         
-        #find swings source headroom, which constrains how we can add generation
-        
-        
-        #use headroom to determine maximum output change permitted
-        
-        #make offsetting changes until we've exhausted all required changes
+        #involvedResources will help figure out which resources must be disconnected
+        involvedResources = []
+        #change setpoints
+        if self.CurrentPeriod.actionPlan:
+            for bid in self.CurrentPeriod.actionPlan.ownBids:
+                res = listparse.lookUpByName(bid.resourceName)
+                involvedResources.append(res)
+                #if the resource is already connected, change the setpoint
+                if res.connected == True:
+                    if bid.service == "power":
+                        res.DischargeChannel.ramp(bid.amount)
+                    elif bid.service == "reserve":
+                        res.DischargeChannel.ramp(.1)
+                #if the resource isn't connected, connect it and ramp up power
+                else:
+                    if bid.service == "power":
+                        res.connectSourceSoft("Preg",bid.amount)
+                    elif bid.servie == "reserve":
+                        res.connectSourceSoft("Preg",.1)
+            #ramp down and disconnect resources that aren't being used anymore
+            for res in self.Resources:
+                if res not in involvedResources:
+                    if res.connected == True:
+                        res.disconnectSourceSoft()
             
-            #wait a little for settling
-                
-        pass
-            
+            #we will also have to change swing sources if necessary...
             
     def sendBidAcceptance(self,bid,rate):
         mesdict = {}

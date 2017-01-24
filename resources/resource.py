@@ -1,6 +1,9 @@
 from DCMGClasses.resources.math import interpolation
 #from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
+from volttron.platform.vip.agent import Core
+
+import math
 
 class Resource(object):
     
@@ -25,6 +28,7 @@ class Source(Resource):
         
         self.availDischargePower = 0
         
+        self.connected = False
         
         DischargeChannel = Channel(dischargeChannel)
         
@@ -46,10 +50,16 @@ class Source(Resource):
         return current
     
     def connectSource(self,mode,setpoint):
-        self.DischargeChannel.connect(mode,setpoint)
+        self.connected = self.DischargeChannel.connect(mode,setpoint)
+        
+    def connectSourceSoft(self,mode,setpoint):
+        self.connected = self.DischargeChannel.connectSoft(mode,setpoint)
     
     def disconnectSource(self):
-        self.DischargeChannel.disconnect()
+        self.connected = self.DischargeChannel.disconnect()
+        
+    def disconnectSourceSoft(self):
+        self.connected = self.DischargeChannel.disconnectSoft()
     
 
 class Storage(Source):
@@ -106,30 +116,58 @@ class Channel():
     def __init__(self,channelNumber):
         self.channelNumber = channelNumber
         
+        self.connected = False
+        
+        #PLC tag names generated from channel number
+        self.relayTag = "SOURCE_{d}_DUMMY".format(d = self.channelNumber)
+        self.vSetpointTag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = self.channelNumber)
+        self.pSetpointTag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber)
+        self.swingSelectTag = "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = self.channelNumber)
+        self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = self.channelNumber)
+        self.battSelectTag = "SOURCE_{d}_BATTERY_CHARGE_SElECT_DUMMY".format(d = self.channelNumber)
+        
+        self.regVTag = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)
+        self.unregVTag = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
+        self.regItag =  "SOURCE_{d}_RegCurrent".format(d = self.channelNumber)
+        self.unregItag = "SOURCE_{d}_UnregCurrent".format(d = self.channelNumber)
+        
     def getRegV(self):
-        tagName = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)     
+        tagName = self.regVTag     
         #call to CIP wrapper
         #value = getTagValue(tagName)
         value = tagClient([tagName])
         return value   
         
     def getUnregV(self):
-        tagName = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
+        tagName = self.unregVTag
         #value = wrapper.getTagValue(tagName)
         value = tagClient([tagName])
         return value
     
     def getRegI(self):
-        tagName = "SOURCE_{d}_RegCurrent".format(d = self.channelNumber)
+        tagName = self.regItag
         #value = getTagValue(tagName)
         value = tagClient([tagName])
         return value
     
     def getUnregI(self):
-        tagName = "SOURCE_{d}_UnregCurrent".format(d = self.channelNumber)
+        tagName = self.unregItag
         #value = getTagValue(tagName)
         value = tagClient([tagName])
         return value
+    
+    def disconnect(self):
+        #disconnect power from the source
+        tagClient.writeTags([self.relayTag],[False])
+        #return setpoint to zero
+        tagClient.writeTags([self.vSetpointTag],[0])
+        tagClient.writeTags([self.pSetpointTag],[0])
+        #read tag to confirm write success
+        return tagClient.readTags([self.relayTag])
+    
+    def disconnectSoft(self,maxStep = .5):
+        #ramp down power setpoint and disconnect when finished
+        self.ramp(0,maxStep,True)
     
     '''connects the channel converter and puts it in one of several operating modes.
     Behaviors in each of these modes are governed by the PLC ladder code'''
@@ -137,37 +175,98 @@ class Channel():
         ch = self.channelNumber
         
         if mode == "Vreg":
-            tag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = ch)
-            tagClient.writeTags([tag],[0])
-            tags = ["SOURCE_{d}_BATTERY_CHARGE_SElECT_DUMMY".format(d = ch),
-                    "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = ch),
-                    "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = ch)]
+            tagClient.writeTags([self.vSetpointTag],[0])
+            tags = [self.battSelectTag ,
+                    self.powerSelectTag,
+                    self.swingSelectTag]
             tagClient.writeTags([tags],[False,False,True])
-            tag = "SOURCE_{d}_DUMMY".format(d = ch)
-            tagClient.writeTags([tag],[True])
-            tag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = ch)
-            tagClient.writeTags([tag],[setpoint])
+            tagClient.writeTags([self.relayTag],[True])
+            tagClient.writeTags([self.vSetpointTag],[setpoint])
         elif mode == "Preg":
-            tag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = ch)
-            tagClient.writeTags([tag],[0])
-            tags = ["SOURCE_{d}_BATTERY_CHARGE_SELECT_DUMMY".format(d = ch),
-                    "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = ch),
-                    "SOURCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = ch)]
+            tagClient.writeTags([self.pSetpointTag],[0])
+            tags = [self.battSelectTag ,
+                    self.powerSelectTag,
+                    self.swingSelectTag]
             tagClient.writeTags([tags],[False,True,False])
-            tag = "SOURCE_{d}_DUMMY".format(d = ch)
-            tagClient.writeTags([tag],[True])
-            tag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = ch)
-            tagClient([tag],[setpoint])
+            tagClient.writeTags([self.relayTag],[True])
+            tagClient([self.pSetpointTag],[setpoint])
         elif mode == "BattCharge":
-            tags = ["SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber),
-                   "SOURCE_{d}_BATTERY_CHARGE_SELECT_DUMMY".format(d = self.channelNumber)]
+            tags = [self.pSetpointTag,
+                   self.battSelectTag]
             tagClient.writeTags([tags],[0,True])
             tag = "SOURCE_{d}_BatteryReqCharge_DUMMY".format(d = self.channelNumber)
             tagClient.writeTags([tag],[True])
-            tag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber)
-            tagClient.writeTags([tag],[setpoint])
+            tagClient.writeTags([self.pSetpointTag],[setpoint])
         else:
             print("CHANNEL{ch} received a bad mode request: {mode}".format(ch = self.channelNumber,mode = mode))
+        
+        if tagClient.readTags([self.relayTag]):
+            self.connected = True
+            return True
+        else:
+            self.connected = False
+            return False
+    '''connects in one of the usual modes, but if it's a power regulating source
+    it ramps up gradually to avoid exceeding swing source headroom'''
+    def connectSoft(self,mode,setpoint):
+        ch = self.channelNumber
+        
+        if mode == "Vreg":
+            tagClient.writeTags([self.vSetpointTag],[0])
+            tags = [self.battSelectTag ,
+                    self.powerSelectTag,
+                    self.swingSelectTag]
+            tagClient.writeTags([tags],[False,False,True])
+            tagClient.writeTags([self.relayTag],[True])
+            tagClient.writeTags([self.vSetpointTag],[setpoint])
+        elif mode == "Preg":
+            tagClient.writeTags([self.pSetpointTag],[0])
+            tags = [self.battSelectTag,
+                    self.powerSelectTag,
+                    self.swingSelectTag]
+            tagClient.writeTags([tags],[False,True,False])
+            tagClient.writeTags([self.relayTag],[True])
+            self.ramp(setpoint)
+        elif mode == "BattCharge":
+            tags = [self.pSetpointTag,
+                   self.battSelectTag]
+            tagClient.writeTags([tags],[0,True])
+            tag = "SOURCE_{d}_BatteryReqCharge_DUMMY".format(d = self.channelNumber)
+            tagClient.writeTags([tag],[True])
+            tagClient.writeTags([self.pSetpointTag],[setpoint])
+        else:
+            print("CHANNEL{ch} received a bad mode request: {mode}".format(ch = self.channelNumber,mode = mode))
+            
+        if tagClient.readTags([self.relayTag]):
+            self.connected = True
+            return True
+        else:
+            self.connected = False
+            return False
+    
+    def ramp(self,setpoint,maxStep = .5,disconnectWhenFinished = False):
+        tag = self.pSetpointTag
+        currentSetpoint = tagClient.readTags([tag])
+        diff = setpoint - currentSetpoint
+        if diff > maxStep:
+            currentSetpoint += maxStep
+        elif diff < -maxStep:
+            currentSetpoint -= maxStep
+        else:
+            currentSetpoint += diff
+        tagClient.writeTags([tag],[currentSetpoint])
+        
+        if math.fabs(diff) > .001:
+            #schedule a callback, allowing some time for actuation
+            sched = datetime.now() + timedelta(seconds = 1.5)
+            Core.schedule(sched,self.ramp)
+            print("{me} is scheduling another ramp call: {cs}".format(me = self.channelNumber, cs = currentSetpoint))
+            if disconnectWhenFinished == True and setpoint == 0:
+                print("ramp with disconnect completed, disconnecting {me}".format(me = self.channelNumber))
+                self.disconnect()
+        else:
+            print("{me} is done ramping to {set}".format(me = self.name, set = setpoint))
+        
     
 def addResource(strlist,classlist,debug = False):
     def addOne(item,classlist):
