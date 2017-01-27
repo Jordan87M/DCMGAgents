@@ -8,7 +8,7 @@ from volttron.platform.vip.agent import Agent, Core, PubSub, compat
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
-from DCMGClasses.CIP import wrapper
+from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation
 from DCMGClasses.resources import resource, customer, control, financial
@@ -32,6 +32,9 @@ class HomeAgent(Agent):
         self.resources = self.config["resources"]
         self.demandCurve = self.config["demandCurve"]
         self.perceivedInsol = 10
+        #the following variables 
+        self.FREGpart = bool(self.config["FREGpart"])
+        self.DRpart = bool(self.config["DRpart"])
         
         self.Resources = []
         
@@ -49,12 +52,17 @@ class HomeAgent(Agent):
         
                     
         self.DR_participant = False
+        self.FREG_participant = False
         self.gridConnected = False
         self.registered = False
         
         self.avgEnergyCost = 1
-        self.cPlan = control.Plan(self,1)
         self.outstandingBids = []
+        
+        start = datetime.now()
+        #this value doesn't matter
+        end = start + timedelta(seconds = 30)
+        self.CurrentPeriod = control.Period(0,start,end,self.name)
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -67,8 +75,37 @@ class HomeAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
+        self.vip.pubsub.subscribe("pubsub","FREG",callback = self.FREGfeed)
         
         self.printInfo(1)
+        
+    '''callback for frequency regulation signal topic'''
+    def FREGfeed(self, peer, sender, bus, topic, headers, message):
+        mesdict = json.loads(message)
+        messageTarget = mesdict.get("message_target",None)
+        messageSubject = mesdict.get("message_subject",None)
+        messageSender = mesdict.get("message_sender",None)
+        # if the message is meant for us
+        if listparse.isRecipient(messageTarget,self.name,False):
+            if messageSubject == "FREG_enrollment":
+                messageType = mesdict.get("message_type",None)
+                #if message is solicitation, sign up or ignore
+                if messageType == "solicitation":
+                    if self.FREGpart:
+                        resdict = {"message_subject" : "FREG_enrollment",
+                                   "message_sender" : self.name,
+                                   "message_target" : messageSender,
+                                   "message_type" : "acceptance"
+                                   }
+                        response = json.dumps(resdict)
+                        self.vip.pubsub.publish("pubsub","FREG",{},response)
+                #message is an ACK, consider ourselves an enrollee
+                elif messageType == "enrollment_ACK":
+                    self.FREG_participant == True
+            if messageSubject == "FREG_signal":
+                #if we are a participant, and we are able, follow the FREG signal
+                if self.FREG_participant:
+                    pass
         
     '''callback for customerservice topic'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
@@ -125,6 +162,7 @@ class HomeAgent(Agent):
             if settings.DEBUGGING_LEVEL >= 2:
                 print("HOME {name} received a {top} message: {sub}".format(name = self.name, top = topic, sub = messageSubject))
                 print(message)
+            #sent by a utility agent to elicit bids for generation    
             if messageSubject == 'bid_solicitation':
                 service = mesdict.get("service",None)
                 period = mesdict.get("period",None)
@@ -180,7 +218,7 @@ class HomeAgent(Agent):
                                     newBid.printInfo()
                         else:
                             print("A PROBLEM: {type} is not a recognized type".format(type = type(res)))
-                
+            #received when a homeowner's bid has been accepted    
             elif messageSubject == 'bid_acceptance':
                 #if acceptable, update the plan
                 
@@ -198,8 +236,8 @@ class HomeAgent(Agent):
                         bid.amount = amount
                         bid.rate = rate
                         bid.period = period
-                                        
-                        self.cPlan.addBid(bid)
+                        if bid.period == self.NextPeriod.periodNumber:
+                            self.NextPeriod.actionPlan.addBid(bid)
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("-->HOMEOWNER {me} ACK BID ACCEPTANCE".format(me = self.name))
                             bid.printInfo()
@@ -210,7 +248,21 @@ class HomeAgent(Agent):
                 for bid in self.outstandingBids:
                     if bid.uid == uid:
                         self.outstandingBids.remove(bid)
-                
+            #subject used for handling general announcements            
+            elif messageSubject == "announcement":
+                messageType = mesdict.get("message_type",None)
+                #announcement of next period start and stop times to ensure synchronization
+                if messageType == "next_period_time":
+                    period = mesdict.get("period_number",None)
+                    #if this is a period we don't know about, it should be a new one
+                    if period > self.CurrentPeriod.periodNumber:
+                        startTime = mesdict.get("start_time",None)
+                        endTime = mesdict.get("end_time",None)
+                        startdtime = datetime.strptime(startTime,"%Y-%m-%dT%H:%M:%S.%f")
+                        enddtime = datetime.strptime(endTime,"%Y-%m-%dT%H:%M:%S.%f")
+                        self.NextPeriod = control.Period(period,startdtime,enddtime,self.name)
+                        #schedule a callback to begin the new period
+                        self.core.schedule(startdtime,self.advancePeriod)
             elif messageSubject == "spot_update":
                 self.energySpot = mesdict.get("new_spot")
                 priceChanged(self.energySpot)
@@ -243,15 +295,15 @@ class HomeAgent(Agent):
                 response["event_id"] = eventID
                 if self.DR_participant == True:
                     if eventType == 'normal':
-                        changeConsumption(1)
+                        self.changeConsumption(1)
                     elif eventType == 'grid_emergency':
-                        changeConsumption(0)
+                        self.changeConsumption(0)
                     elif eventType == 'shed':
-                        changeConsumption(0)
+                        self.changeConsumption(0)
                     elif eventType == 'critical_peak':
-                        changeConsumption(0)
+                        self.changeConsumption(0)
                     elif eventType == 'load_up':
-                        changeConsumption(1)
+                        self.changeConsumption(1)
                     else:
                         print('got a weird demand response eventType')
                     
@@ -294,6 +346,50 @@ class HomeAgent(Agent):
             self.connectLoad()
         else:
             pass
+    
+    def advancePeriod(self):
+        self.CurrentPeriod = self.NextPeriod
+        #contra the utility version of this fn, don't create the next period
+        
+        if settings.DEBUGGING_LEVEL >= 1:
+            print("HOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
+            self.CurrentPeriod.printInfo()
+        
+        #call enact plan
+        self.enactPlan()
+        
+        #also don't schedule next call, wait for announcement from utility
+    
+    '''responsible for enacting the plan which has been defined for a planning period'''
+    def enactPlan(self):
+        #all changes in setpoints should be made gradually, i.e. by using
+        #resource.connectSoft() or resource.ramp()
+        
+        #involvedResources will help figure out which resources must be disconnected
+        involvedResources = []
+        #change setpoints
+        if self.CurrentPeriod.actionPlan:
+            for bid in self.CurrentPeriod.actionPlan.ownBids:
+                res = listparse.lookUpByName(bid.resourceName)
+                involvedResources.append(res)
+                #if the resource is already connected, change the setpoint
+                if res.connected == True:
+                    if bid.service == "power":
+                        res.DischargeChannel.ramp(bid.amount)
+                    elif bid.service == "reserve":
+                        res.DischargeChannel.ramp(.1)
+                #if the resource isn't connected, connect it and ramp up power
+                else:
+                    if bid.service == "power":
+                        res.connectSourceSoft("Preg",bid.amount)
+                    elif bid.servie == "reserve":
+                        res.connectSourceSoft("Preg",.1)
+            #ramp down and disconnect resources that aren't being used anymore
+            for res in self.Resources:
+                if res not in involvedResources:
+                    if res.connected == True:
+                        res.disconnectSourceSoft()
+    
     
     def disconnectLoad(self):
         #this is where we'll call the CIP stack wrapper to disconnect load

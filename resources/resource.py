@@ -3,7 +3,7 @@ from DCMGClasses.resources.math import interpolation
 from DCMGClasses.CIP import tagClient
 from volttron.platform.vip.agent import Core
 
-import math
+from datetime import datetime, timedelta
 
 class Resource(object):
     
@@ -30,7 +30,7 @@ class Source(Resource):
         
         self.connected = False
         
-        DischargeChannel = Channel(dischargeChannel)
+        self.DischargeChannel = Channel(dischargeChannel)
         
         
     def getInputUnregVoltage(self):
@@ -74,7 +74,7 @@ class Storage(Source):
         self.SOC = 0
         self.energy = 0
         
-        ChargeChannel = Channel(chargeChannel)
+        self.ChargeChannel = Channel(chargeChannel)
         
                 
 class LeadAcidBattery(Storage):
@@ -118,6 +118,7 @@ class Channel():
         
         self.connected = False
         
+        
         #PLC tag names generated from channel number
         self.relayTag = "SOURCE_{d}_DUMMY".format(d = self.channelNumber)
         self.vSetpointTag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = self.channelNumber)
@@ -125,6 +126,8 @@ class Channel():
         self.swingSelectTag = "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = self.channelNumber)
         self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = self.channelNumber)
         self.battSelectTag = "SOURCE_{d}_BATTERY_CHARGE_SElECT_DUMMY".format(d = self.channelNumber)
+        self.noLoadVoltageTag = "SOURCE_{d}_noLoadVoltage".format(d = self.channelNumber)
+        self.droopCoeffTag = "SOURCE_{d}_droopCoeff".format(d = self.channelNumber)
         
         self.regVTag = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)
         self.unregVTag = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
@@ -168,6 +171,23 @@ class Channel():
     def disconnectSoft(self,maxStep = .5):
         #ramp down power setpoint and disconnect when finished
         self.ramp(0,maxStep,True)
+    
+    def connectDroop(self,setpoint,noLoadVoltage = 12, refVoltage = 11.8):
+        #set up parameters for droop control
+        tags = [self.noLoadVoltageTag, self.pSetpointTag, self.droopCoeffTag]
+        values = [noLoadVoltage, setpoint, setpoint/(noLoadVoltage - refVoltage)]
+        tagClient.writeTags(tag,values)
+        #close relay and connect source
+        tagClient.writeTags([self.relayTag],[True])
+        
+        if tagClient.readTags([self.relayTag]):
+            self.connected = True
+            return True
+        else:
+            self.connected = False
+            return False
+    
+    
     
     '''connects the channel converter and puts it in one of several operating modes.
     Behaviors in each of these modes are governed by the PLC ladder code'''
@@ -256,7 +276,7 @@ class Channel():
             currentSetpoint += diff
         tagClient.writeTags([tag],[currentSetpoint])
         
-        if math.fabs(diff) > .001:
+        if abs(diff) > .001:
             #schedule a callback, allowing some time for actuation
             sched = datetime.now() + timedelta(seconds = 1.5)
             Core.schedule(sched,self.ramp)

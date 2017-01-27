@@ -32,3 +32,4 @@ def lookUpByName(name,list):
     for entity in list:
         if entity.name == name:
             return entity
+    return None

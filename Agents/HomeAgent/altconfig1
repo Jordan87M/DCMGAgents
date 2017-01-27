@@ -3,6 +3,8 @@
 	"name": "Ganderley",
 	"location": "DC.BRANCH1.BUS2.LOAD1",
 	"message": "home agent up",
+	"FREGpart" : "1",
+	"DRpart" : "1",
 	"demandCurve":[[3.0, 0],[3.0, 1],[0, 1],[0, 3]],
 	"resources": [{"type":"solar","owner":"Ganderley", "location": "DC.BRANCH1.BUS2.LOAD1", "name":"Helios", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}]
 }

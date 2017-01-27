@@ -12,6 +12,8 @@ class Bid(object):
         self.accepted = False
         self.modified = False
         
+        #if we are creating this bid to correspond to a preexisting bid, we can specify the uid
+        #otherwise, generate an id randomly
         if uid is None:
             self.uid = random.getrandbits(32)
         else:

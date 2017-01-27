@@ -2,8 +2,8 @@ from DCMGClasses.resources import financial, groups
 from DCMGClasses.resources import misc
 
 class Plan(object):
-    def __init__(self,period):
-        #self.planner = planner
+    def __init__(self,period,planner):
+        self.planner = planner
         self.period = period
         
         self.acceptedBids = []
@@ -12,7 +12,7 @@ class Plan(object):
     def printInfo(self,verbosity = 1):
         print("------------------------------------")
         print("PLAN for {per}".format(per = self.period))
-        print("INCLUDES THE FOLLOWING BIDS:")
+        print("INCLUDES THE FOLLOWING BIDS ({n}):".format(n = len(self.acceptedBids)))
         for bid in self.acceptedBids:
             bid.printInfo()
         
@@ -22,13 +22,13 @@ class Plan(object):
             self.ownBids.append(newbid)
     
 class Period(object):
-    def __init__(self,periodNumber,startTime,endTime):
+    def __init__(self,periodNumber,startTime,endTime,planner):
         self.periodNumber = periodNumber
         self.startTime = startTime
         self.endTime = endTime
         
         #initialize the plan for this period
-        self.actionPlan = Plan(self.periodNumber)
+        self.actionPlan = Plan(self.periodNumber,planner)
         
     def printInfo(self):
         print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")

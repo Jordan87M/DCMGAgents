@@ -88,15 +88,12 @@ class UtilityAgent(Agent):
         #local storage to ease load on tag server
         self.tagCache = {}
         
-        #short term planning interval counter
-        
-        self.STPlan  = control.Plan(self,self.STPinterval)
-        
         now = datetime.now()
         end = datetime.now()+timedelta(seconds = settings.ST_PLAN_INTERVAL)
-        self.CurrentPeriod = Period(0,now,end)
+        self.CurrentPeriod = control.Period(0,now,end,self.name)
         
-        self.NextPeriod = Period(1,end,end + timedelta(seconds = 30))
+        self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
+        
         
         
     @Core.receiver('onstart')
@@ -115,6 +112,10 @@ class UtilityAgent(Agent):
         
         self.printInfo(2)
         #self.discoverCustomers()
+        
+        
+        #schedule planning period advancement
+        self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
     
     '''callback for weatherfeed topic'''
     def weatherfeed(self, peer, sender, bus, topic, headers, message):
@@ -123,20 +124,22 @@ class UtilityAgent(Agent):
         messageTarget = mesdict.get('message_target',None)
         messageSender = mesdict.get('message_sender',None)
         messageType = mesdict.get("message_type",None)
-        
+        #if we are the intended recipient
         if listparse.isRecipient(messageTarget,self.name):    
             if messageSubject == "nowcast":
                 if messageType == "solar_irradiance":
+                    #update local solar irradiance estimate
                     self.perceivedInsol = mesdict.get("info",None)
     
     '''callback for customer service topic. This topic is used to enroll customers
     and manage customer accounts.'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
+        #load json message
         try:
             mesdict = json.loads(message)
         except Exception as e:
             print("customerfeed message to {me} was not formatted properly".format(me = self))
-            
+        #determine intended recipient, ignore if not us    
         messageTarget = mesdict.get("message_target",None)
         if listparse.isRecipient(messageTarget,self.name):
             
@@ -146,7 +149,7 @@ class UtilityAgent(Agent):
             messageSubject = mesdict.get("message_subject",None)
             messageType = mesdict.get("message_type",None)
             if messageSubject == "customer_enrollment":
-                #print(self.customers)
+                #if the message is a response to new customer solicitation
                 if messageType == "new_customer_response":
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} RECEIVED A RESPONSE TO CUSTOMER ENROLLMENT SOLICITATION".format(me = self.name))
@@ -154,7 +157,7 @@ class UtilityAgent(Agent):
                         name, location, resources, customerType = mesdict.get("info")                        
                     except Exception as e:
                         print("customer information improperly formatted :(")
-                        
+                    #create a new object to represent customer in our database    
                     if customerType == "residential":
                         cust = customer.ResidentialCustomerProfile(name,location,resources)
                         self.customers.append(cust)
@@ -253,20 +256,37 @@ class UtilityAgent(Agent):
     and updates account balances according to their rate '''
     @Core.periodic(settings.ACCOUNTING_INTERVAL)
     def accountUpdate(self):
-        for cust in self.customers:
-            power = cust.measurePower()
-            energy = power*settings.ACCOUNTING_INTERVAL
-            #if power is being consumed, charge retail rates
-            if power > 0:            
-                balanceAdjustment = energy*self.rates["retail"]*cust.rateAdjustment
-            #if power is being produced, pay wholesale rates
-            else:
-                balanceAdjustment = energy*self.rates["wholesale"]*cust.rateAdjustment
-            cust.customerAccount.adjustBalance(balanceAdjustment)
+        for group in self.groupList:
+            for cust in group.customers:
+                power = cust.measurePower()
+                energy = power*settings.ACCOUNTING_INTERVAL
+                #if power is being consumed, charge retail rates
+                if power > 0:            
+                    balanceAdjustment = energy*group.rates["retail"]*cust.rateAdjustment
+                #if power is being produced, pay wholesale rates
+                else:
+                    balanceAdjustment = energy*group.rates["wholesale"]*cust.rateAdjustment
+                cust.customerAccount.adjustBalance(balanceAdjustment)
     
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
         pass
+    
+    @Core.periodic(settings.ANNOUNCE_PERIOD_INTERVAL)
+    def announcePeriod(self):    
+        mesdict = {"message_sender" : self.name,
+                   "message_target" : "broadcast",
+                   "message_subject" : "announcement",
+                   "message_type" : "next_period_time",
+                   "period_number" : self.NextPeriod.periodNumber,
+                   "start_time" : self.NextPeriod.startTime.isoformat(),
+                   "end_time" : self.NextPeriod.endTime.isoformat()
+                   }
+        
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
+        message = json.dumps(mesdict)
+        self.vip.pubsub.publish("pubsub","energymarket",{},message)
     
     @Core.periodic(settings.ST_PLAN_INTERVAL)
     def solicitBids(self):
@@ -318,10 +338,8 @@ class UtilityAgent(Agent):
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} IS FORMING A NEW SHORT TERM PLAN".format(me = self.name))
-           
-        for group in self.groupList:
             
-            self.STPlan = control.Plan(self,self.NextPeriod.periodNumber)
+        for group in self.groupList:            
             expLoad = self.getExpectedGroupLoad(group)
             maxLoad = self.getMaxGroupLoad(group)
             if settings.DEBUGGING_LEVEL >= 2:
@@ -353,10 +371,12 @@ class UtilityAgent(Agent):
                 if bid.service == "power":
                     #check if bid is valid
                     bidValid = True
-                    for accbid in self.STPlan.acceptedBids:
-                        if accbid.resourceName == bid.resourceName:
-                            bidValid = False
-                            break
+                    #see if the resource is otherwise committed
+                    if self.NextPeriod.actionPlan.acceptedBids:
+                        for accbid in self.NextPeriod.actionPlan.acceptedBids:
+                            if accbid.resourceName == bid.resourceName:
+                                bidValid = False
+                                break
                         
                     if bidValid:
                         if supply < expLoad:                        
@@ -370,11 +390,11 @@ class UtilityAgent(Agent):
                                 bid.service = "regulation"
                                 #set price at the margin
                                 group.rates["wholesale"] = bid.rate
-                                self.STPlan.addbid(bid)
+                                self.NextPeriod.actionPlan.addbid(bid)
                             else:
                                 #we accept all of this bid and keep going
                                 bid.accepted = True
-                                self.STPlan.addBid(bid)
+                                self.NextPeriod.actionPlan.addBid(bid)
                         else:
                             #we have enough power already, decline remaining bids
                             bid.accepted = False
@@ -429,7 +449,7 @@ class UtilityAgent(Agent):
                     for part in self.DRparticipants:
                         self.sendDR(part.name,"shed",settings.ST_PLAN_INTERVAL)
                         
-        self.STPlan.printInfo()
+        self.NextPeriod.actionPlan.printInfo()
                 
     def sendDR(self,target,type,duration):
         mesdict = {"message_subject" : "DR_event",
@@ -441,6 +461,27 @@ class UtilityAgent(Agent):
                     }
         message = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","demandresponse",{},message)
+    
+    '''scheduled initially in init, the advancePeriod() function makes the period for
+    which we were planning into the period whose plan we are carrying out at the times
+    specified in the period objects. it schedules another call to itself each time and 
+    also runs the enactPlan() function to actuate the planned actions for the new
+    planning period '''    
+    def advancePeriod(self):
+        #make next period the current period and create new object for next period
+        self.CurrentPeriod = self.NextPeriod
+        self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
+        
+        if settings.DEBUGGING_LEVEL >= 1:
+            print("UTILITY AGENT {me} moving into new period:".format(me = self.name))
+            self.CurrentPeriod.printInfo()
+        
+        #call enactPlan
+        self.enactPlan()
+                
+        #schedule next advancePeriod call
+        self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
+        
                     
     '''responsible for enacting the plan which has been defined for a planning period'''
     def enactPlan(self):
@@ -452,20 +493,21 @@ class UtilityAgent(Agent):
         #change setpoints
         if self.CurrentPeriod.actionPlan:
             for bid in self.CurrentPeriod.actionPlan.ownBids:
-                res = listparse.lookUpByName(bid.resourceName)
-                involvedResources.append(res)
-                #if the resource is already connected, change the setpoint
-                if res.connected == True:
-                    if bid.service == "power":
-                        res.DischargeChannel.ramp(bid.amount)
-                    elif bid.service == "reserve":
-                        res.DischargeChannel.ramp(.1)
-                #if the resource isn't connected, connect it and ramp up power
-                else:
-                    if bid.service == "power":
-                        res.connectSourceSoft("Preg",bid.amount)
-                    elif bid.servie == "reserve":
-                        res.connectSourceSoft("Preg",.1)
+                res = listparse.lookUpByName(bid.resourceName,self.Resources)
+                if res is not None:
+                    involvedResources.append(res)
+                    #if the resource is already connected, change the setpoint
+                    if res.connected == True:
+                        if bid.service == "power":
+                            res.DischargeChannel.ramp(bid.amount)
+                        elif bid.service == "reserve":
+                            res.DischargeChannel.ramp(.1)
+                    #if the resource isn't connected, connect it and ramp up power
+                    else:
+                        if bid.service == "power":
+                            res.connectSourceSoft("Preg",bid.amount)
+                        elif bid.servie == "reserve":
+                            res.connectSourceSoft("Preg",.1)
             #ramp down and disconnect resources that aren't being used anymore
             for res in self.Resources:
                 if res not in involvedResources:
@@ -473,6 +515,15 @@ class UtilityAgent(Agent):
                         res.disconnectSourceSoft()
             
             #we will also have to change swing sources if necessary...
+            
+            
+    '''check swing source headroom and see if it is necessary to commit reserves 
+    and commit reserves and/or ask other sources for reserves'''
+    @Core.periodic(settings.RESERVE_DISPATCH_INTERVAL)        
+    def reserveDispatch(self):
+        pass
+            
+        
             
     def sendBidAcceptance(self,bid,rate):
         mesdict = {}
@@ -485,6 +536,9 @@ class UtilityAgent(Agent):
         mesdict["rate"] = rate        
         mesdict["period"] = bid.period
         mesdict["uid"] = bid.uid
+        
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY AGENT {me} sending bid acceptance to {them} for {uid}".format(me = self.name, them = bid.counterparty, uid = bid.uid))
         
         mess = json.dumps(mesdict)
         self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
@@ -500,6 +554,9 @@ class UtilityAgent(Agent):
         mesdict["rate"] = rate        
         mesdict["period"] = bid.period
         mesdict["uid"] = bid.uid
+        
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY AGENT {me} sending bid rejection to {them} for {uid}".format(me = self.name, them = bid.counterparty, uid = bid.uid))
         
         mess = json.dumps(mesdict)
         self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
