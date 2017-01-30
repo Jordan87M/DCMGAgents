@@ -23,6 +23,13 @@ class Group(object):
         print(">>>>>>>NODES ({n}): ----------------".format(n = len(self.membership)))
         for mem in self.membership:
             mem.printInfo()
+            
+    def getAvgVoltage(self):
+        sum = 0
+        for node in self.membership:
+            sum += node.getVoltage()
+        return sum/len(self.membership)
+        
     
 class Node(object):
     def __init__(self,name,resources = [], membership = None, customers = [], **kwargs):
@@ -32,10 +39,14 @@ class Node(object):
         self.customers = customers
         
         self.grid, self.branch, self.bus = self.name.split(".")
+        if self.branch != "MAIN":
+            self.branchNumber = self.branch[-1]
+            self.busNumber = self.bus[-1]
+        
         
     def getVoltage(self):
         if self.branch != "MAIN":
-            signal = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branch, bus = self.bus)
+            signal = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
         else:
             signal = "MAIN_BUS_Voltage"
             
@@ -44,7 +55,7 @@ class Node(object):
     
     def getCurrent(self):
         if self.branch != "MAIN":
-            signal = "BRANCH_{branch}_BUS_{bus}_Current".format(branch = self.branch, bus = self.bus)
+            signal = "BRANCH_{branch}_BUS_{bus}_Current".format(branch = self.branchNumber, bus = self.busNumber)
         else:
             signal = "MAIN_BUS_Current"
         resdict = tagClient.readTags([signal])

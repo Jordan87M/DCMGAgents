@@ -15,6 +15,7 @@ class Plan(object):
         print("INCLUDES THE FOLLOWING BIDS ({n}):".format(n = len(self.acceptedBids)))
         for bid in self.acceptedBids:
             bid.printInfo()
+        print("------------------------------------")
         
     def addBid(self,newbid):
         self.acceptedBids.append(newbid)

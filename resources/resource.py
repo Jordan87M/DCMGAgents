@@ -32,6 +32,9 @@ class Source(Resource):
         
         self.DischargeChannel = Channel(dischargeChannel)
         
+        #should only be nonzero if the resource is enrolled in frequency regulation
+        self.FREG_power
+        
         
     def getInputUnregVoltage(self):
         voltage = self.DischargeChannel.getUnregV()
@@ -48,6 +51,16 @@ class Source(Resource):
     def getOutputUnregCurrent(self):
         current = self.DischargeChannel.getRegI()
         return current
+    
+    def getOutputUnegPower(self):
+        current = self.DischargeChannel.getUnregI()
+        voltage = self.DischargeChannel.getUnregV()
+        return current*voltage
+    
+    def getOutputRegPower(self):
+        current = self.DischargeChannel.getRegI()
+        voltage = self.DischargeChannel.getRegV()
+        return current*voltage
     
     def connectSource(self,mode,setpoint):
         self.connected = self.DischargeChannel.connect(mode,setpoint)
@@ -86,6 +99,8 @@ class LeadAcidBattery(Storage):
         self.cyclelife = 1000
         self.amortizationPeriod = 10
         
+        self.FREG_power = .2*maxChargePower
+        
     def getSOC(self):
         #get SOC from PLC
         pass
@@ -118,17 +133,28 @@ class Channel():
         
         self.connected = False
         
+        #droop stuff
+        self.noLoadVoltage = 12
+        self.refVoltage = 11.8
+        self.setpoint = 0
+        
         
         #PLC tag names generated from channel number
+        #tags for writing
         self.relayTag = "SOURCE_{d}_DUMMY".format(d = self.channelNumber)
-        self.vSetpointTag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = self.channelNumber)
         self.pSetpointTag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber)
-        self.swingSelectTag = "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = self.channelNumber)
-        self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = self.channelNumber)
         self.battSelectTag = "SOURCE_{d}_BATTERY_CHARGE_SElECT_DUMMY".format(d = self.channelNumber)
+        self.battReqChargeTag = "SOURCE_{d}_BatteryReqCharge".format(d = self.channelNumber)
+        self.droopSelectTag = "SOURCE_{d}_DROOP_SELECT".format(d = self.channelNumber)
         self.noLoadVoltageTag = "SOURCE_{d}_noLoadVoltage".format(d = self.channelNumber)
         self.droopCoeffTag = "SOURCE_{d}_droopCoeff".format(d = self.channelNumber)
         
+        #deprecated tags for writing
+        self.vSetpointTag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = self.channelNumber)
+        self.swingSelectTag = "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = self.channelNumber)
+        self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = self.channelNumber)
+
+        #tags for reading
         self.regVTag = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)
         self.unregVTag = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
         self.regItag =  "SOURCE_{d}_RegCurrent".format(d = self.channelNumber)
@@ -159,39 +185,92 @@ class Channel():
         value = tagClient([tagName])
         return value
     
+    '''low level method. only opens the relay'''
     def disconnect(self):
         #disconnect power from the source
         tagClient.writeTags([self.relayTag],[False])
-        #return setpoint to zero
-        tagClient.writeTags([self.vSetpointTag],[0])
-        tagClient.writeTags([self.pSetpointTag],[0])
         #read tag to confirm write success
         return tagClient.readTags([self.relayTag])
     
-    def disconnectSoft(self,maxStep = .5):
-        #ramp down power setpoint and disconnect when finished
-        self.ramp(0,maxStep,True)
+    def disconnectSoft(self):
+        #change setpoint to zero
+        tagClient.writeTags([self.pSetpointTag],[0])
+        #callback and keep calling back until the current is almost zero
+        now = datetime.now()
+        Core.schedule(now + timedelta(seconds = 1),self.waitForSettle)
     
-    def connectDroop(self,setpoint,noLoadVoltage = 12, refVoltage = 11.8):
-        #set up parameters for droop control
-        tags = [self.noLoadVoltageTag, self.pSetpointTag, self.droopCoeffTag]
-        values = [noLoadVoltage, setpoint, setpoint/(noLoadVoltage - refVoltage)]
-        tagClient.writeTags(tag,values)
-        #close relay and connect source
-        tagClient.writeTags([self.relayTag],[True])
-        
-        if tagClient.readTags([self.relayTag]):
-            self.connected = True
-            return True
+    #when the current drops to zero, disconnect the source    
+    def waitForSettle(self):
+        current = tagClient.readTag([self.regItag])
+        if abs(current) < .005:
+            self.connected = self.disconnect()
         else:
-            self.connected = False
-            return False
+            now = datetime.now()
+            Core.schedule(now + timedelta(seconds = 1),self.waitForSettle)
     
+    '''low level method to be called by other methods. only closes the relay'''
+    def connect(self):
+        tagClient.writeTags([self.relayTag],[True])
+        #read tag to confirm write success
+        self.connected = tagClient.readTags([self.relayTag])
+        return self.connected
     
+    '''calculates droop coefficient based on setpoint and writes to PLC before connecting
+    the resource. includes an optional voltage offset argument to be used with reserves'''    
+    def connectWithSet(self,setpoint,voffset = 0):
+        self.setpoint = setpoint
+        #set up parameters for droop control
+        tags = [self.noLoadVoltageTag, self.pSetpointTag, self.droopCoeffTag, self.droopSelectTag]
+        values = [self.noLoadVoltage + voffset, setpoint, self.setpoint/(self.noLoadVoltage - self.refVoltage), True]
+        tagClient.writeTags(tags,values)
+        #close relay and connect source
+        self.connected = self.connect()
+        return self.connected
     
+    '''changes the droop coefficient by updating the power target at the reference voltage
+     and writes it to the PLC. to be used on sources that are already connected'''
+    def changeSetpoint(self,newPower):
+        self.setpoint = newPower
+        droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
+        tagClient.writeTags([self.droopCoeffTag],[droopCoeff])
+    
+    '''changes the droop coefficient by updating the power target at the reference voltage
+    and writes it to the PLC. also takes a voltage offset argument. to be used with reserve
+    sources that are already connected'''
+    def changeReserve(self,newPower,voffset):
+        self.setpoint = newPower
+        droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
+        tagClient.writeTags([self.droopCoeffTag, self.noLoadVoltageTag],[droopCoeff, self.noLoadVoltage + voffset])
+    
+    '''creates a voltage offset to the V-P curve corresponding to the addition of a fixed
+    amount of power, poffset, at every voltage.'''        
+    def setPowerOffset(self,poffset):
+        droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
+        voffset = poffset/droopCoeff
+        self.setVoltageOffset(voffset)
+        
+    '''adds a voltage offset corresponding to an increase in the power offset of deltapoffset'''    
+    def addPowerOffset(self,deltapoffset):
+        droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
+        deltavoffset = deltapoffset/droopCoeff
+        self.addVoltageOffset(deltavoffset)
+    
+    '''creates a voltage offset to V-P curve. can be used to create reserve sources
+    that are only deployed when needed'''    
+    def setVoltageOffset(self,voffset):
+        tagClient.writeTags([self.noLoadVoltageTag],[self.noLoadVoltage + voffset])
+    
+    '''adds to the voltage offset an amount deltavoffset. can be used to implement
+    a secondary control loop to correct voltage'''
+    def addVoltageOffset(self,deltavoffset):
+        voffset = tagClient.readTags([self.noLoadVoltage])
+        voffset += deltavoffset
+        tagClient.writeTags([self.noLoadVoltage],[voffset])
+        
+    #deprecated functions below
     '''connects the channel converter and puts it in one of several operating modes.
     Behaviors in each of these modes are governed by the PLC ladder code'''
-    def connect(self,mode,setpoint):
+    def connectMode(self,mode,setpoint):
         ch = self.channelNumber
         
         if mode == "Vreg":
@@ -263,7 +342,11 @@ class Channel():
         else:
             self.connected = False
             return False
-    
+        
+    def disconnectSoft(self,maxStep = .5):
+        #ramp down power setpoint and disconnect when finished
+        self.ramp(0,maxStep,True)
+        
     def ramp(self,setpoint,maxStep = .5,disconnectWhenFinished = False):
         tag = self.pSetpointTag
         currentSetpoint = tagClient.readTags([tag])

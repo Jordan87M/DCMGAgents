@@ -284,14 +284,14 @@ class UtilityAgent(Agent):
                    }
         
         if settings.DEBUGGING_LEVEL >= 2:
-            print("UTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
+            print("\nUTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
         message = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","energymarket",{},message)
     
     @Core.periodic(settings.ST_PLAN_INTERVAL)
     def solicitBids(self):
         if settings.DEBUGGING_LEVEL >=2 :
-            print("UTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
+            print("\nUTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
         subs = self.getTopology()
         self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
@@ -313,7 +313,7 @@ class UtilityAgent(Agent):
                     mesdict["service"] = "power"
                     mesdict["message_target"] = cust.name
                     mesdict["period"] = self.NextPeriod.periodNumber
-                    mesdict["ID"] = self.uid
+                    mesdict["solicitation_id"] = self.uid
                     self.uid += 1
                     
                     mess = json.dumps(mesdict)
@@ -323,7 +323,7 @@ class UtilityAgent(Agent):
                         print("UTILITY {me} SOLICITING BULK POWER BID: {mes}".format(me = self.name, mes = mess))
                     
                     #ask about reserves                    
-                    mesdict["uid"] = self.uid
+                    mesdict["solicitation_id"] = self.uid
                     mesdict["service"] = "reserve"
                     self.uid += 1
                     
@@ -337,13 +337,13 @@ class UtilityAgent(Agent):
         
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("UTILITY {me} IS FORMING A NEW SHORT TERM PLAN".format(me = self.name))
+            print("\nUTILITY {me} IS FORMING A NEW SHORT TERM PLAN".format(me = self.name))
             
         for group in self.groupList:            
             expLoad = self.getExpectedGroupLoad(group)
             maxLoad = self.getMaxGroupLoad(group)
             if settings.DEBUGGING_LEVEL >= 2:
-                print("PLANNING for GROUP {group}: expected load is {exp}. max load is {max}".format(group = group.name, exp = expLoad, max = maxLoad))
+                print("\nPLANNING for GROUP {group}: expected load is {exp}. max load is {max}".format(group = group.name, exp = expLoad, max = maxLoad))
                 for bid in self.bidList:
                     bid.printInfo()                    
                 
@@ -499,20 +499,25 @@ class UtilityAgent(Agent):
                     #if the resource is already connected, change the setpoint
                     if res.connected == True:
                         if bid.service == "power":
-                            res.DischargeChannel.ramp(bid.amount)
+                            #res.DischargeChannel.ramp(bid.amount)
+                            res.DischargeChannel.changeSetpoint(bid.amount)
                         elif bid.service == "reserve":
-                            res.DischargeChannel.ramp(.1)
+                            #res.DischargeChannel.ramp(.1)            
+                            res.DischargeChannel.changeReserve(bid.amount,-.4)
                     #if the resource isn't connected, connect it and ramp up power
                     else:
                         if bid.service == "power":
-                            res.connectSourceSoft("Preg",bid.amount)
+                            #res.connectSourceSoft("Preg",bid.amount)
+                            res.DischargeChannel.connectWithSet(bid.amount,0 )
                         elif bid.servie == "reserve":
-                            res.connectSourceSoft("Preg",.1)
+                            #res.connectSourceSoft("Preg",.1)
+                            res.DischargeChannel.connectWithSet(bid.amount, -.4)
             #ramp down and disconnect resources that aren't being used anymore
             for res in self.Resources:
                 if res not in involvedResources:
                     if res.connected == True:
-                        res.disconnectSourceSoft()
+                        #res.disconnectSourceSoft()
+                        res.DischargeChannel.disconnect()
             
             #we will also have to change swing sources if necessary...
             
@@ -522,8 +527,25 @@ class UtilityAgent(Agent):
     @Core.periodic(settings.RESERVE_DISPATCH_INTERVAL)        
     def reserveDispatch(self):
         pass
-            
+    
+    '''monitor for and remediate fault conditions'''
+    @Core.periodic(settings.FAULT_DETECTION_INTERVAL)
+    def faultManager(self):
+        #look for line-ground faults
         
+        #look for brownouts
+        
+        #detect relay failures  MAYBE
+        pass
+    
+    ''' secondary voltage control loop to fix sagging voltage due to droop control''' 
+    @Core.periodic(settings.SECONDARY_VOLTAGE_INTERVAL)       
+    def correctVoltage(self):
+        for group in groupList:
+            avgVoltage = group.getAvgVoltage()
+            if avgVoltage < settings.VOLTAGE_BAND_LOWER or avgVoltage > settings.VOLTAGE_BAND_UPPER:
+                #only use our own resources
+                pass
             
     def sendBidAcceptance(self,bid,rate):
         mesdict = {}
@@ -566,7 +588,7 @@ class UtilityAgent(Agent):
     @Core.periodic(settings.DR_SOLICITATION_INTERVAL)
     def DREnrollment(self):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("UTILITY {me} TRYING TO ENROLL CUSTOMERS IN A DR SCHEME".format(me = self.name))
+            print("\nUTILITY {me} TRYING TO ENROLL CUSTOMERS IN A DR SCHEME".format(me = self.name))
         for entry in self.customers:
             if entry.DRenrollee == False:
                 self.solicitDREnrollment(entry.name)
@@ -575,7 +597,7 @@ class UtilityAgent(Agent):
     @Core.periodic(settings.CUSTOMER_SOLICITATION_INTERVAL)
     def discoverCustomers(self):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("UTILITY {me} TRYING TO FIND CUSTOMERS".format(me = self.name))
+            print("\nUTILITY {me} TRYING TO FIND CUSTOMERS".format(me = self.name))
         mesdict = self.standardCustomerEnrollment
         mesdict["message_sender"] = self.name
         message = json.dumps(mesdict)
@@ -647,7 +669,6 @@ class UtilityAgent(Agent):
                     #add the node's resources to the group's resource array
                     cGroup.resources.extend(cNode.resources)
                     cGroup.customers.extend(cNode.customers)
-                    print(cGroup.customers)
                     
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
@@ -740,7 +761,7 @@ class UtilityAgent(Agent):
         
         if listparse.isRecipient(messageTarget,self.name):            
             if settings.DEBUGGING_LEVEL >= 2:
-                print("UTILITY {me} RECEIVED AN ENERGYMARKET MESSAGE: {type}".format(me = self.name, type = messageSubject))
+                print("\nUTILITY {me} RECEIVED AN ENERGYMARKET MESSAGE: {type}".format(me = self.name, type = messageSubject))
             if messageSubject == "bid_response":
                 service = mesdict.get("service",None)
                 rate =  mesdict.get("rate",None)
@@ -751,12 +772,11 @@ class UtilityAgent(Agent):
                 uid = mesdict.get("uid",None)
                 resourceName = mesdict.get("resource",None)
                 
-                if settings.DEBUGGING_LEVEL >= 1:
-                    print("UTILITY {me} RECEIVED A BID#{id} FROM {them}".format(me = self.name, id = self.uid, them = messageSender ))
-                    if settings.DEBUGGING_LEVEL >= 2:
-                        print("    MESSAGE: {mes}".format(mes = message))
-                    
                 self.bidList.append(financial.Bid(resourceName,service,amount,rate,messageSender,period,uid))
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print(message)
+                    print("UTILITY {me} RECEIVED A BID#{id} FROM {them}".format(me = self.name, id = uid, them = messageSender ))
+                    self.bidList[-1].printInfo()
                 
     '''callback for demandresponse topic'''
     def DRfeed(self, peer, sender, bus, topic, headers, message):
@@ -788,7 +808,7 @@ class UtilityAgent(Agent):
     
     '''prints information about the utility and its assets'''
     def printInfo(self,verbosity):
-        print("************************************************************************")
+        print("\n************************************************************************")
         print("~~SUMMARY OF UTILITY KNOWLEDGE~~")
         print("UTILITY NAME: {name}".format(name = self.name))
         

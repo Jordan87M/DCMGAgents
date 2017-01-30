@@ -24,16 +24,16 @@ def writeTags(names,values,plc = "user"):
         for index,name in enumerate(names):
             message = message + " {name}:{value}".format(name = name, value = str(values[index]))
         message = message + "\n"
-        print(message)
+        #print(message)
         sock.sendall(message)
         
         data = sock.recv(1024)
-        print("tag client received: {info}".format(info = data))
+        #print("tag client received: {info}".format(info = data))
             
     except Exception:
         print("tag client experiencing problem")
     finally:
-        print("closing tag client socket")
+        #print("closing tag client socket")
         sock.close()
     
 '''reads multiple tags from a tag server. tag names must be provided as a list even
@@ -42,7 +42,7 @@ def readTags(names, plc = "user"):
     outdict = {}
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tserver_addr = ('localhost',12897)
-    print("tag client attempting to connect to  and read from {host}:{port}".format(host = tserver_addr[0], port = tserver_addr[1]))
+    #print("tag client attempting to connect to  and read from {host}:{port}".format(host = tserver_addr[0], port = tserver_addr[1]))
     
     try:
         sock.connect(tserver_addr)
@@ -60,7 +60,7 @@ def readTags(names, plc = "user"):
         print("tag client experiencing problem")
         print(Exception)
     finally:
-        print("closing tag client socket")
+        #print("closing tag client socket")
         sock.close()
     
     

@@ -14,6 +14,12 @@ class CustomerProfile(object):
         if type(loclist) is list:
             if loclist[0] == "DC":
                 self.grid, self.branch, self.bus, self.load = loclist
+                if loclist[1] == "MAIN":
+                    pass
+                else:
+                    self.branchNumber = self.branch[-1]
+                    self.busNumber = self.bus[-1]
+                    self.loadNumber = self.load[-1]
             elif loclist[0] == "AC":
                 pass
         else:
@@ -32,29 +38,29 @@ class CustomerProfile(object):
             res.printInfo()
             
     def disconnectCustomer(self):
-        signal = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_DUMMY".format(branch = self.branch, bus = self.bus, load = self.load)
+        signal = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_DUMMY".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         tagClient.writeTags([signal],[False])
         
     def measureVoltage(self):
-        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branch, bus = self.bus)
+        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
         tagval = tagClient.readTags([tag])
         self.tagCache[tag] = (tagval, datetime.now())
         return tagval
     
     def measureCurrent(self):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         tagval = tagClient.readTags([tag])
         self.tagCache[tag] = (tagval, datetime.now())
         return tagval
     
     def measurePower(self):
         tagval = self.measureVoltage()*self.measureCurrent()
-        self.tagCache["BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branch, bus = self.bus, load = self.load)] = (tagval, datetime.now())
+        self.tagCache["BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)] = (tagval, datetime.now())
         return tagval
     
     '''calls measureCurrent only if cached value isn't fresh'''    
     def getCurrent(self,threshold = 5.1):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         val, time = self.tagCache.get(tag,(None, None))
         if val is not None and time is not None:
             diff = datetime.now() - time
@@ -66,7 +72,7 @@ class CustomerProfile(object):
     
     '''calls measureVoltage only if cached value isn't fresh'''
     def getVoltage(self,threshold = 5.1):
-        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branch, bus = self.bus)
+        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
         val, time = self.tagCache.get(tag,(None, None))
         if val is not None and time is not None:
             diff = datetime.now() - time
@@ -79,7 +85,7 @@ class CustomerProfile(object):
     
     '''calls measurePower only if cached value isn't fresh'''
     def getPower(self,threshold = 5.1):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branch, bus = self.bus, load = self.load)
+        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         val, time = self.tagCache.get(tag,(None, None))
         if val is not None and time is not None:
             diff = datetime.now() - time

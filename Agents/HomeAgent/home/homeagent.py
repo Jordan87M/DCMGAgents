@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import logging
 import sys
 import json
+import random
 
 from volttron.platform.vip.agent import Agent, Core, PubSub, compat
 from volttron.platform.agent import utils
@@ -63,6 +64,7 @@ class HomeAgent(Agent):
         #this value doesn't matter
         end = start + timedelta(seconds = 30)
         self.CurrentPeriod = control.Period(0,start,end,self.name)
+        self.NextPeriod = control.Period(0,start,end,self.name)
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -92,10 +94,16 @@ class HomeAgent(Agent):
                 #if message is solicitation, sign up or ignore
                 if messageType == "solicitation":
                     if self.FREGpart:
+                        FREG_report = 0
+                        for res in self.Resources:
+                            if res is resource.LeadAcidBattery:
+                                res.FREG_power = .2 * res.maxDischargePower
+                                FREG_report += res.FREG_power
                         resdict = {"message_subject" : "FREG_enrollment",
                                    "message_sender" : self.name,
                                    "message_target" : messageSender,
-                                   "message_type" : "acceptance"
+                                   "message_type" : "acceptance",
+                                   "FREG_power" : FREG_report
                                    }
                         response = json.dumps(resdict)
                         self.vip.pubsub.publish("pubsub","FREG",{},response)
@@ -105,7 +113,51 @@ class HomeAgent(Agent):
             if messageSubject == "FREG_signal":
                 #if we are a participant, and we are able, follow the FREG signal
                 if self.FREG_participant:
-                    pass
+                    sig = mesdict.get("FREG_signal",None)
+                    if sig <= 1 and sig > 0:
+                        for res in self.Resources:
+                            #stop any batteries that may be charging
+                            if res is resources.LeadAcidBattery:
+                                if res.ChargeChannel.connected == True:
+                                    res.ChargeChannel.disconnect()
+                                    
+                            #is extra power available?
+                            avail = res.availDischargePower
+                            current = res.getOutputRegPower()
+                            headroom = avail - current
+                            poffset = res.FREG_power*sig
+                            if poffset > headroom:
+                                poffset = headroom
+                                
+                            #if resource is already connected, adjust power offset
+                            if headroom > .1:
+                                if resource.DischargeChannel.connected:
+                                    res.DischargeChannel.setPowerOffset(poffset)
+                                else:
+                                    res.DischargeChannel.connectWithSet(poffset,0)   
+                    elif sig == 0:
+                        for res in self.Resources:
+                            #stop any batteries that may be charging
+                            if res is resources.LeadAcidBattery:
+                                if res.ChargeChannel.connected == True:
+                                    res.ChargeChannel.disconnect()
+                             #if resource is already connected, adjust power offset                            
+                            if resource.DischargeChannel.connected:
+                                res.DischargeChannel.setPowerOffset(0)
+                                
+                                                                                    
+                    elif sig < 0 and sig >= -1:
+                        for res in self.Resources:
+                            #charge a battery if available
+                            if res is resources.LeadAcidBattery:
+                                if res.SOC < 95:
+                                    res.charge(sig*self.FREG_power)
+                                    if settings.DEBUGGING_LEVEL >= 2:
+                                        print("STORAGE DEVICE {me}: charging at {rate} W".format(me = self.name, rate = sig*self.FREG_power))
+                                else:
+                                    if settings.DEBUGGING_LEVEL >= 2:
+                                        print("STORAGE DEVICE {me}: SOC {soc} is too high to charge".format(me = self.name, soc = res.SOC))
+                    
         
     '''callback for customerservice topic'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
@@ -131,10 +183,10 @@ class HomeAgent(Agent):
                         self.vip.pubsub.publish(peer = "pubsub", topic = "customerservice", headers = {}, message = response)
                                                 
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print("HOME {me} responding to enrollment request: {res}".format(me = self.name, res = response))
+                            print("\nHOME {me} responding to enrollment request: {res}".format(me = self.name, res = response))
                     else:
                         if settings.DEBUGGING_LEVEL >= 2:
-                            print("HOME {me} ignoring enrollment request, already enrolled".format(me = self.name))
+                            print("\nHOME {me} ignoring enrollment request, already enrolled".format(me = self.name))
                 elif messageType == "new_customer_confirm":
                     self.registered = True
                     
@@ -160,39 +212,46 @@ class HomeAgent(Agent):
                 
         if listparse.isRecipient(messageTarget,self.name):
             if settings.DEBUGGING_LEVEL >= 2:
-                print("HOME {name} received a {top} message: {sub}".format(name = self.name, top = topic, sub = messageSubject))
-                print(message)
+                print("\nHOME {name} received a {top} message: {sub}".format(name = self.name, top = topic, sub = messageSubject))
+                #print(message)
             #sent by a utility agent to elicit bids for generation    
             if messageSubject == 'bid_solicitation':
                 service = mesdict.get("service",None)
                 period = mesdict.get("period",None)
                 counterparty = messageSender
                 if self.Resources:
-                    bid = {}
-                    bid["message_subject"] = "bid_response"
-                    bid["message_target"] = messageSender
-                    bid["message_sender"] = self.name
+                    biddict = {}
+                    biddict["message_subject"] = "bid_response"
+                    biddict["message_target"] = messageSender
+                    biddict["message_sender"] = self.name
         
                     for res in self.Resources:
                         if type(res) is resource.SolarPanel:
                             amount = res.maxDischargePower*self.perceivedInsol/100
                             rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                            bid["amount"] = amount
-                            bid["service"] = service
-                            bid["rate"] = rate
-                            bid["counterparty"] = counterparty
-                            bid["duration"] = 1
-                            bid["period"] = period
-                            bid["resource"] = res.name
+                            biddict["amount"] = amount
+                            biddict["service"] = service
+                            biddict["rate"] = rate
+                            biddict["counterparty"] = counterparty
+                            biddict["duration"] = 1
+                            biddict["period"] = period
+                            biddict["resource"] = res.name
                             #add to local list of outstanding bids
                             newBid = financial.Bid(res.name,service,amount,rate,counterparty,period)
                             self.outstandingBids.append(newBid)
+                            biddict["uid"] = newBid.uid
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("\nHOME AGENT {me} ADDED AN OUTSTANDING BID".format(me = self.name))
+                                print("HERE'S THE LIST OF OUTSTANDING BIDS:")
+                                for bid in self.outstandingBids:
+                                    bid.printInfo()
+                                    
                             #and send to utility for consideration
-                            mess = json.dumps(bid)
+                            mess = json.dumps(biddict)
                             self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
                             
                             if settings.DEBUGGING_LEVEL >= 2:
-                                print("NEW BID TENDERED BY {me}".format(me = self.name))
+                                print("\nNEW BID TENDERED BY {me}".format(me = self.name))
                                 newBid.printInfo()
                             
                         elif type(res) is resource.LeadAcidBattery:
@@ -210,11 +269,17 @@ class HomeAgent(Agent):
                                 newBid = financial.Bid(res.name,service,amount,rate,counterparty,period)
                                 self.outstandingBids.append(newBid)
                                 
+                                if settings.DEBUGGING_LEVEL >= 2:
+                                    print("\nHOME AGENT {me} ADDED AN OUTSTANDING BID".format(me = self.name))
+                                    print("HERE'S THE LIST OF OUTSTANDING BIDS:")
+                                    for bid in self.outstandingBids:
+                                        bid.printInfo()
+                                    
                                 mess = json.dumps(bid)
                                 self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
                                 
                                 if settings.DEBUGGING_LEVEL >= 2:
-                                    print("NEW BID TENDERED BY {me}".format(me = self.name))
+                                    print("\nNEW BID TENDERED BY {me}".format(me = self.name))
                                     newBid.printInfo()
                         else:
                             print("A PROBLEM: {type} is not a recognized type".format(type = type(res)))
@@ -231,6 +296,7 @@ class HomeAgent(Agent):
                 #amount or rate may have been changed
                 #service also may have been changed from power to regulation
                 for bid in self.outstandingBids:
+                    print("HOME AGENT {me} COMPARING REC:{rec}|STORED:{sto}".format(me = self.name, rec = uid, sto = bid.uid))
                     if bid.uid == uid:
                         bid.service = service
                         bid.amount = amount
@@ -238,15 +304,19 @@ class HomeAgent(Agent):
                         bid.period = period
                         if bid.period == self.NextPeriod.periodNumber:
                             self.NextPeriod.actionPlan.addBid(bid)
+                            self.outstandingBids.remove(bid)
                         if settings.DEBUGGING_LEVEL >= 2:
-                            print("-->HOMEOWNER {me} ACK BID ACCEPTANCE".format(me = self.name))
+                            print("\n-->HOMEOWNER {me} ACK BID ACCEPTANCE".format(me = self.name))
                             bid.printInfo()
                 
             elif messageSubject == "bid_rejection":
                 #if the bid is not accepted, just remove the bid from the list of outstanding bids
-                uid = mesdict.get("uid")
+                uid = mesdict.get("uid",None)
                 for bid in self.outstandingBids:
                     if bid.uid == uid:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("\n-->HOMEOWNER {me} ACK BID REJECTION".format(me = self.name))
+                            bid.printInfo()
                         self.outstandingBids.remove(bid)
             #subject used for handling general announcements            
             elif messageSubject == "announcement":
@@ -255,7 +325,7 @@ class HomeAgent(Agent):
                 if messageType == "next_period_time":
                     period = mesdict.get("period_number",None)
                     #if this is a period we don't know about, it should be a new one
-                    if period > self.CurrentPeriod.periodNumber:
+                    if period > self.NextPeriod.periodNumber:
                         startTime = mesdict.get("start_time",None)
                         endTime = mesdict.get("end_time",None)
                         startdtime = datetime.strptime(startTime,"%Y-%m-%dT%H:%M:%S.%f")
@@ -329,7 +399,7 @@ class HomeAgent(Agent):
                         self.vip.pubsub.publish("pubsub","demandresponse",{},mes)
                         
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print("HOME {me} opted in to DR program".format(me = self.name), )
+                            print("\nHOME {me} opted in to DR program".format(me = self.name), )
                     
                 elif type == "enrollment_confirm":
                     self.DR_participant = True    
@@ -352,7 +422,7 @@ class HomeAgent(Agent):
         #contra the utility version of this fn, don't create the next period
         
         if settings.DEBUGGING_LEVEL >= 1:
-            print("HOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
+            print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
             self.CurrentPeriod.printInfo()
         
         #call enact plan
@@ -375,21 +445,25 @@ class HomeAgent(Agent):
                 #if the resource is already connected, change the setpoint
                 if res.connected == True:
                     if bid.service == "power":
-                        res.DischargeChannel.ramp(bid.amount)
+                        #res.DischargeChannel.ramp(bid.amount)
+                        res.DischargeChannel.changeSetpoint(bid.amount)
                     elif bid.service == "reserve":
-                        res.DischargeChannel.ramp(.1)
+                        #res.DischargeChannel.ramp(.1)
+                        res.DischargeChannel.changeReserve(bid.amount,-.4)
                 #if the resource isn't connected, connect it and ramp up power
                 else:
                     if bid.service == "power":
-                        res.connectSourceSoft("Preg",bid.amount)
+                        #res.connectSourceSoft("Preg",bid.amount)
+                        res.DischargeChannel.connectWithSet(bid.amount,0 )
                     elif bid.servie == "reserve":
-                        res.connectSourceSoft("Preg",.1)
+                        #res.connectSourceSoft("Preg",.1)
+                        res.DischargeChannel.connectWithSet(bid.amount, -.4)
             #ramp down and disconnect resources that aren't being used anymore
             for res in self.Resources:
                 if res not in involvedResources:
                     if res.connected == True:
-                        res.disconnectSourceSoft()
-    
+                        #res.disconnectSourceSoft()
+                        res.DischargeChannel.disconnect()
     
     def disconnectLoad(self):
         #this is where we'll call the CIP stack wrapper to disconnect load
