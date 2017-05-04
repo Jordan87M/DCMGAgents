@@ -12,6 +12,7 @@ class Resource(object):
         self.location = location
         self.capCost = capCost
         self.name = name
+        self.tagCache = {}
         
     def setOwner(self,newOwner):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
@@ -33,8 +34,8 @@ class Source(Resource):
         self.DischargeChannel = Channel(dischargeChannel)
         
         #should only be nonzero if the resource is enrolled in frequency regulation
-        self.FREG_power
-        
+        self.FREG_power = 0
+              
         
     def getInputUnregVoltage(self):
         voltage = self.DischargeChannel.getUnregV()
@@ -48,7 +49,7 @@ class Source(Resource):
         current = self.DischargeChannel.getUnregI()
         return current
         
-    def getOutputUnregCurrent(self):
+    def getOutputRegCurrent(self):
         current = self.DischargeChannel.getRegI()
         return current
     
@@ -74,6 +75,12 @@ class Source(Resource):
     def disconnectSourceSoft(self):
         self.connected = self.DischargeChannel.disconnectSoft()
     
+    def printInfo(self,verbosity = 0):
+        print("    **RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
+        if verbosity == 1:
+            print("      CURRENT OPERATING INFO:")
+            print("        VUNREG: {vu}  IUNREG: {iu}".format(vu = self.getInputUnregVoltage(), iu = self.getInputUnregCurrent()))
+            print("        VREG: {vr}  IREG: {ir}".format(vr = self.getOutputRegVoltage(), ir = self.getOutputRegCurrent()))
 
 class Storage(Source):
     

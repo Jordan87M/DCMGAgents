@@ -5,7 +5,8 @@
 	"message": "home agent up",
 	"FREGpart" : "1",
 	"DRpart" : "1",
-	"demandCurve":[[3.0, 0],[3.0, 1],[0, 1],[0, 3]],
+	"refload" : ".25",
+	"demandCurve":[[1.0, 0],[1.0, 1],[0, 1],[0, 3]],
 	"resources": [{"type":"solar","owner":"Crunderson", "location": "DC.BRANCH1.BUS1.LOAD1", "name":"Apollo", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}]
 }
 	

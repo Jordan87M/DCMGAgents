@@ -19,6 +19,7 @@ from DCMGClasses.resources import resource, groups, financial, control, customer
 
 from . import settings
 from zmq.backend.cython.constants import RATE
+from __builtin__ import True
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -65,13 +66,15 @@ class UtilityAgent(Agent):
         self.resources = self.config["resources"]
         self.Resources = []
         self.groupList = []
-        self.bidList = []
+        self.supplyBidList = []
+        self.demandBidList = []
+        self.reserveBidList = []
         
-        self.nodes = [groups.Node("DC.MAIN.MAIN",[],None,[]),
-                        groups.Node("DC.BRANCH1.BUS1",[],None,[]),
-                        groups.Node("DC.BRANCH1.BUS2",[],None,[]),
-                        groups.Node("DC.BRANCH2.BUS1",[],None,[]),
-                        groups.Node("DC.BRANCH2.BUS2",[],None,[])]
+        self.nodes = [groups.Node("DC.MAIN.MAIN",[],None,[],["BRANCH_1_BUS_1_Current","BRANCH_2_BUS_1_Current"]),
+                        groups.Node("DC.BRANCH1.BUS1",[],None,[],["BRANCH_1_BUS_1_Current", "BRANCH_1_BUS_2_Current","INTERCONNECT_1_Current"]),
+                        groups.Node("DC.BRANCH1.BUS2",[],None,[],["BRANCH_1_BUS_2_Current", "INTERCONNECT_2_Current"]),
+                        groups.Node("DC.BRANCH2.BUS1",[],None,[],["BRANCH_2_BUS_1_Current", "BRANCH_2_BUS_2_Current","INTERCONNECT_1_Current"]),
+                        groups.Node("DC.BRANCH2.BUS2",[],None,[],["BRANCH_2_BUS_2_Current", "INTERCONNECT_2_Current"])]
         #import list of utility resources and make into object
         resource.addResource(self.resources,self.Resources,False)
         #add resources to node objects based on location
@@ -94,7 +97,7 @@ class UtilityAgent(Agent):
         
         self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
         
-        
+        self.bidstate = BidState()
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -260,12 +263,10 @@ class UtilityAgent(Agent):
             for cust in group.customers:
                 power = cust.measurePower()
                 energy = power*settings.ACCOUNTING_INTERVAL
-                #if power is being consumed, charge retail rates
-                if power > 0:            
-                    balanceAdjustment = energy*group.rates["retail"]*cust.rateAdjustment
-                #if power is being produced, pay wholesale rates
-                else:
-                    balanceAdjustment = energy*group.rates["wholesale"]*cust.rateAdjustment
+                #credit transfer for period     
+                balanceAdjustment = energy*group.rate*cust.rateAdjustment
+                
+               
                 cust.customerAccount.adjustBalance(balanceAdjustment)
     
     @Core.periodic(settings.LT_PLAN_INTERVAL)
@@ -287,6 +288,16 @@ class UtilityAgent(Agent):
             print("\nUTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
         message = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","energymarket",{},message)
+        
+    def announceRate(self, recipient, rate, start):
+        mesdict = {"message_sender" : self.name,
+                   "message_subject" : "rate_announcement",
+                   "message_target" : recipient.name,
+                   "start_time" : start.isoformat(),
+                   "rate" : rate
+                   }
+        message = json.dumps(mesdict)
+        self.vip.pubsub.publish("pubsub","energymarket",{},message)
     
     @Core.periodic(settings.ST_PLAN_INTERVAL)
     def solicitBids(self):
@@ -301,15 +312,36 @@ class UtilityAgent(Agent):
         from various sources, both those owned by the utility and by 
         customers'''
         #clear the bid list in preparation for receiving new bids
-        self.bidList = []
+        self.supplyBidList = []
+        self.reserveBidList = []
+        self.demandBidList = []
         #send bid solicitations to all customers who are known to have behind the meter resources
+        self.bidstate.acceptall()
         for group in self.groupList:
             for cust in group.customers:
+                # ask about consumption
+                mesdict = {}
+                mesdict["message_sender"] = self.name
+                mesdict["message_subject"] = "bid_solicitation"
+                mesdict["side"] = "demand"
+                mesdict["message_target"] = cust.name
+                mesdict["period"] = self.NextPeriod.periodNumber
+                mesdict["solicitation_id"] = self.uid
+                self.uid += 1
+                
+                mess = json.dumps(mesdict)
+                self.vip.pubsub.publish(peer = "pubsub", topic = "energymarket", headers = {}, message = mess)
+                    
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("UTILITY {me} SOLICITING CONSUMPTION BIDS: {mes}".format(me = self.name, mes = mess))
+                    
+                
                 if cust.resources:
                     #ask about bulk power
                     mesdict = {}
                     mesdict["message_sender"] = self.name
                     mesdict["message_subject"] = "bid_solicitation"
+                    mesdict["side"] = "supply"
                     mesdict["service"] = "power"
                     mesdict["message_target"] = cust.name
                     mesdict["period"] = self.NextPeriod.periodNumber
@@ -338,116 +370,257 @@ class UtilityAgent(Agent):
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
             print("\nUTILITY {me} IS FORMING A NEW SHORT TERM PLAN".format(me = self.name))
-            
-        for group in self.groupList:            
-            expLoad = self.getExpectedGroupLoad(group)
+        
+        #tender bids for the utility's own resources
+        for res in self.Resources:
+            if type(res) is resource.SolarPanel:
+                amount = res.maxDischargePower*self.perceivedInsol/100
+                rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                self.supplyBidList.append(financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
+            elif type(res) is resource.LeadAcidBattery:
+                amount = 10
+                rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                self.supplyBidList.append(financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
+            else:
+                print("trying to plan for unknown resource type")
+        
+        for group in self.groupList:
             maxLoad = self.getMaxGroupLoad(group)
             if settings.DEBUGGING_LEVEL >= 2:
-                print("\nPLANNING for GROUP {group}: expected load is {exp}. max load is {max}".format(group = group.name, exp = expLoad, max = maxLoad))
-                for bid in self.bidList:
-                    bid.printInfo()                    
-                
-            #find lowest cost option for fulfilling expected demand
-            #we leave determining the cost of distributed resources to their owners
-            #but, we still have to figure out how to value energy from utility resources
-            for res in self.Resources:
-                if type(res) is resource.SolarPanel:
-                    amount = res.maxDischargePower*self.perceivedInsol/100
-                    rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                    self.bidList.append(financial.Bid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
-                elif type(res) is resource.LeadAcidBattery:
-                    amount = 10
-                    rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                    self.bidList.append(financial.Bid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
-                else:
-                    print("trying to plan for unknown resource type")
-            #sort array of bids by rate from low to high
-            self.bidList.sort(key = operator.attrgetter("rate"))
-            if settings.DEBUGGING_LEVEL >= 2:
-                print("PLANNING for GROUP {group}: LET's HAVE A LOOK AT THE BIDS ({length})".format(group = group.name, length = len(self.bidList)))
-                
-            supply = 0      
-            for bid in self.bidList:
-                if bid.service == "power":
-                    #check if bid is valid
-                    bidValid = True
-                    #see if the resource is otherwise committed
-                    if self.NextPeriod.actionPlan.acceptedBids:
-                        for accbid in self.NextPeriod.actionPlan.acceptedBids:
-                            if accbid.resourceName == bid.resourceName:
-                                bidValid = False
-                                break
-                        
-                    if bidValid:
-                        if supply < expLoad:                        
-                            supply += bid.amount
-                            if supply > expLoad:
-                                #we only need part of the last bid amount
-                                bid.accepted = True
-                                bid.modified = True
-                                bid.amount = bid.amount-(supply-expLoad)
-                                #we want this source to be the swing source
-                                bid.service = "regulation"
-                                #set price at the margin
-                                group.rates["wholesale"] = bid.rate
-                                self.NextPeriod.actionPlan.addbid(bid)
-                            else:
-                                #we accept all of this bid and keep going
-                                bid.accepted = True
-                                self.NextPeriod.actionPlan.addBid(bid)
-                        else:
-                            #we have enough power already, decline remaining bids
-                            bid.accepted = False
-                    else:
-                        #the bid isn't valid. maybe the resource is already committed
-                        bid.accepted = False
-                
-            #notify the counterparties of the terms on which they will supply power
-            for bid in self.bidList:
-                if bid.accepted:
-                    self.sendBidAcceptance(bid, rate)
-                else:
-                    self.sendBidRejection(bid, rate)   
-                    
-            #calculate retail rate
-            #for now, just put a 5% markup on the wholesale rate
-            group.rates["retail"] = 1.05 * group.rates["wholesale"]                     
-                    
-            # now book enough reserves to handle worst case         
-            resupply = supply
-            for bid in self.bidList:
-                if bid.service == "reserve":
-                    if resupply < maxLoad:
-                        resupply += bid.amount
-                        if supply > maxLoad:
-                            #now we have enough reserves
-                            bid.accepted = True
-                            bid.modified = True
-                            amount = bid.amount-(resupply-maxLoad)
-                        else:
-                            #need more 
-                            bid.accepted = True
-                    else:
-                        bid.accepted = False
-                        
-                    if settings.DEBUGGING_LEVEL >= 1:
-                        bid.printInfo()
-                else:
-                    pass
-            
-            #now look at the revised bids
-            if settings.DEBUGGING_LEVEL >= 2:
-                print("PLANNING for GROUP {group}: BIDS HAVE BEEN REVISED ({length})".format(group = group.name, length = len(self.bidList)))
-                for bid in self.bidList:
+                print("\n\nPLANNING for GROUP {group}: worst case load is {max}".format(group = group.name, max = maxLoad))
+                print(">>here are the supply bids:")
+                for bid in self.supplyBidList:                    
                     bid.printInfo()
-                                            
-            #not enough supply available to meet demand, we'll have to shed load or something
-            if supply < expLoad:
-                if settings.DEBUGGING_LEVEL >= 1:
-                    print("UTILITY {me} IS EXPERIENCING A SUPPLY SHORTFALL IN GROUP {group}".format(me = self.name, group = group.name))
-                if self.DRparticipants:
-                    for part in self.DRparticipants:
-                        self.sendDR(part.name,"shed",settings.ST_PLAN_INTERVAL)
+                print(">>here are the reserve bids:")
+                for bid in self.reserveBidList:                    
+                    bid.printInfo()          
+                print(">>here are the demand bids:")          
+                for bid in self.demandBidList:                    
+                    bid.printInfo()
+                
+            
+                    
+            #sort array of supplier bids by rate from low to high
+            self.supplyBidList.sort(key = operator.attrgetter("rate"))
+            self.reserveBidList.sort(key = operator.attrgetter("rate"))
+            #sort array of consumer bids by rate from high to low
+            self.demandBidList.sort(key = operator.attrgetter("rate"),reverse = True)
+            
+            qrem = 0                #leftover part of bid
+            supplyindex = 0
+            demandindex = 0
+            partialsupply = False
+            partialdemand = False
+            sblen = len(self.supplyBidList)
+            rblen = len(self.reserveBidList)
+            dblen = len(self.demandBidList)
+            
+            while supplyindex < sblen and demandindex < dblen:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("\ndemand index: {di}".format(di = demandindex))
+                    print("supply index: {si}".format(si = supplyindex))
+                    
+                if self.demandBidList[demandindex].rate > self.supplyBidList[supplyindex].rate:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("demand rate {dr} > supply rate {sr}".format(dr = self.demandBidList[demandindex].rate, sr = self.supplyBidList[supplyindex].rate))
+                        
+                    group.rate = self.demandBidList[demandindex].rate
+                    if partialsupply:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("partial supply bid: {qr} remaining".format(qr = qrem))
+                        
+                        if qrem > self.demandBidList[demandindex].amount:                            
+                            qrem -= self.demandBidList[demandindex].amount
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("still {qr} remaining in supply bid".format(qr = qrem))
+                            partialsupply = True
+                            partialdemand = False
+                            self.demandBidList[demandindex].accepted = True
+                            demandindex += 1
+                        elif qrem < self.demandBidList[demandindex].amount:        
+                            qrem = self.demandBidList[demandindex].amount - qrem
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("exhausted supply bid, now {qr} left in demand bid".format(qr = qrem))
+                            partialsupply = False
+                            partialdemand = True
+                            self.supplyBidList[supplyindex].accepted = True
+                            supplyindex += 1                            
+                        else:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("exact match in bids")
+                            qrem = 0
+                            partialsupply = False
+                            partialdemand = False     
+                            self.supplyBidList[supplyindex].accepted = True   
+                            self.demandBidList[demandindex].accepted = True 
+                            supplyindex += 1
+                            demandindex += 1       
+                    elif partialdemand:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("partial demand bid: {qr} remaining".format(qr = qrem))
+                            
+                        if qrem > self.supplyBidList[supplyindex].amount:
+                            qrem -= self.supplyBidList[supplyindex].amount
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("still {qr} remaining in supply bid".format(qr = qrem))
+                            partialsupply = False
+                            partialdemand = True
+                            self.supplyBidList[supplyindex].accepted = True
+                            supplyindex += 1
+                        elif qrem < self.supplyBidList[supplyindex].amount:
+                            qrem = self.supplyBidList[supplyindex].amount - qrem
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("exhausted demand bid, now {qr} left in supply bid".format(qr = qrem))
+                            partialsupply = True
+                            partialdemand = False
+                            self.demandBidList[demandindex].accepted = True
+                            demandindex += 1
+                        else:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("exact match in bids")
+                            qrem = 0
+                            partialsupply = False
+                            partialdemand = False
+                            self.supplyBidList[supplyindex].accepted = True   
+                            self.demandBidList[demandindex].accepted = True 
+                            supplyindex += 1
+                            demandindex += 1
+                    else:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                                print("no partial bids")
+                                
+                        if self.demandBidList[demandindex].amount > self.supplyBidList[supplyindex].amount:
+                            qrem = self.demandBidList[demandindex].amount - self.supplyBidList[supplyindex].amount
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("{qr} remaining in demand bid".format(qr = qrem))
+                            partialdemand = True
+                            partialsupply = False
+                            supplyindex += 1
+                        elif self.demandBidList[demandindex].amount < self.supplyBidList[supplyindex].amount:
+                            qrem = self.supplyBidList[supplyindex].amount - self.demandBidList[demandindex].amount
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("{qr} remaining in supply bid".format(qr = qrem))
+                            partialdemand = False
+                            partialsupply = True
+                            demandindex += 1
+                        else:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("bids match exactly")
+                            qrem = 0
+                            partialsupply = False
+                            partialdeand = False
+                            supplyindex += 1
+                            demandindex += 1
+                else:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("PAST EQ PRICE! demand rate {dr} < supply rate {sr}".format(dr = self.demandBidList[demandindex].rate, sr = self.supplyBidList[supplyindex].rate))
+                    if partialsupply:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("still partial supply bid to take care of")
+                        self.supplyBidList[supplyindex].accepted = True
+                        self.supplyBidList[supplyindex].modified = True
+                        self.supplyBidList[supplyindex].amount -= qrem
+                        self.demandBidList[demandindex].accepted = False
+                        partialsupply = False
+                        partialdemand = False
+                    elif partialdemand:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("still partial demand bid to take care of")
+                        self.demandBidList[demandindex].accepted = True
+                        self.demandBidList[demandindex].modified = True
+                        self.demandBidList[demandindex].amount -= qrem
+                        self.supplyBidList[supplyindex].accepted = False
+                        partialsupply = False
+                        partialdemand = False
+                    else:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("reject and skip...")
+                        self.supplyBidList[supplyindex].accepted = False
+                        self.demandBidList[demandindex].accepted = False
+                    supplyindex += 1
+                    demandindex += 1
+            
+            while supplyindex < sblen:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print(" out of loop, still cleaning up supply bids {si}".format(si = supplyindex))
+                if partialsupply:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("partial supply bid to finish up")
+                    self.supplyBidList[supplyindex].accepted = True
+                    self.supplyBidList[supplyindex].modified = True
+                    self.supplyBidList[supplyindex].amount -= qrem
+                    partialsupply = False
+                    partialdemand = False
+                else:
+                    self.supplyBidList[supplyindex].accepted = False
+                supplyindex += 1
+                
+            while demandindex < dblen:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print(" out of loop, still cleaning up demand bids {di}".format(di = demandindex))
+                if partialdemand:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("partial demand bid to finish up")
+                    self.demandBidList[demandindex].accepted = True
+                    self.demandBidList[demandindex].modified = True
+                    self.demandBidList[demandindex].amount -= qrem
+                    partialsupply = False
+                    partialdemand = False
+                else:
+                    self.demandBidList[demandindex].accepted = False
+                demandindex += 1
+                    
+            
+            totalsupply = 0    
+            #notify the counterparties of the terms on which they will supply power
+            for bid in self.supplyBidList:
+                if bid.accepted:
+                    totalsupply += bid.amount
+                    self.sendBidAcceptance(bid, group.rate)
+                else:
+                    self.sendBidRejection(bid, group.rate)   
+                    
+            totaldemand = 0        
+            #notify the counterparties of the terms on which they will consume power
+            for bid in self.demandBidList:
+                if bid.accepted:
+                    totaldemand += bid.amount
+                    self.sendBidAcceptance(bid, group.rate)
+                else:
+                    self.sendBidRejection(bid, group.rate)
+                    
+            
+            totalreserve = 0
+            for bid in self.reserveBidList:
+                if totalreserve < (maxLoad - totaldemand):
+                    totalreserve += bid.amount
+                    if totalreserve > (maxLoad - totaldemand):
+                        #we have enough reserves, accept partial
+                        bid.accepted = True
+                        bid.modified = True
+                        bid.amount = bid.amount - (maxLoad - totaldemand - totalreserve)
+                    else:
+                        bid.accepted = True
+                else: 
+                    bid.accepted = False
+                    
+            for bid in self.reserveBidList:
+                if bid.accepted:
+                    self.sendBidAcceptance(bid,group.rate)
+                    if bid.__class__.__name__ == "SupplyBid":
+                        self.NextPeriod.actionPlan.addBid(bid)
+                    elif bid.__class__.__name__ == "DemandBid":
+                        self.NextPeriod.actionPlan.addConsumption(bid)
+                else:
+                    self.sendBidRejection(bid,group.rate)
+                    
+            self.bidstate.reserveonly()
+            #now look at the revised bids
+            
+                                   
+            #announce rates for next period
+            for cust in group.customers:
+                self.announceRate(cust,group.rate,self.NextPeriod.startTime)
                         
         self.NextPeriod.actionPlan.printInfo()
                 
@@ -468,6 +641,7 @@ class UtilityAgent(Agent):
     also runs the enactPlan() function to actuate the planned actions for the new
     planning period '''    
     def advancePeriod(self):
+        self.bidstate.acceptnone()
         #make next period the current period and create new object for next period
         self.CurrentPeriod = self.NextPeriod
         self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
@@ -522,26 +696,37 @@ class UtilityAgent(Agent):
             #we will also have to change swing sources if necessary...
             
             
-    '''check swing source headroom and see if it is necessary to commit reserves 
-    and commit reserves and/or ask other sources for reserves'''
-    @Core.periodic(settings.RESERVE_DISPATCH_INTERVAL)        
-    def reserveDispatch(self):
-        pass
     
     '''monitor for and remediate fault conditions'''
     @Core.periodic(settings.FAULT_DETECTION_INTERVAL)
     def faultManager(self):
+        for group in self.groupList:
         #look for line-ground faults
-        
-        #look for brownouts
-        
-        #detect relay failures  MAYBE
-        pass
+            for node in group.membership:
+                total = node.sumCurrents()
+                if abs(total) > .1:
+                    #there is a mismatch and probably a line-ground fault
+                    node.isolateNode()
+                    node.groundfault = True
+                    group.groundfault = True
+                
+                        
+                #look for brownouts
+                for node in self.nodes:
+                    voltage = node.getVoltage
+                    if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
+                        node.voltageLow = True
+                        group.voltageLow = True
+                    else:
+                        node.voltageLow = False
+            
+            #detect relay failures  MAYBE
+            
     
     ''' secondary voltage control loop to fix sagging voltage due to droop control''' 
     @Core.periodic(settings.SECONDARY_VOLTAGE_INTERVAL)       
     def correctVoltage(self):
-        for group in groupList:
+        for group in self.groupList:
             avgVoltage = group.getAvgVoltage()
             if avgVoltage < settings.VOLTAGE_BAND_LOWER or avgVoltage > settings.VOLTAGE_BAND_UPPER:
                 #only use our own resources
@@ -554,7 +739,14 @@ class UtilityAgent(Agent):
         mesdict["message_sender"] = self.name
         
         mesdict["amount"] = bid.amount
-        mesdict["service"] = bid.service
+        if bid.__class__.__name__ == "SupplyBid":
+            mesdict["side"] = "supply"
+            mesdict["service"] = bid.service
+        elif bid.__class__.__name__ == "DemandBid":
+            mesdict["side"] = "demand"
+        else:
+            mesdict["side"] = "unspecified"
+            
         mesdict["rate"] = rate        
         mesdict["period"] = bid.period
         mesdict["uid"] = bid.uid
@@ -572,8 +764,14 @@ class UtilityAgent(Agent):
         mesdict["message_sender"] = self.name
         
         mesdict["amount"] = bid.amount
-        mesdict["service"] = bid.service
         mesdict["rate"] = rate        
+        if bid.__class__.__name__ == "SupplyBid":
+            mesdict["side"] = "supply"
+            mesdict["service"] = "service"
+        elif bid.__class__.__name__ == "DemandBid":
+            mesdict["side"] = "demand"
+        else:
+            mesdict["side"] = "unspecified"
         mesdict["period"] = bid.period
         mesdict["uid"] = bid.uid
         
@@ -763,20 +961,32 @@ class UtilityAgent(Agent):
             if settings.DEBUGGING_LEVEL >= 2:
                 print("\nUTILITY {me} RECEIVED AN ENERGYMARKET MESSAGE: {type}".format(me = self.name, type = messageSubject))
             if messageSubject == "bid_response":
-                service = mesdict.get("service",None)
+                side = mesdict.get("side",None)
                 rate =  mesdict.get("rate",None)
-                power = mesdict.get("power",None)
-                duration = mesdict.get("power",None)
+                duration = mesdict.get("duration",None)
                 amount = mesdict.get("amount",None)
                 period = mesdict.get("period",None)
                 uid = mesdict.get("uid",None)
                 resourceName = mesdict.get("resource",None)
                 
-                self.bidList.append(financial.Bid(resourceName,service,amount,rate,messageSender,period,uid))
+                if side == "supply":
+                    service = mesdict.get("service",None)
+                    newbid = financial.SupplyBid(resourceName,service,amount,rate,messageSender,period,uid)
+                    if service == "power":
+                        self.supplyBidList.append(newbid)
+                    elif service == "reserve":                  
+                        self.reserveBidList.append(newbid)
+                    
+                elif side == "demand":
+                    newbid = financial.DemandBid(amount,rate,messageSender,period,uid)
+                    self.demandBidList.append(newbid)
+                
                 if settings.DEBUGGING_LEVEL >= 1:
                     print(message)
-                    print("UTILITY {me} RECEIVED A BID#{id} FROM {them}".format(me = self.name, id = uid, them = messageSender ))
-                    self.bidList[-1].printInfo()
+                    print("UTILITY {me} RECEIVED A {side} BID#{id} FROM {them}".format(me = self.name, side = side,id = uid, them = messageSender ))
+                    if settings.DEBUGGING_LEVEL >= 3:
+                        newbid.printInfo()
+                
                 
     '''callback for demandresponse topic'''
     def DRfeed(self, peer, sender, bus, topic, headers, message):
@@ -887,6 +1097,32 @@ class UtilityAgent(Agent):
     def openInfRelay(self,rname):
         tagClient.writeTags([rname],[True])
         
+class BidState(object):
+    def __init__(self):
+        self.reservepolicy = False
+        self.supplypolicy = False
+        self.demandpolicy = False
+        
+        self.ignorelist = []
+        
+    def acceptall(self):
+        self.reservepolicy = True
+        self.supplypolicy = True
+        self.demandpolicy = True
+        
+    def reserveonly(self):
+        self.reservepolicy = True
+        self.supplypolicy = False
+        self.demandpolicy = False
+        
+    def acceptnone(self):
+        self.reservepolicy = False
+        self.supplypolicy = False
+        self.demandpolicy = False
+        
+    def addtoignore(self,name):
+        self.ignorelist.append(name)
+    
         
 def main(argv = sys.argv):
     try:

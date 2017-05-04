@@ -32,6 +32,7 @@ class HomeAgent(Agent):
         self.location = self.config["location"]
         self.resources = self.config["resources"]
         self.demandCurve = self.config["demandCurve"]
+        self.refload = float(self.config["refload"])
         self.perceivedInsol = 10
         #the following variables 
         self.FREGpart = bool(self.config["FREGpart"])
@@ -57,8 +58,10 @@ class HomeAgent(Agent):
         self.gridConnected = False
         self.registered = False
         
+        self.marginalutility = .2
         self.avgEnergyCost = 1
-        self.outstandingBids = []
+        self.outstandingSupplyBids = []
+        self.outstandingDemandBids = []
         
         start = datetime.now()
         #this value doesn't matter
@@ -192,15 +195,13 @@ class HomeAgent(Agent):
                     
     def priceChange(self,newPrice):
         newdemand = interpolation.lininterp(self.demandCurve,newPrice)
-        if newDemand == 0:
+        if newdemand == 0:
             self.disconnectLoad()
-            print("HOME {name} has attempted to disconnect from the grid".format(name = self.name))
         else:
             if self.gridConnected:
                 pass
             else:
                 self.connectLoad()
-                print("HOME {name} has attempted to connect to the grid".format(name = self.name))
         
     def followmarket(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
@@ -217,6 +218,7 @@ class HomeAgent(Agent):
             #sent by a utility agent to elicit bids for generation    
             if messageSubject == 'bid_solicitation':
                 service = mesdict.get("service",None)
+                side = mesdict.get("side",None)
                 period = mesdict.get("period",None)
                 counterparty = messageSender
                 if self.Resources:
@@ -224,70 +226,91 @@ class HomeAgent(Agent):
                     biddict["message_subject"] = "bid_response"
                     biddict["message_target"] = messageSender
                     biddict["message_sender"] = self.name
-        
-                    for res in self.Resources:
-                        if type(res) is resource.SolarPanel:
-                            amount = res.maxDischargePower*self.perceivedInsol/100
-                            rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                    if side == "demand":
+                        #determine amount and rate
+                        bidcomponents = self.generateDemandBids()
+                        
+                        for bidcomp in bidcomponents:
+                            amount = bidcomp.get("amount")
+                            rate = bidcomp.get("rate")
                             biddict["amount"] = amount
-                            biddict["service"] = service
                             biddict["rate"] = rate
+                            biddict["side"] = side
                             biddict["counterparty"] = counterparty
                             biddict["duration"] = 1
                             biddict["period"] = period
-                            biddict["resource"] = res.name
                             #add to local list of outstanding bids
-                            newBid = financial.Bid(res.name,service,amount,rate,counterparty,period)
-                            self.outstandingBids.append(newBid)
+                            newBid = financial.DemandBid(amount,rate,counterparty,period)
+                            self.outstandingDemandBids.append(newBid)
                             biddict["uid"] = newBid.uid
                             if settings.DEBUGGING_LEVEL >= 2:
-                                print("\nHOME AGENT {me} ADDED AN OUTSTANDING BID".format(me = self.name))
-                                print("HERE'S THE LIST OF OUTSTANDING BIDS:")
-                                for bid in self.outstandingBids:
+                                print("\nHOME AGENT {me} ADDED AN OUTSTANDING DEMAND BID: {id}".format(me = self.name, id = newBid.uid))
+                                print("HERE'S THE LIST OF OUTSTANDING DEMAND BIDS:")
+                                for bid in self.outstandingDemandBids:
                                     bid.printInfo()
-                                    
+                                            
                             #and send to utility for consideration
                             mess = json.dumps(biddict)
                             self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
                             
-                            if settings.DEBUGGING_LEVEL >= 2:
-                                print("\nNEW BID TENDERED BY {me}".format(me = self.name))
-                                newBid.printInfo()
-                            
-                        elif type(res) is resource.LeadAcidBattery:
-                            if res.SOC > .2:
-                                amount = 10
-                                rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                                bid["amount"] = amount
-                                bid["service"] = service
-                                bid["rate"] = rate
-                                bid["counterparty"] = counterparty
-                                bid["duration"] = 1
-                                bid["period"] = period
-                                bid["resource"] = res.name
-                                
-                                newBid = financial.Bid(res.name,service,amount,rate,counterparty,period)
-                                self.outstandingBids.append(newBid)
-                                
+                    elif side == "supply":
+                        for res in self.Resources:
+                            if type(res) is resource.SolarPanel:
+                                amount = res.maxDischargePower*self.perceivedInsol/100
+                                rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                                biddict["amount"] = amount
+                                biddict["service"] = service
+                                biddict["side"] = side
+                                biddict["rate"] = rate
+                                biddict["counterparty"] = counterparty
+                                biddict["duration"] = 1
+                                biddict["period"] = period
+                                biddict["resource"] = res.name
+                                #add to local list of outstanding bids
+                                newBid = financial.SupplyBid(res.name,service,amount,rate,counterparty,period)
+                                self.outstandingSupplyBids.append(newBid)
+                                biddict["uid"] = newBid.uid
                                 if settings.DEBUGGING_LEVEL >= 2:
-                                    print("\nHOME AGENT {me} ADDED AN OUTSTANDING BID".format(me = self.name))
+                                    print("\nHOME AGENT {me} ADDED AN OUTSTANDING BID: {id}".format(me = self.name, id = newBid.uid))
                                     print("HERE'S THE LIST OF OUTSTANDING BIDS:")
-                                    for bid in self.outstandingBids:
+                                    for bid in self.outstandingSupplyBids:
                                         bid.printInfo()
-                                    
-                                mess = json.dumps(bid)
+                                        
+                                #and send to utility for consideration
+                                mess = json.dumps(biddict)
                                 self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
                                 
-                                if settings.DEBUGGING_LEVEL >= 2:
-                                    print("\nNEW BID TENDERED BY {me}".format(me = self.name))
-                                    newBid.printInfo()
-                        else:
-                            print("A PROBLEM: {type} is not a recognized type".format(type = type(res)))
+                            elif type(res) is resource.LeadAcidBattery:
+                                if res.SOC > .2:
+                                    amount = 10
+                                    rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                                    bid["amount"] = amount
+                                    bid["service"] = service
+                                    biddict["side"] = side
+                                    bid["rate"] = rate
+                                    bid["counterparty"] = counterparty
+                                    bid["duration"] = 1
+                                    bid["period"] = period
+                                    bid["resource"] = res.name
+                                    
+                                    newBid = financial.Bid(res.name,service,amount,rate,counterparty,period)
+                                    self.outstandingSupplyBids.append(newBid)
+                                    
+                                    if settings.DEBUGGING_LEVEL >= 2:
+                                        print("\nHOME AGENT {me} ADDED AN OUTSTANDING BID: {id}".format(me = self.name, id = newBid.uid))
+                                        print("HERE'S THE LIST OF OUTSTANDING BIDS:")
+                                        for bid in self.outstandingSupplyBids:
+                                            bid.printInfo()
+                                        
+                                    mess = json.dumps(bid)
+                                    self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
+                                
+                            else:
+                                print("A PROBLEM: {type} is not a recognized type".format(type = type(res)))
             #received when a homeowner's bid has been accepted    
             elif messageSubject == 'bid_acceptance':
                 #if acceptable, update the plan
-                
-                service = mesdict.get("service",None)
+                side = mesdict.get("side",None)
                 amount = mesdict.get("amount",None)
                 rate = mesdict.get("rate",None)
                 period = mesdict.get("period",None)
@@ -295,29 +318,57 @@ class HomeAgent(Agent):
                 
                 #amount or rate may have been changed
                 #service also may have been changed from power to regulation
-                for bid in self.outstandingBids:
-                    print("HOME AGENT {me} COMPARING REC:{rec}|STORED:{sto}".format(me = self.name, rec = uid, sto = bid.uid))
-                    if bid.uid == uid:
-                        bid.service = service
-                        bid.amount = amount
-                        bid.rate = rate
-                        bid.period = period
-                        if bid.period == self.NextPeriod.periodNumber:
-                            self.NextPeriod.actionPlan.addBid(bid)
-                            self.outstandingBids.remove(bid)
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("\n-->HOMEOWNER {me} ACK BID ACCEPTANCE".format(me = self.name))
-                            bid.printInfo()
+                if side == "supply":
+                    service = mesdict.get("service",None)
+                    for bid in self.outstandingSupplyBids:
+                        print("HOME AGENT {me} COMPARING REC:{rec}|STORED:{sto}".format(me = self.name, rec = uid, sto = bid.uid))
+                        if bid.uid == uid:
+                            bid.service = service
+                            bid.amount = amount
+                            bid.rate = rate
+                            bid.period = period
+                            if bid.period == self.NextPeriod.periodNumber:
+                                self.NextPeriod.actionPlan.addBid(bid)
+                                
+                            self.outstandingSupplyBids.remove(bid)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("\n-->HOMEOWNER {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
+                                bid.printInfo()
+                elif side == "demand":
+                    for bid in self.outstandingDemandBids:
+                        print("HOME AGENT {me} COMPARING REC:{rec}|STORED:{sto}".format(me = self.name, rec = uid, sto = bid.uid))
+                        if bid.uid == uid:
+                            bid.amount = amount
+                            bid.rate = rate
+                            bid.period = period
+                            if bid.period == self.NextPeriod.periodNumber:
+                                self.NextPeriod.actionPlan.plannedConsumption = bid
+                                
+                            self.outstandingDemandBids.remove(bid)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("\n-->HOMEOWNER {me} ACK DEMAND BID ACCEPTANCE".format(me = self.name))
+                                bid.printInfo()
                 
             elif messageSubject == "bid_rejection":
                 #if the bid is not accepted, just remove the bid from the list of outstanding bids
                 uid = mesdict.get("uid",None)
-                for bid in self.outstandingBids:
-                    if bid.uid == uid:
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("\n-->HOMEOWNER {me} ACK BID REJECTION".format(me = self.name))
-                            bid.printInfo()
-                        self.outstandingBids.remove(bid)
+                side = mesdict.get("side",None)
+                
+                if side == "supply":
+                    for bid in self.outstandingSupplyBids:
+                        if bid.uid == uid:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("\n-->HOMEOWNER {me} ACK BID REJECTION FOR {id}".format(me = self.name, id = bid.uid))
+                                bid.printInfo()
+                            self.outstandingSupplyBids.remove(bid)                    
+                elif side == "demand":        
+                    for bid in self.outstandingDemandBids:
+                        if bid.uid == uid:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("\n-->HOMEOWNER {me} ACK DEMAND BID REJECTION FOR {id}".format(me = self.name, id = bid.uid))
+                                bid.printInfo()
+                            self.outstandingDemandBids.remove(bid)
+                        
             #subject used for handling general announcements            
             elif messageSubject == "announcement":
                 messageType = mesdict.get("message_type",None)
@@ -333,9 +384,9 @@ class HomeAgent(Agent):
                         self.NextPeriod = control.Period(period,startdtime,enddtime,self.name)
                         #schedule a callback to begin the new period
                         self.core.schedule(startdtime,self.advancePeriod)
-            elif messageSubject == "spot_update":
-                self.energySpot = mesdict.get("new_spot")
-                priceChanged(self.energySpot)
+            elif messageSubject == "rate_announcement":
+                self.currentSpot = mesdict.get("rate")
+                self.priceChange(self.currentSpot)
                 
     def weatherfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -405,9 +456,28 @@ class HomeAgent(Agent):
                     self.DR_participant = True    
                     
     @Core.periodic(settings.REASSESS_INTERVAL)
-    def reassess_utility(self):
-        pass
-    
+    def reassessUtility(self):
+        #model price point as random walk -- only use this with binary loads
+        thresh = self.demandCurve[1][1]
+        thresh += random.normalvariate(0,.2)
+        if thresh < .05:
+            thresh = .05
+        elif thresh > 3:
+            thresh = 3
+        #update demand curve    
+        self.demandCurve = [[1,0],[1,thresh],[0,thresh],[0,3]]
+        self.marginalutility = thresh
+        
+    def generateDemandBids(self):
+        ''''a load agent that can vary its consumption might want to split up its
+        total consumption into components at different rates'''
+        
+        bidcomponents = []
+        
+        #maybe later this will be a loop for generating multiple bids from demand curve
+        bid ={"amount":  self.refload, "rate": self.marginalutility }        
+        bidcomponents.append(bid)
+        return bidcomponents
 
     def changeConsumption(self, level):
         if level == 0:
@@ -416,6 +486,11 @@ class HomeAgent(Agent):
             self.connectLoad()
         else:
             pass
+        
+    
+    def evaluateSituation(self):
+        pass
+        
     
     def advancePeriod(self):
         self.CurrentPeriod = self.NextPeriod
@@ -466,13 +541,11 @@ class HomeAgent(Agent):
                         res.DischargeChannel.disconnect()
     
     def disconnectLoad(self):
-        #this is where we'll call the CIP stack wrapper to disconnect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
         #setTagValue(tagName,False)
         tagClient.writeTags([tagName],[False])
     
     def connectLoad(self):
-        #this is where we'll call the CIP stack wrapper to connect load
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
         #setTagValue(tagName,True)
         tagClient.writeTags([tagName],[True])
@@ -489,12 +562,18 @@ class HomeAgent(Agent):
         return self.measureVoltage()*self.measureCurrent()
         
     def printInfo(self,verbosity):
+        print("\n________________________________________________________________")
         print("~~SUMMARY OF HOME STATE~~")
         print("HOME NAME: {name}".format(name = self.name))
-        
-        print("LIST ALL OWNED RESOURCES")
+        if 'self.CurrentPeriod' in globals():
+            print("PERIOD: {per}".format(per = self.CurrentPeriod.periodNumber))
+            print(">>>START: {start}  STOP: {end}".format(start = self.CurrentPeriod.startTime, end =  self.CurrentPeriod.endTime))
+        print("LIST ALL OWNED RESOURCES ({n})".format(n = len(self.Resources)))
         for res in self.Resources:
             res.printInfo()
+        print("HERE IS MY CURRENT PLAN:")
+        self.CurrentPeriod.actionPlan.printInfo()
+        print("__________________________________________________________________")
         
     
 def main(argv = sys.argv):

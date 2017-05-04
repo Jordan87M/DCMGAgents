@@ -15,7 +15,7 @@ even if only a single tag value pair is being written'''
 def writeTags(names,values,plc = "user"):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tserver_addr = ('localhost',12897)
-    print("tag client attempting to connect and write to {host}:{port}".format(host = tserver_addr[0], port = tserver_addr[1]))
+    #print("tag client attempting to connect and write to {host}:{port}".format(host = tserver_addr[0], port = tserver_addr[1]))
     
     try:
         sock.connect(tserver_addr)

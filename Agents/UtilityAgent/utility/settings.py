@@ -10,13 +10,13 @@ LT_PLAN_INTERVAL = 120
 ST_PLAN_INTERVAL = 30
 
 #time between fault detection routine runs in seconds
-FAULT_DETECTINO_INTERVAL = 5
+FAULT_DETECTION_INTERVAL = 5
 
 #time between DR enrollment solicitation messages in seconds
 DR_SOLICITATION_INTERVAL = 30
 
 #time between customer solicitation messages in seconds
-CUSTOMER_SOLICITATION_INTERVAL = 30
+CUSTOMER_SOLICITATION_INTERVAL = 20
 
 #time between account credit/debit routine runs in seconds
 ACCOUNTING_INTERVAL = 5
@@ -37,3 +37,4 @@ VOLTAGE_BAND_UPPER = 12.0
 
 #emergency voltage threshold
 VOLTAGE_LOW_EMERGENCY_THRESHOLD = 10.6
+

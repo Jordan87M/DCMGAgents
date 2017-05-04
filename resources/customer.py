@@ -28,6 +28,12 @@ class CustomerProfile(object):
         self.customerAccount = Account(self.name,0.0)
         self.DRenrollee = False
         
+        #tag names
+        self.relayTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_DUMMY".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+        self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+        self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
+
+        
     #change maximum power draw for a customer
     def updateService(self,amount):
         self.maxDraw = amount
@@ -38,17 +44,17 @@ class CustomerProfile(object):
             res.printInfo()
             
     def disconnectCustomer(self):
-        signal = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_DUMMY".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
-        tagClient.writeTags([signal],[False])
+        tag = self.relayTag
+        tagClient.writeTags([tag],[False])
         
     def measureVoltage(self):
-        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
+        tag = self.voltageTag
         tagval = tagClient.readTags([tag])
         self.tagCache[tag] = (tagval, datetime.now())
         return tagval
     
     def measureCurrent(self):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+        tag = self.currentTag
         tagval = tagClient.readTags([tag])
         self.tagCache[tag] = (tagval, datetime.now())
         return tagval
@@ -60,7 +66,7 @@ class CustomerProfile(object):
     
     '''calls measureCurrent only if cached value isn't fresh'''    
     def getCurrent(self,threshold = 5.1):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+        tag = self.currentTag
         val, time = self.tagCache.get(tag,(None, None))
         if val is not None and time is not None:
             diff = datetime.now() - time
@@ -72,7 +78,7 @@ class CustomerProfile(object):
     
     '''calls measureVoltage only if cached value isn't fresh'''
     def getVoltage(self,threshold = 5.1):
-        tag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
+        tag = self.voltageTag
         val, time = self.tagCache.get(tag,(None, None))
         if val is not None and time is not None:
             diff = datetime.now() - time
