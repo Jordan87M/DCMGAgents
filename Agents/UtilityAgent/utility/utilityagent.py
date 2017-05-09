@@ -70,11 +70,28 @@ class UtilityAgent(Agent):
         self.demandBidList = []
         self.reserveBidList = []
         
-        self.nodes = [groups.Node("DC.MAIN.MAIN",[],None,[],["BRANCH_1_BUS_1_Current","BRANCH_2_BUS_1_Current"]),
-                        groups.Node("DC.BRANCH1.BUS1",[],None,[],["BRANCH_1_BUS_1_Current", "BRANCH_1_BUS_2_Current","INTERCONNECT_1_Current"]),
-                        groups.Node("DC.BRANCH1.BUS2",[],None,[],["BRANCH_1_BUS_2_Current", "INTERCONNECT_2_Current"]),
-                        groups.Node("DC.BRANCH2.BUS1",[],None,[],["BRANCH_2_BUS_1_Current", "BRANCH_2_BUS_2_Current","INTERCONNECT_1_Current"]),
-                        groups.Node("DC.BRANCH2.BUS2",[],None,[],["BRANCH_2_BUS_2_Current", "INTERCONNECT_2_Current"])]
+        self.nodes = [groups.Node("DC.MAIN.MAIN",[],None,[]),
+                        groups.Node("DC.BRANCH1.BUS1",[],None,[]),
+                        groups.Node("DC.BRANCH1.BUS2",[],None,[]),
+                        groups.Node("DC.BRANCH2.BUS1",[],None,[]),
+                        groups.Node("DC.BRANCH2.BUS2",[],None,[])]
+        self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current")
+        self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current")
+        
+        self.nodes[1].addEdge(self.nodes[0], "from", "BRANCH_1_BUS_1_Current")
+        self.nodes[1].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current")
+        self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current")
+        
+        self.nodes[2].addEdge(self.nodes[1], "from", "BRANCH_1_BUS_2_Current" )
+        self.nodes[2].addEdge(self.nodes[4], "to", "INTERCONNECT_2_Current" )
+        
+        self.nodes[3].addEdge(self.nodes[0], "from", "BRANCH_2_BUS_1_Current")
+        self.nodes[3].addEdge(self.nodes[1], "from", "INTERCONNECT_1_Current")
+        self.nodes[3].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current")
+        
+        self.nodes[4].addEdge(self.nodes[2], "from", "INTERCONNECT_2_Current")
+        self.nodes[4].addEdge(self.nodes[3], "from", "BRANCH_2_BUS_2_Current")
+        
         #import list of utility resources and make into object
         resource.addResource(self.resources,self.Resources,False)
         #add resources to node objects based on location
@@ -92,7 +109,7 @@ class UtilityAgent(Agent):
         self.tagCache = {}
         
         now = datetime.now()
-        end = datetime.now()+timedelta(seconds = settings.ST_PLAN_INTERVAL)
+        end = datetime.now() + timedelta(seconds = settings.ST_PLAN_INTERVAL)
         self.CurrentPeriod = control.Period(0,now,end,self.name)
         
         self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
@@ -220,7 +237,7 @@ class UtilityAgent(Agent):
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("\nNEW CUSTOMER ENROLLMENT ##############################")
                         print("UTILITY {me} enrolled customer {them}".format(me = self.name, them = name))
-                        cust.printInfo()
+                        cust.printInfo(0)
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("...and here's how they did it:\n {mes}".format(mes = message))
                         print("#### END ENROLLMENT NOTIFICATION #######################")
@@ -304,7 +321,7 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >=2 :
             print("\nUTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
         subs = self.getTopology()
-        self.printInfo(2)
+        self.printInfo(0)
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
         
@@ -390,13 +407,13 @@ class UtilityAgent(Agent):
                 print("\n\nPLANNING for GROUP {group}: worst case load is {max}".format(group = group.name, max = maxLoad))
                 print(">>here are the supply bids:")
                 for bid in self.supplyBidList:                    
-                    bid.printInfo()
+                    bid.printInfo(0)
                 print(">>here are the reserve bids:")
                 for bid in self.reserveBidList:                    
-                    bid.printInfo()          
+                    bid.printInfo(0)          
                 print(">>here are the demand bids:")          
                 for bid in self.demandBidList:                    
-                    bid.printInfo()
+                    bid.printInfo(0)
                 
             
                     
@@ -511,6 +528,8 @@ class UtilityAgent(Agent):
                             partialdeand = False
                             supplyindex += 1
                             demandindex += 1
+                        self.supplyBidList[supplyindex].accepted = True
+                        self.demandBidList[supplyindex].accepted = True
                 else:
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("PAST EQ PRICE! demand rate {dr} < supply rate {sr}".format(dr = self.demandBidList[demandindex].rate, sr = self.supplyBidList[supplyindex].rate))
@@ -577,6 +596,7 @@ class UtilityAgent(Agent):
                 if bid.accepted:
                     totalsupply += bid.amount
                     self.sendBidAcceptance(bid, group.rate)
+                    self.NextPeriod.actionPlan.addBid(bid)
                 else:
                     self.sendBidRejection(bid, group.rate)   
                     
@@ -586,6 +606,7 @@ class UtilityAgent(Agent):
                 if bid.accepted:
                     totaldemand += bid.amount
                     self.sendBidAcceptance(bid, group.rate)
+                    self.NextPeriod.actionPlan.addConsumption(bid)
                 else:
                     self.sendBidRejection(bid, group.rate)
                     
@@ -607,10 +628,7 @@ class UtilityAgent(Agent):
             for bid in self.reserveBidList:
                 if bid.accepted:
                     self.sendBidAcceptance(bid,group.rate)
-                    if bid.__class__.__name__ == "SupplyBid":
-                        self.NextPeriod.actionPlan.addBid(bid)
-                    elif bid.__class__.__name__ == "DemandBid":
-                        self.NextPeriod.actionPlan.addConsumption(bid)
+                    self.NextPeriod.actionPlan.addBid(bid)
                 else:
                     self.sendBidRejection(bid,group.rate)
                     
@@ -622,7 +640,7 @@ class UtilityAgent(Agent):
             for cust in group.customers:
                 self.announceRate(cust,group.rate,self.NextPeriod.startTime)
                         
-        self.NextPeriod.actionPlan.printInfo()
+        self.NextPeriod.actionPlan.printInfo(0)
                 
     def sendDR(self,target,type,duration):
         mesdict = {"message_subject" : "DR_event",
@@ -647,8 +665,8 @@ class UtilityAgent(Agent):
         self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
         
         if settings.DEBUGGING_LEVEL >= 1:
-            print("UTILITY AGENT {me} moving into new period:".format(me = self.name))
-            self.CurrentPeriod.printInfo()
+            print("+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*\nUTILITY AGENT {me} moving into new period:".format(me = self.name))
+            self.CurrentPeriod.printInfo(0)
         
         #call enactPlan
         self.enactPlan()
@@ -659,47 +677,59 @@ class UtilityAgent(Agent):
                     
     '''responsible for enacting the plan which has been defined for a planning period'''
     def enactPlan(self):
-        #all changes in setpoints should be made gradually, i.e. by using
-        #resource.connectSoft() or resource.ramp()
-        
-        #involvedResources will help figure out which resources must be disconnected
+        #which resources are being used during this period? keep track with this list
         involvedResources = []
         #change setpoints
         if self.CurrentPeriod.actionPlan:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("UTILITY {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
+                
             for bid in self.CurrentPeriod.actionPlan.ownBids:
                 res = listparse.lookUpByName(bid.resourceName,self.Resources)
                 if res is not None:
                     involvedResources.append(res)
                     #if the resource is already connected, change the setpoint
                     if res.connected == True:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print(" Resource {rname} is already connected".format(rname = res.name))
                         if bid.service == "power":
                             #res.DischargeChannel.ramp(bid.amount)
                             res.DischargeChannel.changeSetpoint(bid.amount)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("Power resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
                         elif bid.service == "reserve":
                             #res.DischargeChannel.ramp(.1)            
-                            res.DischargeChannel.changeReserve(bid.amount,-.4)
+                            res.DischargeChannel.changeReserve(bid.amount,-.2)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("Reserve resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
                     #if the resource isn't connected, connect it and ramp up power
                     else:
                         if bid.service == "power":
                             #res.connectSourceSoft("Preg",bid.amount)
-                            res.DischargeChannel.connectWithSet(bid.amount,0 )
+                            res.DischargeChannel.connectWithSet(bid.amount,0)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
                         elif bid.servie == "reserve":
                             #res.connectSourceSoft("Preg",.1)
-                            res.DischargeChannel.connectWithSet(bid.amount, -.4)
-            #ramp down and disconnect resources that aren't being used anymore
+                            res.DischargeChannel.connectWithSet(bid.amount, -.2)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("Committed resource {rname} as a reserve with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
+            #disconnect resources that aren't being used anymore
             for res in self.Resources:
                 if res not in involvedResources:
                     if res.connected == True:
                         #res.disconnectSourceSoft()
                         res.DischargeChannel.disconnect()
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
             
-            #we will also have to change swing sources if necessary...
             
             
     
     '''monitor for and remediate fault conditions'''
     @Core.periodic(settings.FAULT_DETECTION_INTERVAL)
     def faultManager(self):
+        nominal = True
         for group in self.groupList:
         #look for line-ground faults
             for node in group.membership:
@@ -709,6 +739,11 @@ class UtilityAgent(Agent):
                     node.isolateNode()
                     node.groundfault = True
                     group.groundfault = True
+                    nominal = False
+                    if settings.DEBUGGING_LEVEL >= 1:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("unaccounted current of {tot}".format(tot = total))
+                        print("Probable line-ground Fault at Node {nod} belonging to {grp}\n  Isolating node.".format(nod = node.name, grp = group.name))
                 
                         
                 #look for brownouts
@@ -717,10 +752,17 @@ class UtilityAgent(Agent):
                     if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
                         node.voltageLow = True
                         group.voltageLow = True
+                        nominal = False
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = group.name))
                     else:
                         node.voltageLow = False
             
             #detect relay failures  MAYBE
+            
+        if nominal:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("No faults detected by {me}!".format(me = self.name))
             
     
     ''' secondary voltage control loop to fix sagging voltage due to droop control''' 
@@ -985,7 +1027,7 @@ class UtilityAgent(Agent):
                     print(message)
                     print("UTILITY {me} RECEIVED A {side} BID#{id} FROM {them}".format(me = self.name, side = side,id = uid, them = messageSender ))
                     if settings.DEBUGGING_LEVEL >= 3:
-                        newbid.printInfo()
+                        newbid.printInfo(0)
                 
                 
     '''callback for demandresponse topic'''
@@ -1024,17 +1066,22 @@ class UtilityAgent(Agent):
         
         print("--LIST ALL {n} UTILITY OWNED RESOURCES------".format(n = len(self.Resources)))
         for res in self.Resources:
-            res.printInfo()
+            res.printInfo(1)
+        print("--END RESOURCES LIST------------------------")
         print("--LIST ALL {n} CUSTOMERS----------------".format(n=len(self.customers)))
         for cust in self.customers:
-            cust.printInfo()
+            print("---ACCOUNT BALANCE FOR {them}: {bal} Credits".format(them = cust.name, bal = cust.customerAccount.accountBalance))
+            cust.printInfo(1)
+        print("--END CUSTOMER LIST---------------------")
         if verbosity > 1:
             print("--LIST ALL {n} DR PARTICIPANTS----------".format(n = len(self.DRparticipants)))
             for part in self.DRparticipants:
-                part.printInfo()
+                part.printInfo(1)
+            print("--END DR PARTICIPANTS LIST--------------")
             print("--LIST ALL {n} GROUPS------------------".format(n = len(self.groupList)))
             for group in self.groupList:
-                group.printInfo()
+                group.printInfo(1)
+            print("--END GROUPS LIST----------------------")
         print("~~~END UTILITY SUMMARY~~~~~~")
         print("*************************************************************************")
     

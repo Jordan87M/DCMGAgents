@@ -24,29 +24,31 @@ class SupplyBid(BidBase):
         self.service = service
         self.resourceName = resourceName
         
-    def printInfo(self,verbosity = 1):
-        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-        print("SUPPLY BID INFORMATION for BID {id}".format(id = self.uid))
-        print("SERVICE: {service} FROM: {res}".format(service = self.service, res = self.resourceName))
-        print("AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
-        print("FOR PERIOD: {per}".format(per = self.period))
-        print("COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
-        print("STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
-        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
+    def printInfo(self, depth = 0, verbosity = 1):
+        spaces = '  '
+        print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+        print(spaces*depth + "SUPPLY BID INFORMATION for BID {id}".format(id = self.uid))
+        print(spaces*depth + "SERVICE: {service} FROM: {res}".format(service = self.service, res = self.resourceName))
+        print(spaces*depth + "AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
+        print(spaces*depth + "FOR PERIOD: {per}".format(per = self.period))
+        print(spaces*depth + "COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
+        print(spaces*depth + "STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
+        print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
         
 class DemandBid(BidBase):
     def __init__(self,amount,rate,counterparty,period,uid = None):
         super(DemandBid,self).__init__(amount,rate,counterparty,period,uid)
         #more stuff here later?
         
-    def printInfo(self,verbosity = 1):
-        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-        print("DEMAND BID INFORMATION for BID {id}".format(id = self.uid))
-        print("AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
-        print("FOR PERIOD: {per}".format(per = self.period))
-        print("COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
-        print("STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
-        print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
+    def printInfo(self, depth = 0):
+        spaces = "    "
+        print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+        print(spaces*depth + "DEMAND BID INFORMATION for BID {id}".format(id = self.uid))
+        print(spaces*depth + "AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
+        print(spaces*depth + "FOR PERIOD: {per}".format(per = self.period))
+        print(spaces*depth + "COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
+        print(spaces*depth + "STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
+        print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
     
 
 #determine daily rate based on capital cost and rate of return        

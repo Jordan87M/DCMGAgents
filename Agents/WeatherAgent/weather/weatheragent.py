@@ -69,7 +69,7 @@ class WeatherAgent(Agent):
                 
     
 def main(argv = sys.argv):
-    '''main method called by the eggseccutable'''
+    '''main method called by the eggsecutable'''
     try:
         utils.vip_main(WeatherAgent)
     except Exception as e:

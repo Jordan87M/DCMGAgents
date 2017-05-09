@@ -18,8 +18,9 @@ class Resource(object):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
         self.owner = newOwner
         
-    def printInfo(self):
-        print("    **RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
+    def printInfo(self, depth = 0):
+        space = '    '
+        print(spaces*depth + "**RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
 
 class Source(Resource):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs):
@@ -75,12 +76,13 @@ class Source(Resource):
     def disconnectSourceSoft(self):
         self.connected = self.DischargeChannel.disconnectSoft()
     
-    def printInfo(self,verbosity = 0):
-        print("    **RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
+    def printInfo(self, depth = 0, verbosity = 0):
+        spaces = '    '
+        print(spaces*depth + "**RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
         if verbosity == 1:
-            print("      CURRENT OPERATING INFO:")
-            print("        VUNREG: {vu}  IUNREG: {iu}".format(vu = self.getInputUnregVoltage(), iu = self.getInputUnregCurrent()))
-            print("        VREG: {vr}  IREG: {ir}".format(vr = self.getOutputRegVoltage(), ir = self.getOutputRegCurrent()))
+            print(spaces*depth + "CURRENT OPERATING INFO:")
+            print(spaces*depth + "VUNREG: {vu}  IUNREG: {iu}".format(vu = self.getInputUnregVoltage(), iu = self.getInputUnregCurrent()))
+            print(spaces*depth + "VREG: {vr}  IREG: {ir}".format(vr = self.getOutputRegVoltage(), ir = self.getOutputRegCurrent()))
 
 class Storage(Source):
     

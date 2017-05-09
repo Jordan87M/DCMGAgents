@@ -342,7 +342,7 @@ class HomeAgent(Agent):
                             bid.rate = rate
                             bid.period = period
                             if bid.period == self.NextPeriod.periodNumber:
-                                self.NextPeriod.actionPlan.plannedConsumption = bid
+                                self.NextPeriod.actionPlan.addConsumption(bid)
                                 
                             self.outstandingDemandBids.remove(bid)
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -514,31 +514,46 @@ class HomeAgent(Agent):
         involvedResources = []
         #change setpoints
         if self.CurrentPeriod.actionPlan:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("RESIDENCE {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
+                
             for bid in self.CurrentPeriod.actionPlan.ownBids:
                 res = listparse.lookUpByName(bid.resourceName)
                 involvedResources.append(res)
                 #if the resource is already connected, change the setpoint
                 if res.connected == True:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print(" Resource {rname} is already connected".format(rname = res.name))
                     if bid.service == "power":
                         #res.DischargeChannel.ramp(bid.amount)
                         res.DischargeChannel.changeSetpoint(bid.amount)
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("Power resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
                     elif bid.service == "reserve":
                         #res.DischargeChannel.ramp(.1)
-                        res.DischargeChannel.changeReserve(bid.amount,-.4)
+                        res.DischargeChannel.changeReserve(bid.amount,-.2)
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("Reserve resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
                 #if the resource isn't connected, connect it and ramp up power
                 else:
                     if bid.service == "power":
                         #res.connectSourceSoft("Preg",bid.amount)
                         res.DischargeChannel.connectWithSet(bid.amount,0 )
+                        if settings.DEBUGGING_LEVEL >= 2:
+                                print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
                     elif bid.servie == "reserve":
                         #res.connectSourceSoft("Preg",.1)
-                        res.DischargeChannel.connectWithSet(bid.amount, -.4)
+                        res.DischargeChannel.connectWithSet(bid.amount, -.2)
+                        if settings.DEBUGGING_LEVEL >= 2:
+                                print("Committed resource {rname} as a reserve with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
             #ramp down and disconnect resources that aren't being used anymore
             for res in self.Resources:
                 if res not in involvedResources:
                     if res.connected == True:
                         #res.disconnectSourceSoft()
                         res.DischargeChannel.disconnect()
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
     
     def disconnectLoad(self):
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)

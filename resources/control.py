@@ -7,26 +7,36 @@ class Plan(object):
         self.period = period
         
         self.acceptedBids = []
+        self.reserveBids = []
         self.ownBids = []
         self.plannedConsumption = []
         
         self.totalsupply = 0
+        self.totalreserve = 0
         self.totaldemand = 0
     
-    def printInfo(self,verbosity = 1):
+    def printInfo(self, depth = 0, verbosity = 1):
         print("------------------------------------")
         print("PLAN for {per}".format(per = self.period))
         print("INCLUDES THE FOLLOWING BIDS ({n} bids for {ts} W):".format(n = len(self.acceptedBids), ts = self.totalsupply))
         for bid in self.acceptedBids:
-            bid.printInfo()
+            bid.printInfo(depth + 1)
+        print("INCLUDES THE FOLLOWING RESERVE BIDS ({n} bids for {tr} W):".format(n = len(self.reserveBids), tr = self.totalreserve))
+        for bid in self.reserveBids:
+            bid.printInfo(depth + 1)
         print("ANTICIPATED CONSUMPTION ({n} bids for {td} W):".format(n = len(self.plannedConsumption), td = self.totaldemand))
         for bid in self.plannedConsumption:
-            bid.printInfo()
+            bid.printInfo(depth + 1)
         print("------------------------------------")
         
     def addBid(self,newbid):
-        self.acceptedBids.append(newbid)
-        self.totalsupply += newbid.amount
+        if newbid.service == "reserve":
+            self.reserveBids.append(newbid)
+            self.totalreserve += newbid.amount
+        elif newbid.service == "supply":
+            self.acceptedBids.append(newbid)            
+            self.totalsupply += newbid.amount
+        
         if newbid.counterparty == self.planner:
             self.ownBids.append(newbid)
             
@@ -37,7 +47,7 @@ class Plan(object):
             self.ownBids.remove(bid)            
             
     def addConsumption(self,demandbid):
-        self.plannedConsumption.append(newbid)
+        self.plannedConsumption.append(demandbid)
         self.totaldemand += demandbid.amount
         
     def removeConsumption(self,demandbid):
@@ -53,13 +63,13 @@ class Period(object):
         #initialize the plan for this period
         self.actionPlan = Plan(self.periodNumber,planner)
         
-    def printInfo(self):
+    def printInfo(self, depth = 0):
         print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print("SUMMARY OF PERIOD {num}".format(num = self.periodNumber))
         print("START: {start}".format(start = self.startTime.isoformat()))
         print("END: {end}".format(end = self.endTime))
         if self.actionPlan is not None:
-            self.actionPlan.printInfo()
+            self.actionPlan.printInfo(depth + 1)
         else:
             print("no plan yet")
         print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")

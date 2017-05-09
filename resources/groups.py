@@ -16,18 +16,21 @@ class Group(object):
         self.relayfault = False
         
         
-        
-    def printInfo(self,verbosity = 1):
-        print(">>>>GROUP {me} CONTAINS THE FOLLOWING...".format(me = self.name))
-        print(">>>>>>>CUSTOMERS ({n}): ------------".format(n = len(self.customers)))
+    def printInfo(self,depth = 0):
+        spaces = "    "
+        print(spaces*depth + ">>>>GROUP {me} CONTAINS THE FOLLOWING...".format(me = self.name))
+        print(spaces*depth + ">>>>>>>CUSTOMERS ({n}): ------------".format(n = len(self.customers)))
         for cust in self.customers:
-            cust.printInfo()
-        print(">>>>>>>RESOURCES ({n}): ------------".format(n = len(self.resources)))
+            cust.printInfo(depth + 1)
+        print(spaces*depth + ">>>>>>>CUSTOMERS =END=")
+        print(spaces*depth + ">>>>>>>RESOURCES ({n}): ------------".format(n = len(self.resources)))
         for res in self.resources:
-            res.printInfo()
-        print(">>>>>>>NODES ({n}): ----------------".format(n = len(self.membership)))
+            res.printInfo(depth + 1)
+        print(spaces*depth + ">>>>>>>RESOURCES =END=")
+        print(spaces*depth + ">>>>>>>NODES ({n}): ----------------".format(n = len(self.membership)))
         for mem in self.membership:
-            mem.printInfo()
+            mem.printInfo(depth + 1)
+        print(spaces*depth + ">>>>>>>NODES =END=")
             
     def getAvgVoltage(self):
         sum = 0
@@ -37,13 +40,13 @@ class Group(object):
         
     
 class Node(object):
-    def __init__(self,name,resources = [], membership = None, customers = [], currentTags = [], **kwargs):
+    def __init__(self,name,resources = [], membership = None, customers = [], **kwargs):
         self.name = name 
         self.resources = resources
         self.membership = membership
         self.customers = customers
-        self.currentTags = currentTags
         self.state = "normal"
+        self.edges = []
         
         self.grid, self.branch, self.bus = self.name.split(".")
         if self.branch != "MAIN":
@@ -55,11 +58,37 @@ class Node(object):
         self.groundfault = False
         self.relayfault = False
         
+    def addEdge(self,otherNode,dir,currentTag):
+        if dir == "from":
+            self.edges.append(DirEdge(otherNode,self,currentTag))
+        elif dir == "to":
+            self.edges.append(DirEdge(self,otherNode,currentTag))
+        else:
+            print("addEdge() didn't do anything. The dir paramter must be 'to' or 'from'. ")
+        
+        
+    def removeEdge(self,otherNode):
+        for edge in self.edges:
+            if edge.startNode is self or edge.endNode is self:
+                edges.remove(edge)
+        
     def sumCurrents(self):
-        infcurrents = tagClient.readTags(self.currentTags)
-        total = 0
-        for current in infcurrents:
-            total += infcurrents[current]        
+        #infcurrents = tagClient.readTags(self.currentTags)
+        inftags = []
+        for edge in self.edges:
+            inftags.append(edge.currentTag)
+        
+        infcurrents = tagClient.readTags(inftags)
+            
+        total = 0        
+        for edge in self.edges:
+            if edge.startNode is self:
+                total -= infcurrents.get(edge.currentTag)
+            elif edge.endNode is self:
+                total += infcurrents.get(edge.currentTag)
+            else:
+                pass        
+        
         return total
         
     def getVoltage(self):
@@ -69,15 +98,7 @@ class Node(object):
             signal = "MAIN_BUS_Voltage"
             
         return tagClient.readTags([signal])
-        
     
-    def getCurrent(self):
-        if self.branch != "MAIN":
-            signal = "BRANCH_{branch}_BUS_{bus}_Current".format(branch = self.branchNumber, bus = self.busNumber)
-        else:
-            signal = "MAIN_BUS_Current"
-        return tagClient.readTags([signal])
-        
         
     def getPowerFlow(self):
         return self.getVoltage()*self.getcurrent()
@@ -90,11 +111,37 @@ class Node(object):
             signals = ["BRANCH_{branch}_BUS_{bus}_DIST_DUMMY", "BRANCH_{branch}_BUS_{bus}_DIST_PROX_DUMMY"]
             tagClient.writeTags(signals,[True, True])
     
-    def printInfo(self,verbosity = 1):
-        print("NODE {me} CONTAINS THE FOLLOWING...".format(me = self.name))
-        print(">>CUSTOMERS ({n}):".format(n = len(self.customers)))
+    def printInfo(self,depth = 0,verbosity = 1):
+        spaces = '    '
+        print(spaces*depth + "NODE {me} PROBLEMS:".format(me = self.name))
+        if self.voltageLow:
+            print(spaces*depth + "FAULT: VOLTAGE BELOW SPEC")
+        if self.groundfault:
+            print(spaces*depth + "FAULT: GROUNDFAULT")
+        if self.relayfault:
+            print(spaces*depth + "FAULT: RELAY MALFUNCTION")
+        print(spaces*depth + "NODE {me} CONTAINS THE FOLLOWING...".format(me = self.name))
+        print(spaces*depth + ">>CUSTOMERS ({n}):".format(n = len(self.customers)))
         for cust in self.customers:
-            cust.printInfo()
-        print(">>RESOURCES ({n}):".format(n = len(self.resources)))
+            cust.printInfo(depth + 1)
+        print(spaces*depth + ">>RESOURCES ({n}):".format(n = len(self.resources)))
         for res in self.resources:
-            res.printInfo()
+            res.printInfo(depth + 1)
+        print(spaces*depth + ">>CONNECTIONS ({n}):".format(n = len(self.edges)))
+        for edge in self.edges:
+            edge.printInfo(depth + 1)
+ 
+    
+class DirEdge(object):
+    def __init__(self, startNode, endNode, currentTag):
+        self.startNode = startNode
+        self.endNode = endNode
+        self.currentTag = currentTag
+        
+    def getCurrent(self):
+        return tagClient.readTags([self.currentTag])    
+    
+    def printInfo(self,depth = 0):
+        spaces = "    "
+        print(spaces*depth + "BEGIN EDGE CONNECTING {orig} to {term}".format(orig = self.startNode.name, term = self.endNode.name))
+        print(spaces*(depth + 1) + "CURRENT TAG NAME: {tag}".format(tag = self.currentTag))

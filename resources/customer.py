@@ -38,10 +38,11 @@ class CustomerProfile(object):
     def updateService(self,amount):
         self.maxDraw = amount
             
-    def printInfo(self):
-        print("    CUSTOMER: {name} is a {type}\n        LOCATION: {loc}\n        RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
+    def printInfo(self, depth = 0):
+        spaces = '    '
+        print(spaces*depth + "CUSTOMER: {name} is a {type}\n        LOCATION: {loc}\n        RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
         for res in self.Resources:
-            res.printInfo()
+            res.printInfo(depth + 1)
             
     def disconnectCustomer(self):
         tag = self.relayTag
@@ -141,9 +142,10 @@ class ResourceProfile(object):
     def setOwner(self,newOwner):
         self.owner = newOwner
         
-    def printInfo(self):
-        print("        **RESOURCE: {name} is a {type}".format(name = self.name, type = self.__class__.__name__))
-        print("            LOCATION: {loc}".format(loc = self.location))
+    def printInfo(self, depth = 0):
+        spaces = '    '
+        print(spaces*depth + "RESOURCE: {name} is a {type}".format(name = self.name, type = self.__class__.__name__))
+        print(spaces*depth + "LOCATION: {loc}".format(loc = self.location))
 
 class SourceProfile(ResourceProfile):
     def __init__(self,owner,location,name,capCost,maxDischargePower,**kwargs):
