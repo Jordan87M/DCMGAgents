@@ -194,46 +194,23 @@ class UtilityAgent(Agent):
                     
                     #add resources to resource pool if present
                     if resources:
-                        def addOneToPool(list,res):
-                            resType = res.get("type",None)
-                            if resType == "solar":
-                                profile = customer.SolarProfile(**res)                                
-                                #profile = customer.SolarProfile(owner,location,name,capCost,maxDischargePower)
-                                
-                            elif resType == "lead_acid_battery":
-                                profile = customer.LeadAcidBatteryProfile(**res)                                
-                                #profile = customer.LeadAcidBatteryProfile(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity)
-                            else:
-                                print("Why am I here? {type}".format(type = resType))
-                            list.append(profile)
-                            
-                            
-                        #create new resource profile
-                        #add it to resource pool
-                        #print(resources)
-                        if type(resources) is list:
-                            if len(resources) > 1:
-                                for resource in resources:
-                                    addOneToPool(self.resourcePool,resource)
-                                    #print(self.resourcePool)
-                                    for node in self.nodes:
-                                        if node.name.split(".") == resource["location"].split(".")[0:3]:
-                                            addOneToPool(node.resources, resource)
-                                            addOneToPool(cust.Resources, resource)   
-                            if len(resources) == 1:
-                                addOneToPool(self.resourcePool,resources[0])
-                                #print(self.resourcePool)
-                                for node in self.nodes:
-                                    if node.name.split(".") == resources[0]["location"].split(".")[0:3]:
-                                        addOneToPool(node.resources, resources[0]) 
-                                        addOneToPool(cust.Resources, resources[0])                         
-                        elif type(resources) is str or type(resources) is unicode:
-                            addOneToPool(self.resourcePool,resources)
+                        for resource in resources:
+                            addOneToPool(self.resourcePool,resource)
                             #print(self.resourcePool)
                             for node in self.nodes:
-                                if node.name.split(".") == resources["location"].split(".")[0:3]:
-                                    addOneToPool(node.resources, resources)
-                                    addOneToPool(cust.Resources, resources)
+                                if node.name.split(".") == resource["location"].split(".")[0:3]:
+                                    resType = res.get("type",None)
+                                    if resType == "solar":
+                                        newres = customer.SolarProfile(**res)
+                                    elif resType == "lead_acid_battery":
+                                        newres = customer.LeadAcidBatteryProfile(**res)
+                                    else:
+                                        print("unsupported resource type")
+                                    node.addResource(newres)
+                                    cust.Resources.append(newres)
+                                    
+                                                     
+                        
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("\nNEW CUSTOMER ENROLLMENT ##############################")
                         print("UTILITY {me} enrolled customer {them}".format(me = self.name, them = name))

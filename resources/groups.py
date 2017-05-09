@@ -38,25 +38,12 @@ class Group(object):
             sum += node.getVoltage()
         return sum/len(self.membership)
         
-    
-class Node(object):
-    def __init__(self,name,resources = [], membership = None, customers = [], **kwargs):
-        self.name = name 
+class BaseNode(object):
+    def __init__(self,name,resources = [], membership = None):
+        self.name = name
         self.resources = resources
-        self.membership = membership
-        self.customers = customers
-        self.state = "normal"
+        self.membership = None
         self.edges = []
-        
-        self.grid, self.branch, self.bus = self.name.split(".")
-        if self.branch != "MAIN":
-            self.branchNumber = self.branch[-1]
-            self.busNumber = self.bus[-1]
-            
-        #state flags
-        self.voltageLow = True
-        self.groundfault = False
-        self.relayfault = False
         
     def addEdge(self,otherNode,dir,currentTag):
         if dir == "from":
@@ -71,6 +58,24 @@ class Node(object):
         for edge in self.edges:
             if edge.startNode is self or edge.endNode is self:
                 edges.remove(edge)
+    
+        
+class Node(BaseNode):
+    def __init__(self,name,resources = [], membership = None, customers = [], **kwargs):
+        super(self,Node).__init__(name,resources, membership)
+        self.customers = customers
+        self.state = "normal"
+        
+        self.grid, self.branch, self.bus = self.name.split(".")
+        if self.branch != "MAIN":
+            self.branchNumber = self.branch[-1]
+            self.busNumber = self.bus[-1]
+            
+        #state flags
+        self.voltageLow = True
+        self.groundfault = False
+        self.relayfault = False
+        
         
     def sumCurrents(self):
         #infcurrents = tagClient.readTags(self.currentTags)
@@ -99,9 +104,14 @@ class Node(object):
             
         return tagClient.readTags([signal])
     
-        
-    def getPowerFlow(self):
-        return self.getVoltage()*self.getcurrent()
+    def addCustomer(self,cust):
+        self.customers.append(cust)
+        self.addEdge(BaseNode(cust.name + "Node", cust.Resources, self.membership),"to",cust.currentTag)
+    
+    def addResource(self,res,currentTag = None):   
+        self.resources.append(res)
+        if currentTag:
+            self.addEdge(BaseNode(res.name + "Node", res, None),"from",currentTag)
     
     def isolateNode(self):
         if self.branch == "MAIN":
@@ -140,6 +150,12 @@ class DirEdge(object):
         
     def getCurrent(self):
         return tagClient.readTags([self.currentTag])    
+    
+    def getPowerFlowIn(self):
+        return self.startNode.getVoltage()*self.getCurrent()
+    
+    def getPowerFlowOut(self):
+        return self.endNode.getVoltage()*self.getCurrent()
     
     def printInfo(self,depth = 0):
         spaces = "    "
