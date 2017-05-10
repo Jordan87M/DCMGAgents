@@ -70,27 +70,27 @@ class UtilityAgent(Agent):
         self.demandBidList = []
         self.reserveBidList = []
         
-        self.nodes = [groups.Node("DC.MAIN.MAIN",[],None,[]),
-                        groups.Node("DC.BRANCH1.BUS1",[],None,[]),
-                        groups.Node("DC.BRANCH1.BUS2",[],None,[]),
-                        groups.Node("DC.BRANCH2.BUS1",[],None,[]),
-                        groups.Node("DC.BRANCH2.BUS2",[],None,[])]
+        self.nodes = [groups.Node("DC.MAIN.MAIN"),
+                        groups.Node("DC.BRANCH1.BUS1"),
+                        groups.Node("DC.BRANCH1.BUS2"),
+                        groups.Node("DC.BRANCH2.BUS1"),
+                        groups.Node("DC.BRANCH2.BUS2")]
         self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current")
         self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current")
         
-        self.nodes[1].addEdge(self.nodes[0], "from", "BRANCH_1_BUS_1_Current")
+        #self.nodes[1].addEdge(self.nodes[0], "from", "BRANCH_1_BUS_1_Current")
         self.nodes[1].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current")
         self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current")
         
-        self.nodes[2].addEdge(self.nodes[1], "from", "BRANCH_1_BUS_2_Current" )
+        #self.nodes[2].addEdge(self.nodes[1], "from", "BRANCH_1_BUS_2_Current" )
         self.nodes[2].addEdge(self.nodes[4], "to", "INTERCONNECT_2_Current" )
         
-        self.nodes[3].addEdge(self.nodes[0], "from", "BRANCH_2_BUS_1_Current")
-        self.nodes[3].addEdge(self.nodes[1], "from", "INTERCONNECT_1_Current")
+        #self.nodes[3].addEdge(self.nodes[0], "from", "BRANCH_2_BUS_1_Current")
+        #self.nodes[3].addEdge(self.nodes[1], "from", "INTERCONNECT_1_Current")
         self.nodes[3].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current")
         
-        self.nodes[4].addEdge(self.nodes[2], "from", "INTERCONNECT_2_Current")
-        self.nodes[4].addEdge(self.nodes[3], "from", "BRANCH_2_BUS_2_Current")
+        #self.nodes[4].addEdge(self.nodes[2], "from", "INTERCONNECT_2_Current")
+        #self.nodes[4].addEdge(self.nodes[3], "from", "BRANCH_2_BUS_2_Current")
         
         #import list of utility resources and make into object
         resource.addResource(self.resources,self.Resources,False)
@@ -190,24 +190,23 @@ class UtilityAgent(Agent):
                     #add customer to Node object
                     for node in self.nodes:
                         if cust.location.split(".")[0:3] == node.name.split("."):
-                            node.customers.append(cust)
+                            node.addCustomer(cust)
                     
                     #add resources to resource pool if present
-                    if resources:
-                        for resource in resources:
-                            addOneToPool(self.resourcePool,resource)
-                            #print(self.resourcePool)
-                            for node in self.nodes:
-                                if node.name.split(".") == resource["location"].split(".")[0:3]:
-                                    resType = res.get("type",None)
-                                    if resType == "solar":
-                                        newres = customer.SolarProfile(**res)
-                                    elif resType == "lead_acid_battery":
-                                        newres = customer.LeadAcidBatteryProfile(**res)
-                                    else:
-                                        print("unsupported resource type")
-                                    node.addResource(newres)
-                                    cust.Resources.append(newres)
+                    for resource in resources:
+                        addOneToPool(self.resourcePool,resource)
+                        #print(self.resourcePool)
+                        for node in self.nodes:
+                            if node.name == resource["location"]:
+                                resType = res.get("type",None)
+                                if resType == "solar":
+                                    newres = customer.SolarProfile(**res)
+                                elif resType == "lead_acid_battery":
+                                    newres = customer.LeadAcidBatteryProfile(**res)
+                                else:
+                                    print("unsupported resource type")
+                                node.addResource(newres)
+                                cust.Resources.append(newres)
                                     
                                                      
                         
@@ -1111,10 +1110,7 @@ class UtilityAgent(Agent):
     def getTag(self,tag, plc = "user"):
          return tagClient.readTags([tag],plc)[tag]
     
-    '''close an infrastructure relay. note that the logic is backward. this is
-    because I used the NC connection of the SPDT relays for these'''
-    def closeInfRelay(self,rname):
-        tagClient.writeTags([rname],[False])
+        
         
     '''open an infrastructure relay. note that the logic is backward. this is
     because I used the NC connection of the SPDT relays for these'''

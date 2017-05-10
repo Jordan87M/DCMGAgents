@@ -37,34 +37,43 @@ class Group(object):
         for node in self.membership:
             sum += node.getVoltage()
         return sum/len(self.membership)
+    
         
 class BaseNode(object):
-    def __init__(self,name,resources = [], membership = None):
+    def __init__(self,name, relaytag, **kwargs):
         self.name = name
-        self.resources = resources
+        self.relayTag = relaytag
+        
+        self.resources = []
+        self.customers = []
         self.membership = None
         self.edges = []
         
     def addEdge(self,otherNode,dir,currentTag):
+        
         if dir == "from":
-            self.edges.append(DirEdge(otherNode,self,currentTag))
+            newedge = DirEdge(otherNode,self,currentTag)
         elif dir == "to":
-            self.edges.append(DirEdge(self,otherNode,currentTag))
+            newedge = DirEdge(self,otherNode,currentTag)
         else:
             print("addEdge() didn't do anything. The dir paramter must be 'to' or 'from'. ")
-        
+            
+        self.edges.append(newedge)
+        otherNode.edges.append(newedge)
         
     def removeEdge(self,otherNode):
         for edge in self.edges:
             if edge.startNode is self or edge.endNode is self:
-                edges.remove(edge)
-    
+                otherNode.edges.remove(edge)
+                self.edges.remove(edge)
+                
         
 class Node(BaseNode):
-    def __init__(self,name,resources = [], membership = None, customers = [], **kwargs):
-        super(self,Node).__init__(name,resources, membership)
-        self.customers = customers
-        self.state = "normal"
+    def __init__(self, name, **kwargs):
+        super(self,Node).__init__(name, relaytags, **kwargs)
+        
+        self.relays = []
+        
         
         self.grid, self.branch, self.bus = self.name.split(".")
         if self.branch != "MAIN":
@@ -75,7 +84,9 @@ class Node(BaseNode):
         self.voltageLow = True
         self.groundfault = False
         self.relayfault = False
-        
+    
+    def addRelay(self,relaytag):
+        self.relays.append()
         
     def sumCurrents(self):
         #infcurrents = tagClient.readTags(self.currentTags)
@@ -84,7 +95,7 @@ class Node(BaseNode):
             inftags.append(edge.currentTag)
         
         infcurrents = tagClient.readTags(inftags)
-            
+        
         total = 0        
         for edge in self.edges:
             if edge.startNode is self:
@@ -106,20 +117,15 @@ class Node(BaseNode):
     
     def addCustomer(self,cust):
         self.customers.append(cust)
-        self.addEdge(BaseNode(cust.name + "Node", cust.Resources, self.membership),"to",cust.currentTag)
+        self.addEdge(BaseNode(cust.name + "Node"),"to",cust.currentTag)
     
     def addResource(self,res,currentTag = None):   
         self.resources.append(res)
-        if currentTag:
-            self.addEdge(BaseNode(res.name + "Node", res, None),"from",currentTag)
+        self.addEdge(BaseNode(res.name + "Node"),"from",currentTag)
     
     def isolateNode(self):
-        if self.branch == "MAIN":
-            signals = ["BRANCH_1_BUS_1_PROX_DUMMY","BRANCH_2_BUS_1_PROX_DUMMY"]
-            tagClient.writeTags(signals,[True, True])
-        else:
-            signals = ["BRANCH_{branch}_BUS_{bus}_DIST_DUMMY", "BRANCH_{branch}_BUS_{bus}_DIST_PROX_DUMMY"]
-            tagClient.writeTags(signals,[True, True])
+        for relay in self.relays:
+            relay.openRelay
     
     def printInfo(self,depth = 0,verbosity = 1):
         spaces = '    '
@@ -143,13 +149,26 @@ class Node(BaseNode):
  
     
 class DirEdge(object):
-    def __init__(self, startNode, endNode, currentTag):
+    def __init__(self, startNode, endNode, currentTag, relays):
         self.startNode = startNode
         self.endNode = endNode
         self.currentTag = currentTag
         
+        self.relays = []
+        
     def getCurrent(self):
-        return tagClient.readTags([self.currentTag])    
+        return tagClient.readTags([self.currentTag])
+    
+    def getResistance(self):
+        vdiff = self.startNode.getVoltage() - self.endNode.getVoltage()
+        i = self.getCurrent()
+        return vdiff/i    
+    
+    def checkRelaysOpen(self):
+        for relay in self.relays:
+            if not relay.getClosed:
+                return True
+        return False
     
     def getPowerFlowIn(self):
         return self.startNode.getVoltage()*self.getCurrent()
@@ -161,3 +180,30 @@ class DirEdge(object):
         spaces = "    "
         print(spaces*depth + "BEGIN EDGE CONNECTING {orig} to {term}".format(orig = self.startNode.name, term = self.endNode.name))
         print(spaces*(depth + 1) + "CURRENT TAG NAME: {tag}".format(tag = self.currentTag))
+        
+class Relay(object):
+    def __init__(self,owner,type,tagname):
+        self.owningEdge = owner
+        self.type =  type
+        self.tagName = tagname
+        
+        self.closed = None
+        self.faulted = False
+        
+    def getClosed(self):
+        return self.closed
+    
+    def closeRelay(self):
+        if self.type == "infrastructure":
+            tagClient.writeTags([self.tagName],[False])
+        elif self.type == "load" or self.type == "source":
+            tagClient.writeTags([self.tagName],[True])
+        self.closed = True
+    
+    def openRelay(self):
+        if self.type == "infrastructure":
+            tagClient.writeTags([self.tagName],[True])
+        elif self.type == "load" or self.type == "source":
+            tagClient.writeTags([self.tagName],[False])
+        self.closed = False
+    
