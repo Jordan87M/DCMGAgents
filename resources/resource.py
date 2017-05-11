@@ -380,7 +380,7 @@ class Channel():
             print("{me} is done ramping to {set}".format(me = self.name, set = setpoint))
         
     
-def addResource(strlist,classlist,debug = False):
+def makeResource(strlist,classlist,debug = False):
     def addOne(item,classlist):
         if type(item) is dict:
             resType = item.get("type",None)

@@ -40,16 +40,15 @@ class Group(object):
     
         
 class BaseNode(object):
-    def __init__(self,name, relaytag, **kwargs):
+    def __init__(self,name, **kwargs):
         self.name = name
-        self.relayTag = relaytag
         
         self.resources = []
         self.customers = []
         self.membership = None
         self.edges = []
         
-    def addEdge(self,otherNode,dir,currentTag):
+    def addEdge(self,otherNode,dir,currentTag,relays):
         
         if dir == "from":
             newedge = DirEdge(otherNode,self,currentTag)
@@ -69,11 +68,10 @@ class BaseNode(object):
                 
         
 class Node(BaseNode):
-    def __init__(self, name, **kwargs):
-        super(self,Node).__init__(name, relaytags, **kwargs)
-        
-        self.relays = []
-        
+    def __init__(self, name, relays, **kwargs):
+        super(self,Node).__init__(name, **kwargs)
+        self.relays =relays
+         
         
         self.grid, self.branch, self.bus = self.name.split(".")
         if self.branch != "MAIN":
@@ -85,8 +83,8 @@ class Node(BaseNode):
         self.groundfault = False
         self.relayfault = False
     
-    def addRelay(self,relaytag):
-        self.relays.append()
+    def addRelay(self,relay):
+        self.relays.append(relay)
         
     def sumCurrents(self):
         #infcurrents = tagClient.readTags(self.currentTags)
@@ -117,15 +115,19 @@ class Node(BaseNode):
     
     def addCustomer(self,cust):
         self.customers.append(cust)
-        self.addEdge(BaseNode(cust.name + "Node"),"to",cust.currentTag)
+        custnode = BaseNode(cust.name + "Node")
+        self.addEdge(custnode,"to",cust.currentTag, Relay(cust.relayTag,"load"))
     
-    def addResource(self,res,currentTag = None):   
+    def addResource(self,res):   
         self.resources.append(res)
-        self.addEdge(BaseNode(res.name + "Node"),"from",currentTag)
+        if hasattr(res,"DischargeChannel"):
+            self.addEdge(BaseNode(res.name + "OutNode"),"from",res.DischargeChannel.regItag,Relay(res.DischargeChannel.relayTag,"source"))
+        if hasattr(res,"ChargeChannel"):
+            self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,Relay(res.ChargeChannel.relayTag,"source"))
     
     def isolateNode(self):
         for relay in self.relays:
-            relay.openRelay
+            relay.openRelay()
     
     def printInfo(self,depth = 0,verbosity = 1):
         spaces = '    '
@@ -154,15 +156,53 @@ class DirEdge(object):
         self.endNode = endNode
         self.currentTag = currentTag
         
-        self.relays = []
+        self.relays = relays
+    
+    #checks the recorded state of the relays between two nodes against the resistance
+    #measured between two nodes to assist in finding relay faults
+    def checkConsistency(self):
+        statemodel = self.checkRelaysOpen()
+        resistance,reliable = self.getResistance()
+        if reliable:
+            if resistance < 10:
+                statemeas = True
+            else:
+                statemeas = False
+            
+                
+            if statemeas or statemodel:
+                if statemeas and statemodel:
+                    return ("open", True)
+                else:
+                    return(statemeas, False)
+            if not statemeas and not statemodel:                
+                return ("closed", True)
         
     def getCurrent(self):
         return tagClient.readTags([self.currentTag])
     
+    #determines the resistance along this edge. returns R and a boolean indicating whether
+    #the measurement is reliable
     def getResistance(self):
-        vdiff = self.startNode.getVoltage() - self.endNode.getVoltage()
+        v1 = self.startNode.getVoltage()
+        v2 = self.endNode.getVoltage()
+        vdiff = v1 - v2
         i = self.getCurrent()
-        return vdiff/i    
+        if abs(i) < .0001:
+            i = .0001
+        R = vdiff/i    
+        
+        if v1 > .05 and v2 > .05:
+            if vdiff > .05:
+                return (R, True)
+            else:
+                if i < .05:
+                    return (R,False)
+                else:
+                    return (R,True)
+        else:
+            #unreliable
+            return (R,False)
     
     def checkRelaysOpen(self):
         for relay in self.relays:
@@ -182,8 +222,9 @@ class DirEdge(object):
         print(spaces*(depth + 1) + "CURRENT TAG NAME: {tag}".format(tag = self.currentTag))
         
 class Relay(object):
-    def __init__(self,owner,type,tagname):
-        self.owningEdge = owner
+    def __init__(self,tagname,type):
+        self.owningNodes = []
+        self.owningEdges = []
         self.type =  type
         self.tagName = tagname
         

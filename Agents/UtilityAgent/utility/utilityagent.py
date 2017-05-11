@@ -70,35 +70,49 @@ class UtilityAgent(Agent):
         self.demandBidList = []
         self.reserveBidList = []
         
-        self.nodes = [groups.Node("DC.MAIN.MAIN"),
-                        groups.Node("DC.BRANCH1.BUS1"),
-                        groups.Node("DC.BRANCH1.BUS2"),
-                        groups.Node("DC.BRANCH2.BUS1"),
-                        groups.Node("DC.BRANCH2.BUS2")]
-        self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current")
-        self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current")
+        #build grid model objects from the agent's a priori knowledge of system
+        self.relays = [groups.Relay("BRANCH_1_BUS_1_PROXIMAL_User","infrastructure"),
+                       groups.Relay("BRANCH_1_BUS_2_PROXIMAL_User","infrastructure"),
+                       groups.Relay("BRANCH_2_BUS_1_PROXIMAL_User","infrastructure"),
+                       groups.Relay("BRANCH_2_BUS_2_PROXIMAL_User","infrastructure"),
+                       groups.Relay("BRANCH_1_BUS_1_DISTAL_User","infrastructure"),
+                       groups.Relay("BRANCH_1_BUS_2_DISTAL_User","infrastructure"),
+                       groups.Relay("BRANCH_2_BUS_1_DISTAL_User","infrastructure"),
+                       groups.Relay("BRANCH_2_BUS_2_DISTAL_User","infrastructure"),
+                       groups.Relay("INTERCONNECT_1_User","infrastructure"),
+                       groups.Relay("INTERCONNECT_2_User","infrastructure")
+                       ]
+        self.nodes = [groups.Node("DC.MAIN.MAIN",[self.relays[0], self.relays[2]]),
+                        groups.Node("DC.BRANCH1.BUS1",[self.relays[0], self.relays[4]]),
+                        groups.Node("DC.BRANCH1.BUS2",[self.relays[1], self.relays[5]]),
+                        groups.Node("DC.BRANCH2.BUS1",[self.relays[2], self.relays[6]]),
+                        groups.Node("DC.BRANCH2.BUS2",[self.relays[3], self.relays[7]])]
+        
+        
+        self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current", [self.relays[0]])
+        self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current", [self.relays[2]])
         
         #self.nodes[1].addEdge(self.nodes[0], "from", "BRANCH_1_BUS_1_Current")
-        self.nodes[1].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current")
-        self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current")
+        self.nodes[1].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[4], self.relays[1]])
+        self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current", [self.relays[4], self.relays[8], self.relays[[6]]])
         
         #self.nodes[2].addEdge(self.nodes[1], "from", "BRANCH_1_BUS_2_Current" )
-        self.nodes[2].addEdge(self.nodes[4], "to", "INTERCONNECT_2_Current" )
+        self.nodes[2].addEdge(self.nodes[4], "to", "INTERCONNECT_2_Current", [self.relays[5], self.relays[9], self.relays[7]])
         
         #self.nodes[3].addEdge(self.nodes[0], "from", "BRANCH_2_BUS_1_Current")
         #self.nodes[3].addEdge(self.nodes[1], "from", "INTERCONNECT_1_Current")
-        self.nodes[3].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current")
+        self.nodes[3].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current", [self.relays[6], self.relays[3]])
         
         #self.nodes[4].addEdge(self.nodes[2], "from", "INTERCONNECT_2_Current")
         #self.nodes[4].addEdge(self.nodes[3], "from", "BRANCH_2_BUS_2_Current")
         
         #import list of utility resources and make into object
-        resource.addResource(self.resources,self.Resources,False)
+        resource.makeResource(self.resources,self.Resources,False)
         #add resources to node objects based on location
         for res in self.Resources:
             for node in self.nodes:
-                if res.location.split(".")[0:3] == node.name.split("."):
-                    node.resources.append(res)
+                if res.location == node.name:
+                    node.addResource(res,res.DischargeChannel.regItag)
             
         
         self.perceivedInsol = 75 #as a percentage of nominal
