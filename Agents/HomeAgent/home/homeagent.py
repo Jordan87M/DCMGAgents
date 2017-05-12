@@ -487,9 +487,6 @@ class HomeAgent(Agent):
         else:
             pass
         
-    
-    def evaluateSituation(self):
-        pass
         
     
     def advancePeriod(self):
@@ -507,9 +504,6 @@ class HomeAgent(Agent):
     
     '''responsible for enacting the plan which has been defined for a planning period'''
     def enactPlan(self):
-        #all changes in setpoints should be made gradually, i.e. by using
-        #resource.connectSoft() or resource.ramp()
-        
         #involvedResources will help figure out which resources must be disconnected
         involvedResources = []
         #change setpoints
@@ -554,16 +548,27 @@ class HomeAgent(Agent):
                         res.DischargeChannel.disconnect()
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
+                            
+            if self.CurrentPeriod.actionPlan.plannedConsumption:
+                self.changeConsumption(1)
+            else:
+                self.changeConsumption(0)
     
     def disconnectLoad(self):
+        #we can disconnect load at will
         tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
         #setTagValue(tagName,False)
         tagClient.writeTags([tagName],[False])
+        
     
     def connectLoad(self):
-        tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
+        #if we are not already connected, we need permission from the utility
+        mesdict = {"message_subject" : "request_connection",
+                   "message_sender" : }
+        
+        #tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
         #setTagValue(tagName,True)
-        tagClient.writeTags([tagName],[True])
+        #tagClient.writeTags([tagName],[True])
         
     def measureVoltage(self):
         tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)

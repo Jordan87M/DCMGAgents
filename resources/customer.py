@@ -9,6 +9,8 @@ class CustomerProfile(object):
         self.resources = resources
         self.Resources = []
         self.tagCache = {}
+        #permission to connect to grid
+        self.permission = False
         
         loclist = self.location.split('.')
         if type(loclist) is list:
@@ -45,8 +47,10 @@ class CustomerProfile(object):
             res.printInfo(depth + 1)
             
     def disconnectCustomer(self):
-        tag = self.relayTag
-        tagClient.writeTags([tag],[False])
+        tagClient.writeTags([self.relayTag],[False])
+        
+    def connectCustomer(self):
+        tagClient.writeTags([self.relayTag],[True])
         
     def measureVoltage(self):
         tag = self.voltageTag

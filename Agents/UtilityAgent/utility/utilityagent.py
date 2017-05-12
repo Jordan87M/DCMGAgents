@@ -86,7 +86,8 @@ class UtilityAgent(Agent):
                         groups.Node("DC.BRANCH1.BUS1",[self.relays[0], self.relays[4]]),
                         groups.Node("DC.BRANCH1.BUS2",[self.relays[1], self.relays[5]]),
                         groups.Node("DC.BRANCH2.BUS1",[self.relays[2], self.relays[6]]),
-                        groups.Node("DC.BRANCH2.BUS2",[self.relays[3], self.relays[7]])]
+                        groups.Node("DC.BRANCH2.BUS2",[self.relays[3], self.relays[7]])
+                        ]
         
         
         self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current", [self.relays[0]])
@@ -182,6 +183,7 @@ class UtilityAgent(Agent):
             
             messageSubject = mesdict.get("message_subject",None)
             messageType = mesdict.get("message_type",None)
+            messageSender = mesdict.get("message_sender",None)
             if messageSubject == "customer_enrollment":
                 #if the message is a response to new customer solicitation
                 if messageType == "new_customer_response":
@@ -241,6 +243,14 @@ class UtilityAgent(Agent):
                     
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("let the customer {name} know they've been successfully enrolled by {me}".format(name = name, me = self.name))
+            elif messageSubject == "request_connection":
+                #the utility has the final say in whether a load can connect or not
+                #look up customer object by name
+                cust = listparse.lookupbyName(messageSender,self.customers)
+                if cust.permission:
+                    cust.connectCustomer()
+                    
+                            
             else:
                 pass
     
@@ -593,13 +603,18 @@ class UtilityAgent(Agent):
             totaldemand = 0        
             #notify the counterparties of the terms on which they will consume power
             for bid in self.demandBidList:
+                #look up customer object corresponding to bid
+                cust = listparse.lookUpByName(bid.counterparty,self.customers)
                 if bid.accepted:
                     totaldemand += bid.amount
                     self.sendBidAcceptance(bid, group.rate)
                     self.NextPeriod.actionPlan.addConsumption(bid)
+                    #give customer permission to connect
+                    cust.permission = True                    
                 else:
                     self.sendBidRejection(bid, group.rate)
-                    
+                    #customer does not have permission to connect
+                    cust.permission = False
             
             totalreserve = 0
             for bid in self.reserveBidList:
