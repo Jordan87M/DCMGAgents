@@ -2,10 +2,10 @@ from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources import resource, customer
 
 class Group(object):
-    def __init__(self,name,resources = [],membership = [], customers = [], **kwargs):
+    def __init__(self,name,resources = [],zones = [], customers = [], **kwargs):
         self.name = name
         self.resources = resources
-        self.membership = membership
+        self.zones = zones
         self.customers = customers
         
         self.rate = .1
@@ -14,7 +14,7 @@ class Group(object):
         self.voltageLow = True
         self.groundfault = False
         self.relayfault = False
-        
+    
         
     def printInfo(self,depth = 0):
         spaces = "    "
@@ -27,17 +27,84 @@ class Group(object):
         for res in self.resources:
             res.printInfo(depth + 1)
         print(spaces*depth + ">>>>>>>RESOURCES =END=")
-        print(spaces*depth + ">>>>>>>NODES ({n}): ----------------".format(n = len(self.membership)))
-        for mem in self.membership:
-            mem.printInfo(depth + 1)
-        print(spaces*depth + ">>>>>>>NODES =END=")
+        print(spaces*depth + ">>>>>>>ZONES ({n}): ----------------".format(n = len(self.zones)))
+        for zone in self.zones:
+            zone.printInfo(depth + 1)
+        print(spaces*depth + ">>>>>>>ZONES =END=")
             
-    def getAvgVoltage(self):
-        sum = 0
-        for node in self.membership:
-            sum += node.getVoltage()
-        return sum/len(self.membership)
     
+class Zone(object):
+    def __init__(self,name,nodes = []):
+        self.name = name
+        self.nodes = nodes
+        
+        self.resources = []
+        self.customers = []
+        self.group = None
+        self.edges = []
+        
+        
+        self.faults = {"lowvoltage": False,
+                       "groundfault": False,
+                       "relayfault": False
+                       }
+        
+        self.interzonaledges = []
+        self.interzonaloriginatingedges = []
+        self.interzonalterminatingedges = []
+        
+        for node in self.nodes:            
+            node.zone = self
+            
+        self.findinterzonaledges()
+            
+    def sumCurrents(self):
+        #infcurrents = tagClient.readTags(self.currentTags)
+        inftags = []
+        for edge in self.interzonaledges:
+            inftags.append(edge.currentTag)
+        
+        infcurrents = tagClient.readTags(inftags)
+        
+        total = 0        
+        for edge in self.edges:
+            if edge.startNode is self:
+                total -= infcurrents.get(edge.currentTag)
+            elif edge.endNode is self:
+                total += infcurrents.get(edge.currentTag)
+            else:
+                pass        
+        
+        return total    
+    
+    def isolateZone(self):
+        for edge in self.interzonaledges:
+            edge.openRelays()
+    
+    
+    def findinterzonaledges(self):
+        for edge in self.originatingedges:
+            if edge.endNode not in self.nodes:
+                self.interzonaloriginatingedges.append(edge)
+        for edge in self.terminatingedges:
+            if edge.startNode not in self.nodes:
+                self.interzonalterminatingedges.append(edge)
+                
+    def printInfo(self,depth):
+        spaces = '    '
+        print(spaces*depth + "ZONE {me} PROBLEMS:".format(me = self.name))
+        for key in self.faults:
+            print(spaces*depth + "FAULT - {flt}".format(flt = key))
+        print(spaces*depth + "ZONE {me} CONTAINS THE FOLLOWING...".format(me = self.name))
+        print(spaces*depth + ">>NODES ({n}):".format(n = len(self.customers)))
+        for cust in self.customers:
+            cust.printInfo(depth + 1)
+        print(spaces*depth + ">>INTERZONAL CONNECTIONS ({n}):".format(n = len(self.edges)))
+        for edge in self.interzonaledges:
+            edge.printInfo(depth + 1)
+            
+    def setfault(self,):
+        self.group.setfault()
         
 class BaseNode(object):
     def __init__(self,name, **kwargs):
@@ -45,15 +112,22 @@ class BaseNode(object):
         
         self.resources = []
         self.customers = []
-        self.membership = None
+        self.zone = None
+        self.group = None
         self.edges = []
+        self.originatingedges = []
+        self.terminatingedges = []
         
     def addEdge(self,otherNode,dir,currentTag,relays):
         
         if dir == "from":
-            newedge = DirEdge(otherNode,self,currentTag)
+            newedge = DirEdge(otherNode,self,currentTag,relays)
+            self.originatingedges.append(newedge)
+            otherNode.terminatingedges.append(newedge)
         elif dir == "to":
-            newedge = DirEdge(self,otherNode,currentTag)
+            newedge = DirEdge(self,otherNode,currentTag,relays)
+            self.terminatingedges.append(newedge)
+            otherNode.originatingedges.append(newedge)
         else:
             print("addEdge() didn't do anything. The dir paramter must be 'to' or 'from'. ")
             
@@ -69,7 +143,7 @@ class BaseNode(object):
         
 class Node(BaseNode):
     def __init__(self, name, relays, **kwargs):
-        super(self,Node).__init__(name, **kwargs)
+        super(Node,self).__init__(name, **kwargs)
         self.relays =relays
          
         
@@ -79,31 +153,15 @@ class Node(BaseNode):
             self.busNumber = self.bus[-1]
             
         #state flags
-        self.voltageLow = True
-        self.groundfault = False
-        self.relayfault = False
+        self.faults = {"lowvoltage": False,
+                       "groundfault": False,
+                       "relayfault": False
+                       }
     
     def addRelay(self,relay):
         self.relays.append(relay)
         
-    def sumCurrents(self):
-        #infcurrents = tagClient.readTags(self.currentTags)
-        inftags = []
-        for edge in self.edges:
-            inftags.append(edge.currentTag)
-        
-        infcurrents = tagClient.readTags(inftags)
-        
-        total = 0        
-        for edge in self.edges:
-            if edge.startNode is self:
-                total -= infcurrents.get(edge.currentTag)
-            elif edge.endNode is self:
-                total += infcurrents.get(edge.currentTag)
-            else:
-                pass        
-        
-        return total
+    
         
     def getVoltage(self):
         if self.branch != "MAIN":
@@ -148,7 +206,31 @@ class Node(BaseNode):
         print(spaces*depth + ">>CONNECTIONS ({n}):".format(n = len(self.edges)))
         for edge in self.edges:
             edge.printInfo(depth + 1)
- 
+    
+    #propagate fault up to zonal level        
+    def setFault(self,fault):
+        if self.faults.get("fault",None) is not None:
+            self.faults["fault"] = True
+            self.zone.setFault(fault)
+    
+    #checks to see if all faults associated with node have been cleared
+    #if they have been, clear the node's fault and propagate checkfault
+    #to the zonal level
+    def checkFault(self,fault):
+        if fault == "relayfault":
+            faulted = False
+            for edge in self.edges:
+                for relay in edge.relays:
+                    if relay.faulted:
+                        faulted = True
+                        return True
+            if not faulted:
+                self.faults[fault] = False
+                self.zone.checkFault()
+        if fault == "groundfault":
+            pass
+        if fault == "lowvoltage":
+            pass
     
 class DirEdge(object):
     def __init__(self, startNode, endNode, currentTag, relays):
@@ -157,7 +239,7 @@ class DirEdge(object):
         self.currentTag = currentTag
         
         self.relays = relays
-    
+        self.name = "from" + self.startNode.name + "to" + self.endNode.name
     #checks the recorded state of the relays between two nodes against the resistance
     #measured between two nodes to assist in finding relay faults
     def checkConsistency(self):
@@ -204,11 +286,19 @@ class DirEdge(object):
             #unreliable
             return (R,False)
     
-    def checkRelaysOpen(self):
+    def checkRelaysClosed(self):
         for relay in self.relays:
             if not relay.getClosed:
-                return True
-        return False
+                return False
+        return True
+    
+    def openRelays(self):
+        for relay in self.relays:
+            relay.openRelay()
+    
+    def closeRelays(self):
+        for relay in self.relays:
+            relay.closeRelay()
     
     def getPowerFlowIn(self):
         return self.startNode.getVoltage()*self.getCurrent()
@@ -247,4 +337,12 @@ class Relay(object):
         elif self.type == "load" or self.type == "source":
             tagClient.writeTags([self.tagName],[False])
         self.closed = False
+        
+    def setFault(self):
+        self.owningNode.setFault("relayfault")
+        self.faulted = True
+        
+    def clearFault(self):
+        self.owningNode.checkFault("relayfault")
+        self.faulted = False
     

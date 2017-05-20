@@ -50,7 +50,7 @@ class HomeAgent(Agent):
                 print("the first part of the location path should be AC or DC")
         
         #create resource objects for resources
-        resource.addResource(self.resources,self.Resources,True)
+        resource.makeResource(self.resources,self.Resources,True)
         
                     
         self.DR_participant = False
@@ -564,7 +564,14 @@ class HomeAgent(Agent):
     def connectLoad(self):
         #if we are not already connected, we need permission from the utility
         mesdict = {"message_subject" : "request_connection",
-                   "message_sender" : }
+                   "message_sender" : self.name,
+                   "message_target" : "ENERCON"
+                   }
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("Homeowner {me} asking utility {them} for connection".format(me = self.name, them = mesdict["message_target"]))
+        
+        mess = json.dumps(mesdict)
+        self.vip.pubsub.publish(peer = "pubsub",topic = "customerservice",headers = {}, message = mess)
         
         #tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
         #setTagValue(tagName,True)
@@ -581,18 +588,19 @@ class HomeAgent(Agent):
     def measurePower(self):
         return self.measureVoltage()*self.measureCurrent()
         
-    def printInfo(self,verbosity):
+    def printInfo(self,depth):
         print("\n________________________________________________________________")
         print("~~SUMMARY OF HOME STATE~~")
         print("HOME NAME: {name}".format(name = self.name))
         if 'self.CurrentPeriod' in globals():
             print("PERIOD: {per}".format(per = self.CurrentPeriod.periodNumber))
             print(">>>START: {start}  STOP: {end}".format(start = self.CurrentPeriod.startTime, end =  self.CurrentPeriod.endTime))
+        print("HERE IS MY CURRENT PLAN:")
+        self.CurrentPeriod.actionPlan.printInfo(1)
         print("LIST ALL OWNED RESOURCES ({n})".format(n = len(self.Resources)))
         for res in self.Resources:
-            res.printInfo()
-        print("HERE IS MY CURRENT PLAN:")
-        self.CurrentPeriod.actionPlan.printInfo()
+            res.printInfo(1)
+        
         print("__________________________________________________________________")
         
     

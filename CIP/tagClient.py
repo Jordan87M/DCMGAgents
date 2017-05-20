@@ -1,6 +1,7 @@
 import socket
 import sys
 import subprocess
+from datetime import datetime
 
 def startTagServer():
     try:
@@ -29,12 +30,15 @@ def writeTags(names,values,plc = "user"):
         
         data = sock.recv(1024)
         #print("tag client received: {info}".format(info = data))
-            
+        
+        flog = open("~/volttron/taglog","a+")
+        print("WRITE @ {dt} \nMESSAGE: {mes}REC: {dat}".format(dt = datetime.isoformat(datetime.now()), mes = message, dat = data))
     except Exception:
         print("tag client experiencing problem")
     finally:
         #print("closing tag client socket")
         sock.close()
+
     
 '''reads multiple tags from a tag server. tag names must be provided as a list even
 if there is only a single tag being read'''
@@ -51,10 +55,11 @@ def readTags(names, plc = "user"):
         for index,name in enumerate(names):
             message = message + " " + name
         message = message + "\n"
-        #print(message)
         sock.sendall(message)
         
         data = sock.recv(1024)
+        
+        print("\nREAD @ {dt} \nMESSAGE: {mes}  REC: {dat}".format(dt = datetime.isoformat(datetime.now()), mes = message, dat = data))
             
     except Exception:
         print("tag client experiencing problem")
@@ -62,7 +67,8 @@ def readTags(names, plc = "user"):
     finally:
         #print("closing tag client socket")
         sock.close()
-    
+        if "flog" in globals():
+            flog.close()
     
     #print("tag client received: {info}".format(info = data))
     pairs = data.split(",")
@@ -94,3 +100,4 @@ def readTags(names, plc = "user"):
         return outdict[names[0]]
     else:
         return outdict
+    

@@ -95,7 +95,8 @@ class UtilityAgent(Agent):
         
         #self.nodes[1].addEdge(self.nodes[0], "from", "BRANCH_1_BUS_1_Current")
         self.nodes[1].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[4], self.relays[1]])
-        self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current", [self.relays[4], self.relays[8], self.relays[[6]]])
+        self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current", [self.relays[4], self.relays[8], self.relays[6]])
+        
         
         #self.nodes[2].addEdge(self.nodes[1], "from", "BRANCH_1_BUS_2_Current" )
         self.nodes[2].addEdge(self.nodes[4], "to", "INTERCONNECT_2_Current", [self.relays[5], self.relays[9], self.relays[7]])
@@ -208,10 +209,7 @@ class UtilityAgent(Agent):
                         if cust.location.split(".")[0:3] == node.name.split("."):
                             node.addCustomer(cust)
                     
-                    #add resources to resource pool if present
                     for resource in resources:
-                        addOneToPool(self.resourcePool,resource)
-                        #print(self.resourcePool)
                         for node in self.nodes:
                             if node.name == resource["location"]:
                                 resType = res.get("type",None)
@@ -246,11 +244,14 @@ class UtilityAgent(Agent):
             elif messageSubject == "request_connection":
                 #the utility has the final say in whether a load can connect or not
                 #look up customer object by name
-                cust = listparse.lookupbyName(messageSender,self.customers)
+                cust = listparse.lookUpByName(messageSender,self.customers)
                 if cust.permission:
-                    cust.connectCustomer()
-                    
-                            
+                    cust.connectCustomer()     
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("{me} granting {their} request for connection".format(me = self.name, their = messageSender))
+                else:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("{me} denying {their} request for connection".format(me = self.name, their = messageSender))
             else:
                 pass
     
@@ -924,80 +925,96 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
         
-        #what is the state of the tags supposed to be?
-        infState = self.getLocalPreferred(self.infrastructureTags,5.1)
+        for i,origin in enumerate(self.nodes):
+            print(origin.name)
+            for edge in origin.originatingedges:
+                print("    " + edge.name)
+                for j, terminus in enumerate(self.nodes):
+                    print("        " + terminus.name)
+                    if edge.endNode is terminus:
+                        print("            terminus match!")
+                        if edge.checkRelaysClosed():
+                            self.connMatrix[i][j] = 1
+                            print("                closed!")
+                        else:
+                            self.connMatrix[i][j] = 0                    
+                            print("                open!")
         
-        #is main bus connected to BRANCH1.BUS1?
-        if infState["BRANCH_1_BUS_1_PROXIMAL_User"]:
-            self.connMatrix[0][1] = 1
-            self.connMatrix[1][0] = 1
-        else:
-            self.connMatrix[0][1] = 0
-            self.connMatrix[1][0] = 0
-        
-        #is main bus connected to BRANCH2.BUS1?
-        if infState["BRANCH_1_BUS_2_PROXIMAL_User"]:
-            self.connMatrix[0][2] = 1
-            self.connMatrix[2][0] = 1
-        else:
-            self.connMatrix[0][2] = 0
-            self.connMatrix[2][0] = 0
-        
-        #is BRANCH1.BUS1 connected to BRANCH2.BUS1
-        if infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
-            self.connMatrix[1][3] = 1
-            self.connMatrix[3][1] = 1
-        else:
-            self.connMatrix[1][3] = 0
-            self.connMatrix[3][1] = 0
-            
-        #is BRANCH1.BUS1 connected to BRANCH1.BUS2
-        if infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"]:
-            self.connMatrix[1][2] = 1
-            self.connMatrix[2][1] = 1
-        else:
-            self.connMatrix[1][2] = 0
-            self.connMatrix[2][1] = 0
-            
-        #is BRANCH2.BUS1 connected to BRANCH2.BUS2
-        if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"]:
-            self.connMatrix[4][3] = 1
-            self.connMatrix[3][4] = 1
-        else:
-            self.connMatrix[4][3] = 0
-            self.connMatrix[3][4] = 0
-        
-        #is BRANCH2.BUS2 connected to BRANCH1.BUS2
-        if infState["BRANCH_1_BUS_2_DISTAL_User"] and infState["BRANCH_2_BUS_2_DISTAL_User"] and infState["INTERCONNECT_2_User"]:
-            self.connMatrix[2][4] = 1
-            self.connMatrix[4][2] = 1
-        else:
-            self.connMatrix[2][4] = 0
-            self.connMatrix[4][2] = 0
-            
-        #is BRANCH2.BUS1 connected to BRANCH1.BUS2?
-        if infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["INTERCONNECT_1_User"]:
-            self.connMatrix[2][3] = 1
-            self.connMatrix[3][2] = 1
-        else:
-            self.connMatrix[2][3] = 0
-            self.connMatrix[3][2] = 0
-            
-        #is BRANCH1.BUS1 connected to BRANCH2.BUS2?
-        if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
-            self.connMatrix[1][4] = 1
-            self.connMatrix[4][1] = 1
-        else:
-            self.connMatrix[1][4] = 0
-            self.connMatrix[4][1] = 0
-        
-        #we should do more to validate this in case there is a fault...
-        #does current through branch match bus voltage differential?
-        
-        #is there current at all?
+#         #what is the state of the tags supposed to be?
+#         infState = self.getLocalPreferred(self.infrastructureTags,5.1)
+#         
+#         #is main bus connected to BRANCH1.BUS1?
+#         if infState["BRANCH_1_BUS_1_PROXIMAL_User"]:
+#             self.connMatrix[0][1] = 1
+#             self.connMatrix[1][0] = 1
+#         else:
+#             self.connMatrix[0][1] = 0
+#             self.connMatrix[1][0] = 0
+#         
+#         #is main bus connected to BRANCH2.BUS1?
+#         if infState["BRANCH_1_BUS_2_PROXIMAL_User"]:
+#             self.connMatrix[0][2] = 1
+#             self.connMatrix[2][0] = 1
+#         else:
+#             self.connMatrix[0][2] = 0
+#             self.connMatrix[2][0] = 0
+#         
+#         #is BRANCH1.BUS1 connected to BRANCH2.BUS1
+#         if infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
+#             self.connMatrix[1][3] = 1
+#             self.connMatrix[3][1] = 1
+#         else:
+#             self.connMatrix[1][3] = 0
+#             self.connMatrix[3][1] = 0
+#             
+#         #is BRANCH1.BUS1 connected to BRANCH1.BUS2
+#         if infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"]:
+#             self.connMatrix[1][2] = 1
+#             self.connMatrix[2][1] = 1
+#         else:
+#             self.connMatrix[1][2] = 0
+#             self.connMatrix[2][1] = 0
+#             
+#         #is BRANCH2.BUS1 connected to BRANCH2.BUS2
+#         if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"]:
+#             self.connMatrix[4][3] = 1
+#             self.connMatrix[3][4] = 1
+#         else:
+#             self.connMatrix[4][3] = 0
+#             self.connMatrix[3][4] = 0
+#         
+#         #is BRANCH2.BUS2 connected to BRANCH1.BUS2
+#         if infState["BRANCH_1_BUS_2_DISTAL_User"] and infState["BRANCH_2_BUS_2_DISTAL_User"] and infState["INTERCONNECT_2_User"]:
+#             self.connMatrix[2][4] = 1
+#             self.connMatrix[4][2] = 1
+#         else:
+#             self.connMatrix[2][4] = 0
+#             self.connMatrix[4][2] = 0
+#             
+#         #is BRANCH2.BUS1 connected to BRANCH1.BUS2?
+#         if infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["INTERCONNECT_1_User"]:
+#             self.connMatrix[2][3] = 1
+#             self.connMatrix[3][2] = 1
+#         else:
+#             self.connMatrix[2][3] = 0
+#             self.connMatrix[3][2] = 0
+#             
+#         #is BRANCH1.BUS1 connected to BRANCH2.BUS2?
+#         if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
+#             self.connMatrix[1][4] = 1
+#             self.connMatrix[4][1] = 1
+#         else:
+#             self.connMatrix[1][4] = 0
+#             self.connMatrix[4][1] = 0
+#         
+#         #we should do more to validate this in case there is a fault...
+#         #does current through branch match bus voltage differential?
+#         
+#         #is there current at all?
+                        
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} HAS FINISHED REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
-    
+        
     def marketfeed(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
         messageSubject = mesdict.get("message_subject",None)
@@ -1023,7 +1040,6 @@ class UtilityAgent(Agent):
                         self.supplyBidList.append(newbid)
                     elif service == "reserve":                  
                         self.reserveBidList.append(newbid)
-                    
                 elif side == "demand":
                     newbid = financial.DemandBid(amount,rate,messageSender,period,uid)
                     self.demandBidList.append(newbid)
