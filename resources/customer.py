@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from DCMGClasses.CIP import tagClient
 
 class CustomerProfile(object):
-    def __init__(self,name,location,resources,**kwargs):
+    def __init__(self,name,location,resources,priorityscore,**kwargs):
         self.name = name
         self.location = location
         self.resources = resources
@@ -11,6 +11,8 @@ class CustomerProfile(object):
         self.tagCache = {}
         #permission to connect to grid
         self.permission = False
+        
+        self.priorityscore = priorityscore
         
         loclist = self.location.split('.')
         if type(loclist) is list:

@@ -20,6 +20,7 @@ from DCMGClasses.resources import resource, groups, financial, control, customer
 from . import settings
 from zmq.backend.cython.constants import RATE
 from __builtin__ import True
+from bacpypes.vlan import Node
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ class UtilityAgent(Agent):
         self.reserveBidList = []
         
         #build grid model objects from the agent's a priori knowledge of system
+        #infrastructure relays
         self.relays = [groups.Relay("BRANCH_1_BUS_1_PROXIMAL_User","infrastructure"),
                        groups.Relay("BRANCH_1_BUS_2_PROXIMAL_User","infrastructure"),
                        groups.Relay("BRANCH_2_BUS_1_PROXIMAL_User","infrastructure"),
@@ -82,31 +84,46 @@ class UtilityAgent(Agent):
                        groups.Relay("INTERCONNECT_1_User","infrastructure"),
                        groups.Relay("INTERCONNECT_2_User","infrastructure")
                        ]
-        self.nodes = [groups.Node("DC.MAIN.MAIN",[self.relays[0], self.relays[2]]),
-                        groups.Node("DC.BRANCH1.BUS1",[self.relays[0], self.relays[4]]),
-                        groups.Node("DC.BRANCH1.BUS2",[self.relays[1], self.relays[5]]),
-                        groups.Node("DC.BRANCH2.BUS1",[self.relays[2], self.relays[6]]),
-                        groups.Node("DC.BRANCH2.BUS2",[self.relays[3], self.relays[7]])
+        #create infrastructure nodes
+        self.nodes = [groups.Node("DC.MAIN.MAIN"),
+                        groups.Node("DC.BRANCH1.BUS1"),
+                        groups.Node("DC.BRANCH1.BUS2"),
+                        groups.Node("DC.BRANCH2.BUS1"),
+                        groups.Node("DC.BRANCH2.BUS2"),
+                        groups.Node("DC.BRANCH1.INT1"),
+                        groups.Node("DC.BRANCH1.INT2"),
+                        groups.Node("DC.BRANCH2.INT1"),
+                        groups.Node("DC.BRANCH2.INT2")
                         ]
+        #create fault detection zones containing nodes
+        self.zones = [groups.Zone("DC.MAIN.MAINZONE", [self.nodes[0]]),
+                      groups.Zone("DC.BRANCH1.ZONE1", [self.nodes[1], self.nodes[5]]),
+                      groups.Zone("DC.BRANCH1.ZONE2", [self.nodes[2], self.nodes[6]]),
+                      groups.Zone("DC.BRANCH2.ZONE1", [self.nodes[3], self.nodes[7]]),
+                      groups.Zone("DC.BRANCH2.ZONE2", [self.nodes[4], self.nodes[8]])
+                      ]
         
-        
+        #join nodes with edges containing relays
         self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current", [self.relays[0]])
         self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current", [self.relays[2]])
         
-        #self.nodes[1].addEdge(self.nodes[0], "from", "BRANCH_1_BUS_1_Current")
-        self.nodes[1].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[4], self.relays[1]])
-        self.nodes[1].addEdge(self.nodes[3], "to", "INTERCONNECT_1_Current", [self.relays[4], self.relays[8], self.relays[6]])
+        self.nodes[1].addEdge(self.nodes[5], "to", None, [self.relays[4]])
+        
+        self.nodes[5].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[1]])
+        self.nodes[5].addEdge(self.nodes[7], "to", "INTERCONNECT_1_Current", [self.relays[8]])
+        
+        self.nodes[2].addEdge(self.nodes[6], "to", None, [self.relays[5]])
+        
+        self.nodes[6].addEdge(self.nodes[8], "to", "INTERCONNECT_2_Current", [self.relays[9]])
+        
+        self.nodes[3].addEdge(self.nodes[7], "to", None, [self.relays[2]])
+        
+        self.nodes[7].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current", [self.relays[3]])
+        
+        self.nodes[4].addEdge(self.nodes[8], "to", None, [self.relays[7]])
         
         
-        #self.nodes[2].addEdge(self.nodes[1], "from", "BRANCH_1_BUS_2_Current" )
-        self.nodes[2].addEdge(self.nodes[4], "to", "INTERCONNECT_2_Current", [self.relays[5], self.relays[9], self.relays[7]])
         
-        #self.nodes[3].addEdge(self.nodes[0], "from", "BRANCH_2_BUS_1_Current")
-        #self.nodes[3].addEdge(self.nodes[1], "from", "INTERCONNECT_1_Current")
-        self.nodes[3].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current", [self.relays[6], self.relays[3]])
-        
-        #self.nodes[4].addEdge(self.nodes[2], "from", "INTERCONNECT_2_Current")
-        #self.nodes[4].addEdge(self.nodes[3], "from", "BRANCH_2_BUS_2_Current")
         
         #import list of utility resources and make into object
         resource.makeResource(self.resources,self.Resources,False)
@@ -144,7 +161,7 @@ class UtilityAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
                 
         
-        self.connMatrix = [[1,1,1,0,0],[1,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[0,0,1,0,1]]
+        self.connMatrix = []
         
         self.printInfo(2)
         #self.discoverCustomers()
@@ -196,10 +213,10 @@ class UtilityAgent(Agent):
                         print("customer information improperly formatted :(")
                     #create a new object to represent customer in our database    
                     if customerType == "residential":
-                        cust = customer.ResidentialCustomerProfile(name,location,resources)
+                        cust = customer.ResidentialCustomerProfile(name,location,resources,2)
                         self.customers.append(cust)
                     elif customerType == "commercial":
-                        cust = customer.CommercialCustomerProfile(name,location,resources)
+                        cust = customer.CommercialCustomerProfile(name,location,resources,5)
                         self.customers.append(cust)
                     else:                        
                         pass
@@ -256,9 +273,9 @@ class UtilityAgent(Agent):
                 pass
     
     
-    '''called to send a DR enrollment message. when a customer has been enrolled
-    they can be called on to increase or decrease consumption to help the utility
-    meet its goals'''    
+    #called to send a DR enrollment message. when a customer has been enrolled
+    #they can be called on to increase or decrease consumption to help the utility
+    #meet its goals   
     def solicitDREnrollment(self, name = "broadcast"):
         mesdict = {}
         mesdict["message_subject"] = "DR_enrollment"
@@ -273,8 +290,8 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 1:
             print("UTILITY {name} IS TRYING TO ENROLL DR PARTICIPANTS: {mes}".format(name = self.name, mes = message))
     
-    ''' the accountUpdate() function polls customer power consumption/production
-    and updates account balances according to their rate '''
+    #the accountUpdate() function polls customer power consumption/production
+    #and updates account balances according to their rate '''
     @Core.periodic(settings.ACCOUNTING_INTERVAL)
     def accountUpdate(self):
         for group in self.groupList:
@@ -326,9 +343,10 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
         
-        '''first we have to find out how much it will cost to get power
-        from various sources, both those owned by the utility and by 
-        customers'''
+        #first we have to find out how much it will cost to get power
+        #from various sources, both those owned by the utility and by 
+        #customers
+        
         #clear the bid list in preparation for receiving new bids
         self.supplyBidList = []
         self.reserveBidList = []
@@ -681,7 +699,7 @@ class UtilityAgent(Agent):
         self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
         
                     
-    '''responsible for enacting the plan which has been defined for a planning period'''
+    #responsible for enacting the plan which has been defined for a planning period
     def enactPlan(self):
         #which resources are being used during this period? keep track with this list
         involvedResources = []
@@ -729,43 +747,159 @@ class UtilityAgent(Agent):
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
             
+    def groundFaultHandler(self,*argv):
+        fault = argv[0]
+        zone = argv[1]
+        if fault is None:
+            fault = zone.newGroundFault()
+            if settings.DEBUGGING_LEVEL >= 2:
+                fault.printInfo()
             
-            
+        if fault.state == "suspected":
+            iunaccounted = zone.sumCurrents()
+            if abs(iunaccounted) > .1:
+                #pick a node to isolate first - lowest priority first
+                zone.rebuildpriorities()
+                selnode = zone.nodeprioritylist[0]
+                
+                fault.isolatenode(selnode)
+                
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("FAULT: unaccounted current {cur} indicates ground fault({sta}). Isolating node {nod}".format(cur = iunaccounted, sta = fault.state, nod = selnode.name))
+                
+                #update fault state
+                fault.state = "unlocated"
+                #reschedule ground fault handler
+                schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
+            else:
+                #no problem
+                 
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("FAULT: suspected fault resolved")
+                
+                fault.cleared()
+               
+                            
+        elif fault.state == "unlocated":
+            #check zone to see if fault condition persists
+            iunaccounted = zone.sumCurrents()
+            if abs(iunaccounted) > .1:
+                zone.rebuildpriorities()
+                for node in zone.nodeprioritylist:
+                    if node not in fault.isolatednodes:
+                        selnode = node
+                        break
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("FAULT: unaccounted current of {cur} indicates ground fault still unlocated. Isolating node {sel}".format(cur = iunaccounted, sel = selnode.name))
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        fault.printInfo()
+                            
+                fault.isolatenode(selnode)
+                            
+                #reschedule ground fault handler
+                schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
+                
+            else:
+                #the previously isolated node probably contained the fault
+                faultednode = fault.isolatednodes[-1]
+                fault.faultednodes.append(faultednode)
+                
+                fault.state == "located"
+                #nodes in zone that are not marked faulted can be restored
+                for node in zone.nodes:
+                    if node not in fault.faultednodes:
+                        fault.restorenode(node)
+                        
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("FAULT: located at {nod}. restoring other unfaulted nodes".format(nod = faultednode))
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        fault.printInfo()
+                        
+                #reschedule
+                schedule.msfromnow(self,100,self.groundFaultHandler,fault,zone)
+                
+        elif fault.state == "located":
+            #at least one faulted node has been located and isolated but there may be others
+            if abs(zone.sumCurrents()) > .1:
+                #there is another faulted node, go back and find it
+                fault.state = "unlocated"
+                
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("FAULT: there are multiple faults in this zone. go back and find some more.")
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        fault.printInfo()
+                
+                self.groundFaultHandler(fault,zone)
+            else:
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("FAULT: looks like we've isolated all faulted nodes and only faulted nodes.")
+                
+                #we seem to have isolated the faulted node(s)
+                if fault.reclose:
+                    fault.state = "reclose"
+                    if settings.DEBUGGING_LEVEL >= 1:
+                        print("FAULT: going to reclose. count: {rec}".format(rec = fault.reclosecounter))
+                else:
+                    #our reclose limit has been met
+                    fault.state = "persistent"
+                    if settings.DEBUGGING_LEVEL >= 1:
+                        print("FAULT: no more reclosing, fault is persistent.")
+                
+                #schedule next call
+                schedule.msfromnow(self,600,self.groundFaultHandler,fault,zone)
+        elif fault.state == "reclose":
+            if settings.DEBUGGING_LEVEL >= 1:
+                print("reclosing")
+                
+            for node in zone:
+                fault.reclosenode()
+            fault.state = "suspected"
+            schedule.msfromnow(self,100,self.groundFaultHandler,fault,zone)
+        elif fault.state == "persistent":
+            #fault hasn't resolved on its own, need to send a crew to clear fault
+            pass
+        elif fault.state == "multiple":
+            #this isn't used currently
+            zone.isolateZone()
+        elif fault.state == "cleared":
+            fault.cleared()
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("GROUND FAULT {id} has been cleared".format(id = fault.uid))
+        else:
+            print("Error, unrecognized fault state in {id}: {state}".format(id = fault.uid, state = fault.state))
+                
+        
     
     '''monitor for and remediate fault conditions'''
     @Core.periodic(settings.FAULT_DETECTION_INTERVAL)
-    def faultManager(self):
-        nominal = True
-        for group in self.groupList:
-        #look for line-ground faults
-            for node in group.membership:
-                total = node.sumCurrents()
-                if abs(total) > .1:
-                    #there is a mismatch and probably a line-ground fault
-                    node.isolateNode()
-                    node.groundfault = True
-                    group.groundfault = True
+    def faultDetector(self):
+        nominal = True        
+        for node in group.nodes:
+            #look for brownouts
+            for node in self.nodes:
+                voltage = node.getVoltage
+                if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
+                    node.voltageLow = True
+                    group.voltageLow = True
                     nominal = False
                     if settings.DEBUGGING_LEVEL >= 1:
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("unaccounted current of {tot}".format(tot = total))
-                        print("Probable line-ground Fault at Node {nod} belonging to {grp}\n  Isolating node.".format(nod = node.name, grp = group.name))
+                        print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = group.name))
+                else:
+                    node.voltageLow = False
+                    
+        for zone in self.zones:
+            if abs(zone.sumCurrents()) > .1:
+                zonenominal = False
+                #there is a mismatch and probably a line-ground fault
+                nominal = False
+                self.groundFaultHandler(None,zone)
+                if settings.DEBUGGING_LEVEL >= 1:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("unaccounted current of {tot}".format(tot = total))
+                    print("Probable line-ground Fault in Zone {zon} belonging to {grp}\n  Isolating node.".format(zon = zone.name, grp = group.name))
+            else:
+                pass
                 
-                        
-                #look for brownouts
-                for node in self.nodes:
-                    voltage = node.getVoltage
-                    if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
-                        node.voltageLow = True
-                        group.voltageLow = True
-                        nominal = False
-                        if settings.DEBUGGING_LEVEL >= 1:
-                            print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = group.name))
-                    else:
-                        node.voltageLow = False
-            
-            #detect relay failures  MAYBE
-            
         if nominal:
             if settings.DEBUGGING_LEVEL >= 2:
                 print("No faults detected by {me}!".format(me = self.name))
@@ -940,77 +1074,7 @@ class UtilityAgent(Agent):
                             self.connMatrix[i][j] = 0                    
                             print("                open!")
         
-#         #what is the state of the tags supposed to be?
-#         infState = self.getLocalPreferred(self.infrastructureTags,5.1)
-#         
-#         #is main bus connected to BRANCH1.BUS1?
-#         if infState["BRANCH_1_BUS_1_PROXIMAL_User"]:
-#             self.connMatrix[0][1] = 1
-#             self.connMatrix[1][0] = 1
-#         else:
-#             self.connMatrix[0][1] = 0
-#             self.connMatrix[1][0] = 0
-#         
-#         #is main bus connected to BRANCH2.BUS1?
-#         if infState["BRANCH_1_BUS_2_PROXIMAL_User"]:
-#             self.connMatrix[0][2] = 1
-#             self.connMatrix[2][0] = 1
-#         else:
-#             self.connMatrix[0][2] = 0
-#             self.connMatrix[2][0] = 0
-#         
-#         #is BRANCH1.BUS1 connected to BRANCH2.BUS1
-#         if infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
-#             self.connMatrix[1][3] = 1
-#             self.connMatrix[3][1] = 1
-#         else:
-#             self.connMatrix[1][3] = 0
-#             self.connMatrix[3][1] = 0
-#             
-#         #is BRANCH1.BUS1 connected to BRANCH1.BUS2
-#         if infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"]:
-#             self.connMatrix[1][2] = 1
-#             self.connMatrix[2][1] = 1
-#         else:
-#             self.connMatrix[1][2] = 0
-#             self.connMatrix[2][1] = 0
-#             
-#         #is BRANCH2.BUS1 connected to BRANCH2.BUS2
-#         if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_2_BUS_1_DISTAL_User"]:
-#             self.connMatrix[4][3] = 1
-#             self.connMatrix[3][4] = 1
-#         else:
-#             self.connMatrix[4][3] = 0
-#             self.connMatrix[3][4] = 0
-#         
-#         #is BRANCH2.BUS2 connected to BRANCH1.BUS2
-#         if infState["BRANCH_1_BUS_2_DISTAL_User"] and infState["BRANCH_2_BUS_2_DISTAL_User"] and infState["INTERCONNECT_2_User"]:
-#             self.connMatrix[2][4] = 1
-#             self.connMatrix[4][2] = 1
-#         else:
-#             self.connMatrix[2][4] = 0
-#             self.connMatrix[4][2] = 0
-#             
-#         #is BRANCH2.BUS1 connected to BRANCH1.BUS2?
-#         if infState["BRANCH_2_BUS_1_DISTAL_User"] and infState["BRANCH_1_BUS_2_PROXIMAL_User"] and infState["INTERCONNECT_1_User"]:
-#             self.connMatrix[2][3] = 1
-#             self.connMatrix[3][2] = 1
-#         else:
-#             self.connMatrix[2][3] = 0
-#             self.connMatrix[3][2] = 0
-#             
-#         #is BRANCH1.BUS1 connected to BRANCH2.BUS2?
-#         if infState["BRANCH_2_BUS_2_PROXIMAL_User"] and infState["BRANCH_1_BUS_1_DISTAL_User"] and infState["INTERCONNECT_1_User"]:
-#             self.connMatrix[1][4] = 1
-#             self.connMatrix[4][1] = 1
-#         else:
-#             self.connMatrix[1][4] = 0
-#             self.connMatrix[4][1] = 0
-#         
-#         #we should do more to validate this in case there is a fault...
-#         #does current through branch match bus voltage differential?
-#         
-#         #is there current at all?
+
                         
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} HAS FINISHED REBUILDING CONNECTIVITY MATRIX".format(me = self.name))

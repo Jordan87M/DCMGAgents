@@ -2,19 +2,27 @@ from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources import resource, customer
 
 class Group(object):
-    def __init__(self,name,resources = [],zones = [], customers = [], **kwargs):
+    def __init__(self,name,resources = [], nodes = [], customers = [], **kwargs):
         self.name = name
         self.resources = resources
-        self.zones = zones
+        self.nodes = nodes
         self.customers = customers
         
         self.rate = .1
         
-        #state flags
-        self.voltageLow = True
-        self.groundfault = False
-        self.relayfault = False
-    
+        self.faults = []
+        
+        self.nodeprioritylist = []
+        self.loadprioritylist = []
+        
+    def rebuildpriorities(self):
+        self.nodeprioritylist = []
+        self.loadprioritylist = []
+        self.nodeprioritylist.extend(self.nodes)
+        self.loadprioritylist.extend(self.nodes)
+        self.nodeprioritylist.sort(key = operator.attrgetter("priorityscore"))
+        self.loadprioritylist.sort(key = operator.attrgetter("priorityscore"))
+
         
     def printInfo(self,depth = 0):
         spaces = "    "
@@ -27,10 +35,10 @@ class Group(object):
         for res in self.resources:
             res.printInfo(depth + 1)
         print(spaces*depth + ">>>>>>>RESOURCES =END=")
-        print(spaces*depth + ">>>>>>>ZONES ({n}): ----------------".format(n = len(self.zones)))
-        for zone in self.zones:
-            zone.printInfo(depth + 1)
-        print(spaces*depth + ">>>>>>>ZONES =END=")
+        print(spaces*depth + ">>>>>>>NODES ({n}): ----------------".format(n = len(self.nodes)))
+        for node in self.nodes:
+            node.printInfo(depth + 1)
+        print(spaces*depth + ">>>>>>>NODES =END=")
             
     
 class Zone(object):
@@ -40,14 +48,12 @@ class Zone(object):
         
         self.resources = []
         self.customers = []
-        self.group = None
+        self.group = []
         self.edges = []
         
-        
-        self.faults = {"lowvoltage": False,
-                       "groundfault": False,
-                       "relayfault": False
-                       }
+        self.nodeprioritylist = nodes.sort(key = operator.attrgetter("priorityscore"))
+
+        self.faults = []
         
         self.interzonaledges = []
         self.interzonaloriginatingedges = []
@@ -57,6 +63,28 @@ class Zone(object):
             node.zone = self
             
         self.findinterzonaledges()
+        
+        
+    def hasGroundFault(self):
+        for node in self.nodes:
+            if node.hasGroundFault():
+                return True
+        return False
+        
+    def rebuildpriorities(self):
+        self.nodeprioritylist = []
+        self.nodeprioritylist.extend(self.nodes)
+        self.nodeprioritylist.sort(key = operator.attrgetter("priorityscore"))
+            
+    def newGroundFault(self):
+        newfault = GroundFault("suspected")
+        self.faults.append(newfault)
+        newfault.owners.append(self)
+        for node in self.nodes:
+            node.faults.append(newfault)
+            newfault.owners.append(node)
+        return newfault
+            
             
     def sumCurrents(self):
         #infcurrents = tagClient.readTags(self.currentTags)
@@ -67,15 +95,15 @@ class Zone(object):
         infcurrents = tagClient.readTags(inftags)
         
         total = 0        
-        for edge in self.edges:
+        for edge in self.interzonaledges:
             if edge.startNode is self:
                 total -= infcurrents.get(edge.currentTag)
             elif edge.endNode is self:
                 total += infcurrents.get(edge.currentTag)
             else:
-                pass        
-        
-        return total    
+                pass
+        return total
+    
     
     def isolateZone(self):
         for edge in self.interzonaledges:
@@ -109,11 +137,18 @@ class Zone(object):
 class BaseNode(object):
     def __init__(self,name, **kwargs):
         self.name = name
-        
+        #has
         self.resources = []
         self.customers = []
+        
+        #membership in 
         self.zone = None
         self.group = None
+        
+        
+        self.faults = []
+        
+        #connections to other nodes
         self.edges = []
         self.originatingedges = []
         self.terminatingedges = []
@@ -130,7 +165,10 @@ class BaseNode(object):
             otherNode.originatingedges.append(newedge)
         else:
             print("addEdge() didn't do anything. The dir paramter must be 'to' or 'from'. ")
-            
+        
+        for relay in relays:
+                relay.owningEdge = self
+                    
         self.edges.append(newedge)
         otherNode.edges.append(newedge)
         
@@ -142,26 +180,22 @@ class BaseNode(object):
                 
         
 class Node(BaseNode):
-    def __init__(self, name, relays, **kwargs):
+    def __init__(self, name, **kwargs):
         super(Node,self).__init__(name, **kwargs)
-        self.relays =relays
-         
+        savedstate = {}
+        
+        self.priorityscore = 0
+        self.loadprioritylist = []
         
         self.grid, self.branch, self.bus = self.name.split(".")
         if self.branch != "MAIN":
             self.branchNumber = self.branch[-1]
             self.busNumber = self.bus[-1]
             
-        #state flags
-        self.faults = {"lowvoltage": False,
-                       "groundfault": False,
-                       "relayfault": False
-                       }
-    
-    def addRelay(self,relay):
-        self.relays.append(relay)
-        
-    
+    def rebuildpriorities(self):
+        self.loadprioritylist = []
+        self.loadprioritylist.extend(self.customers)
+        self.loadprioritylist.sort(key = operator.attrgetter("priorityscore"))
         
     def getVoltage(self):
         if self.branch != "MAIN":
@@ -171,10 +205,18 @@ class Node(BaseNode):
             
         return tagClient.readTags([signal])
     
+    def hasGroundFault(self):
+        for fault in self.faults:
+            if fault.__class__.__name__ == "GroundFault":
+                return True
+        return False
+    
     def addCustomer(self,cust):
         self.customers.append(cust)
         custnode = BaseNode(cust.name + "Node")
         self.addEdge(custnode,"to",cust.currentTag, Relay(cust.relayTag,"load"))
+        self.priorityscore += cust.priorityscore
+        self.rebuildpriorities()
     
     def addResource(self,res):   
         self.resources.append(res)
@@ -184,8 +226,38 @@ class Node(BaseNode):
             self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,Relay(res.ChargeChannel.relayTag,"source"))
     
     def isolateNode(self):
-        for relay in self.relays:
-            relay.openRelay()
+        for edge in self.edges:
+            for relay in  edge.relays:
+                #first, record the state we were in before
+                self.savedstate[relay] = relay.closed
+            #then, open the relays
+            edge.openRelays()
+            
+    def restore(self):
+        for edge in self.edges:
+            for relay in edge.relays:
+                if self.savedstate[relay]:
+                    relay.closeRelay()
+            
+    def sumCurrents(self):
+        inftags = []
+        for edge in self.edges:
+            if edge.currentTag is not None and len(edge.currentTag) > 0:
+                inftags.append(edge.currentTag)
+        
+        infcurrents = tagClient.readTags(inftags)
+        
+        total = 0        
+        for edge in self.edges:
+            if edge.currentTag is not None and len(edge.currentTag) > 0:
+                if edge.startNode is self:
+                    total -= infcurrents.get(edge.currentTag)
+                elif edge.endNode is self:
+                    total += infcurrents.get(edge.currentTag)
+                else:
+                    pass        
+        
+        return total
     
     def printInfo(self,depth = 0,verbosity = 1):
         spaces = '    '
@@ -196,6 +268,7 @@ class Node(BaseNode):
             print(spaces*depth + "FAULT: GROUNDFAULT")
         if self.relayfault:
             print(spaces*depth + "FAULT: RELAY MALFUNCTION")
+        print(spaces*depth + " MEMBER OF ZONE: {zon}".format(zon = self.zone.name))
         print(spaces*depth + "NODE {me} CONTAINS THE FOLLOWING...".format(me = self.name))
         print(spaces*depth + ">>CUSTOMERS ({n}):".format(n = len(self.customers)))
         for cust in self.customers:
@@ -345,4 +418,4 @@ class Relay(object):
     def clearFault(self):
         self.owningNode.checkFault("relayfault")
         self.faulted = False
-    
+        
