@@ -123,6 +123,7 @@ class UtilityAgent(Agent):
         self.nodes[4].addEdge(self.nodes[8], "to", None, [self.relays[7]])
         
         
+        self.connMatrix = [[0 for x in range(len(self.nodes))] for y in range(len(self.nodes))]
         
         
         #import list of utility resources and make into object
@@ -149,6 +150,7 @@ class UtilityAgent(Agent):
         
         self.bidstate = BidState()
         
+        
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
         _log.info(self.config['message'])
@@ -160,8 +162,6 @@ class UtilityAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
                 
-        
-        self.connMatrix = []
         
         self.printInfo(2)
         #self.discoverCustomers()
@@ -339,7 +339,7 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >=2 :
             print("\nUTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
         subs = self.getTopology()
-        self.printInfo(0)
+        self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
         
@@ -873,20 +873,22 @@ class UtilityAgent(Agent):
     '''monitor for and remediate fault conditions'''
     @Core.periodic(settings.FAULT_DETECTION_INTERVAL)
     def faultDetector(self):
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("running fault detection subroutine")
+            
         nominal = True        
-        for node in group.nodes:
-            #look for brownouts
-            for node in self.nodes:
-                voltage = node.getVoltage
-                if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
-                    node.voltageLow = True
-                    group.voltageLow = True
-                    nominal = False
-                    if settings.DEBUGGING_LEVEL >= 1:
-                        print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = group.name))
-                else:
-                    node.voltageLow = False
-                    
+        #look for brownouts
+        for node in self.nodes:
+            voltage = node.getVoltage
+            if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
+                node.voltageLow = True
+                group.voltageLow = True
+                nominal = False
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = group.name))
+            else:
+                node.voltageLow = False
+                
         for zone in self.zones:
             if abs(zone.sumCurrents()) > .1:
                 zonenominal = False
@@ -909,9 +911,21 @@ class UtilityAgent(Agent):
     @Core.periodic(settings.SECONDARY_VOLTAGE_INTERVAL)       
     def correctVoltage(self):
         for group in self.groupList:
-            avgVoltage = group.getAvgVoltage()
-            if avgVoltage < settings.VOLTAGE_BAND_LOWER or avgVoltage > settings.VOLTAGE_BAND_UPPER:
+            minvoltage = 12
+            maxvoltage = 0
+            for node in group.nodes:
+                voltage = node.getVoltage()
+                if voltage < minvoltage:
+                    minvoltage = voltage
+                    
+                if voltage > maxvoltage:
+                    maxvoltage = voltage
+                    
+            if minvoltage < settings.VOLTAGE_BAND_LOWER:
                 #only use our own resources
+                pass
+            
+            if maxvoltage > settings.VOLTAGE_BAND_UPPER:
                 pass
             
     def sendBidAcceptance(self,bid,rate):
@@ -1040,15 +1054,9 @@ class UtilityAgent(Agent):
                 #for concision
                 cGroup = self.groupList[index]
                 for node in sub:
-                    #for concision
                     cNode = self.nodes[node]
-                    #update the node's membership field to indicate which group it belongs to
-                    cNode.membership = self.groupList[index].name
-                    #add the node to the group's membership array
-                    cGroup.membership.append(cNode)
-                    #add the node's resources to the group's resource array
-                    cGroup.resources.extend(cNode.resources)
-                    cGroup.customers.extend(cNode.customers)
+                    cGroup.addNode(cNode)
+                           
                     
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
@@ -1069,9 +1077,11 @@ class UtilityAgent(Agent):
                         print("            terminus match!")
                         if edge.checkRelaysClosed():
                             self.connMatrix[i][j] = 1
+                            self.connMatrix[j][i] = 1
                             print("                closed!")
                         else:
-                            self.connMatrix[i][j] = 0                    
+                            self.connMatrix[i][j] = 0
+                            self.connMatrix[j][i] = 0                    
                             print("                open!")
         
 

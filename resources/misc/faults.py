@@ -57,3 +57,17 @@ class GroundFault(object):
     def clearfault(self):
         self.reclosecounter = 0
         #send message to SG PLC
+        
+    def printInfo(depth = 0):
+        tab = "    "
+        print(tab*depth + "FAULT: {state}".format(state = self.state))
+        print(tab*depth + "-RECLOSES LEFT: {amt} of {max}".format(amt = self.reclosemax-self.reclosecounter, max = self.reclosemax))
+        print(tab*depth + "-AFFECTED NODES and ZONES")
+        for owner in self.owners:
+            print(tab*depth + "--" + owner.name)
+            if owner in self.isolatednodes:
+                print("... CURRENTLY ISOLATED ...")
+            if owner in self.faultednodes:
+                print("!!! FAULT LOCATED HERE!!!")
+                
+            

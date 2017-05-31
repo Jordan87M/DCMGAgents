@@ -1,6 +1,8 @@
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources import resource, customer
 
+import operator
+
 class Group(object):
     def __init__(self,name,resources = [], nodes = [], customers = [], **kwargs):
         self.name = name
@@ -23,7 +25,17 @@ class Group(object):
         self.nodeprioritylist.sort(key = operator.attrgetter("priorityscore"))
         self.loadprioritylist.sort(key = operator.attrgetter("priorityscore"))
 
+    def addNode(self,node):
+        #set node's group membership
+        node.group = self
+        #add node to group's list of nodes
+        self.nodes.append(node)
+        #add node's resources to group's
+        self.resources.extend(node.resources)
+        #...same for customers
+        self.customers.extend(node.customers)
         
+    
     def printInfo(self,depth = 0):
         spaces = "    "
         print(spaces*depth + ">>>>GROUP {me} CONTAINS THE FOLLOWING...".format(me = self.name))
@@ -87,12 +99,12 @@ class Zone(object):
             
             
     def sumCurrents(self):
-        #infcurrents = tagClient.readTags(self.currentTags)
         inftags = []
         for edge in self.interzonaledges:
             inftags.append(edge.currentTag)
         
-        infcurrents = tagClient.readTags(inftags)
+        if len(inftags) > 0:
+            infcurrents = tagClient.readTags(inftags)
         
         total = 0        
         for edge in self.interzonaledges:
@@ -111,13 +123,14 @@ class Zone(object):
     
     
     def findinterzonaledges(self):
-        for edge in self.originatingedges:
-            if edge.endNode not in self.nodes:
-                self.interzonaloriginatingedges.append(edge)
-        for edge in self.terminatingedges:
-            if edge.startNode not in self.nodes:
-                self.interzonalterminatingedges.append(edge)
-                
+        for node in self.nodes:
+            for edge in node.originatingedges:
+                if edge.endNode not in self.nodes:
+                    self.interzonaloriginatingedges.append(edge)
+            for edge in node.terminatingedges:
+                if edge.startNode not in self.nodes:
+                    self.interzonalterminatingedges.append(edge)
+                    
     def printInfo(self,depth):
         spaces = '    '
         print(spaces*depth + "ZONE {me} PROBLEMS:".format(me = self.name))
@@ -167,7 +180,7 @@ class BaseNode(object):
             print("addEdge() didn't do anything. The dir paramter must be 'to' or 'from'. ")
         
         for relay in relays:
-                relay.owningEdge = self
+            relay.owningEdge = newedge
                     
         self.edges.append(newedge)
         otherNode.edges.append(newedge)
@@ -214,7 +227,7 @@ class Node(BaseNode):
     def addCustomer(self,cust):
         self.customers.append(cust)
         custnode = BaseNode(cust.name + "Node")
-        self.addEdge(custnode,"to",cust.currentTag, Relay(cust.relayTag,"load"))
+        self.addEdge(custnode,"to",cust.currentTag, [Relay(cust.relayTag,"load")])
         self.priorityscore += cust.priorityscore
         self.rebuildpriorities()
     
@@ -245,9 +258,10 @@ class Node(BaseNode):
             if edge.currentTag is not None and len(edge.currentTag) > 0:
                 inftags.append(edge.currentTag)
         
-        infcurrents = tagClient.readTags(inftags)
+        if len(inftags) > 0:
+            infcurrents = tagClient.readTags(inftags)
         
-        total = 0        
+        total = 0
         for edge in self.edges:
             if edge.currentTag is not None and len(edge.currentTag) > 0:
                 if edge.startNode is self:
@@ -262,12 +276,8 @@ class Node(BaseNode):
     def printInfo(self,depth = 0,verbosity = 1):
         spaces = '    '
         print(spaces*depth + "NODE {me} PROBLEMS:".format(me = self.name))
-        if self.voltageLow:
-            print(spaces*depth + "FAULT: VOLTAGE BELOW SPEC")
-        if self.groundfault:
-            print(spaces*depth + "FAULT: GROUNDFAULT")
-        if self.relayfault:
-            print(spaces*depth + "FAULT: RELAY MALFUNCTION")
+        for fault in self.faults:
+            fault.printInfo(depth + 1)
         print(spaces*depth + " MEMBER OF ZONE: {zon}".format(zon = self.zone.name))
         print(spaces*depth + "NODE {me} CONTAINS THE FOLLOWING...".format(me = self.name))
         print(spaces*depth + ">>CUSTOMERS ({n}):".format(n = len(self.customers)))

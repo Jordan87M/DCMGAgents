@@ -150,18 +150,18 @@ class Channel():
         
         #PLC tag names generated from channel number
         #tags for writing
-        self.relayTag = "SOURCE_{d}_DUMMY".format(d = self.channelNumber)
-        self.pSetpointTag = "SOURCE_{d}_PowerSetpoint_DUMMY".format(d = self.channelNumber)
-        self.battSelectTag = "SOURCE_{d}_BATTERY_CHARGE_SElECT_DUMMY".format(d = self.channelNumber)
+        self.relayTag = "SOURCE_{d}_User".format(d = self.channelNumber)
+        self.pSetpointTag = "SOURCE_{d}_PowerSetpoint".format(d = self.channelNumber)
+        self.battSelectTag = "SOURCE_{d}_BATTERY_CHARGE_SElECT".format(d = self.channelNumber)
         self.battReqChargeTag = "SOURCE_{d}_BatteryReqCharge".format(d = self.channelNumber)
         self.droopSelectTag = "SOURCE_{d}_DROOP_SELECT".format(d = self.channelNumber)
         self.noLoadVoltageTag = "SOURCE_{d}_noLoadVoltage".format(d = self.channelNumber)
         self.droopCoeffTag = "SOURCE_{d}_droopCoeff".format(d = self.channelNumber)
         
         #deprecated tags for writing
-        self.vSetpointTag = "SOURCE_{d}_VoltageSetpoint_DUMMY".format(d = self.channelNumber)
-        self.swingSelectTag = "SOURCCE_{d}_SWING_SOURCE_SELECT_DUMMY".format(d = self.channelNumber)
-        self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT_DUMMY".format(d = self.channelNumber)
+        self.vSetpointTag = "SOURCE_{d}_VoltageSetpoint".format(d = self.channelNumber)
+        self.swingSelectTag = "SOURCCE_{d}_SWING_SOURCE_SELECT".format(d = self.channelNumber)
+        self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT".format(d = self.channelNumber)
 
         #tags for reading
         self.regVTag = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)

@@ -110,14 +110,14 @@ class CustomerProfile(object):
         return measurePower()
     
 class ResidentialCustomerProfile(CustomerProfile):
-    def __init__(self,name,location,resources,**kwargs):
-        super(ResidentialCustomerProfile,self).__init__(name,location,resources,**kwargs)
+    def __init__(self,name,location,resources,priorityscore,**kwargs):
+        super(ResidentialCustomerProfile,self).__init__(name,location,resources,priorityscore,**kwargs)
         self.maxDraw = 3
         self.rateAdjustment = 1
         
 class CommercialCustomerProfile(CustomerProfile):
-    def __init__(self,name,location,resources,**kwargs):
-        super(CommercialCustomerProfile,self).__init__(name,location,resources,**kwargs)
+    def __init__(self,name,location,resources,priorityscore,**kwargs):
+        super(CommercialCustomerProfile,self).__init__(name,location,resources,priorityscore,**kwargs)
         self.maxDraw = 6
         self.rateAdjustment = 1
         
