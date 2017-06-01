@@ -168,16 +168,16 @@ class BaseNode(object):
         
     def addEdge(self,otherNode,dir,currentTag,relays):
         
-        if dir == "from":
-            newedge = DirEdge(otherNode,self,currentTag,relays)
+        if dir == "to":
+            newedge = DirEdge(self,otherNode,currentTag,relays)
             self.originatingedges.append(newedge)
             otherNode.terminatingedges.append(newedge)
-        elif dir == "to":
-            newedge = DirEdge(self,otherNode,currentTag,relays)
+        elif dir == "from":
+            newedge = DirEdge(otherNode,self,currentTag,relays)
             self.terminatingedges.append(newedge)
             otherNode.originatingedges.append(newedge)
         else:
-            print("addEdge() didn't do anything. The dir paramter must be 'to' or 'from'. ")
+            print("addEdge() didn't do anything. The dir parameter must be 'to' or 'from'. ")
         
         for relay in relays:
             relay.owningEdge = newedge
@@ -371,7 +371,7 @@ class DirEdge(object):
     
     def checkRelaysClosed(self):
         for relay in self.relays:
-            if not relay.getClosed:
+            if not relay.getClosed():
                 return False
         return True
     
@@ -405,7 +405,11 @@ class Relay(object):
         self.faulted = False
         
     def getClosed(self):
-        return self.closed
+        #return self.closed
+        retval = tagClient.readTags([self.tagName])
+        retval = not retval
+        self.closed = retval
+        return retval
     
     def closeRelay(self):
         if self.type == "infrastructure":

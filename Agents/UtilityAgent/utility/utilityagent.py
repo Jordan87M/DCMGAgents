@@ -1074,7 +1074,7 @@ class UtilityAgent(Agent):
                 for j, terminus in enumerate(self.nodes):
                     print("        " + terminus.name)
                     if edge.endNode is terminus:
-                        print("            terminus match!")
+                        print("            terminus match! {i},{j}".format(i = i, j = j))
                         if edge.checkRelaysClosed():
                             self.connMatrix[i][j] = 1
                             self.connMatrix[j][i] = 1
@@ -1088,6 +1088,7 @@ class UtilityAgent(Agent):
                         
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} HAS FINISHED REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
+            print("{mat}".format(mat = self.connMatrix))
         
     def marketfeed(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)

@@ -1,7 +1,7 @@
 
 def findDisjointSubgraphs(matrix):
-    print(matrix)
     dim = len(matrix)
+    print("connectivity matrix dimension: {dim}".format(dim = dim))
     groups = []
     group = []
     expandlist = []
@@ -13,11 +13,10 @@ def findDisjointSubgraphs(matrix):
             row = expandlist[0]
             for i in range(row,dim):
                 if matrix[row][i] == 1 and row != i:
-                    #expandlist.append(i)  #can cause nodes to be listed many times
-                    #expandlist = list(set(expandlist) | set([i])) #doesn't preserve order
                     if i not in expandlist:
                         expandlist.append(i)
-            unexamined.remove(row)
+            if row in unexamined:
+                unexamined.remove(row)
             expandlist.remove(row)
             group.append(row)
         groups.append(group)
