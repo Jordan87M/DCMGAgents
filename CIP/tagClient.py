@@ -24,14 +24,15 @@ def writeTags(names,values,plc = "user"):
         message = "write {plc}".format(plc = plc)
         for index,name in enumerate(names):
             message = message + " {name}:{value}".format(name = name, value = str(values[index]))
+                
         message = message + "\n"
-        #print(message)
+        
         sock.sendall(message)
         
         data = sock.recv(1024)
-        #print("tag client received: {info}".format(info = data))
+        #print("\nWRITE @ {dt} \nMESSAGE: {mes}  REC: {dat}".format(dt = datetime.isoformat(datetime.now()), mes = message, dat = data))
         
-        flog = open("~/volttron/taglog","a+")
+        #flog = open("~/volttron/taglog","a+")
         print("WRITE @ {dt} \nMESSAGE: {mes}REC: {dat}".format(dt = datetime.isoformat(datetime.now()), mes = message, dat = data))
     except Exception:
         print("tag client experiencing problem")
@@ -59,7 +60,7 @@ def readTags(names, plc = "user"):
         
         data = sock.recv(1024)
         
-        print("\nREAD @ {dt} \nMESSAGE: {mes}  REC: {dat}".format(dt = datetime.isoformat(datetime.now()), mes = message, dat = data))
+        #print("\nREAD @ {dt} \nMESSAGE: {mes}  REC: {dat}".format(dt = datetime.isoformat(datetime.now()), mes = message, dat = data))
             
     except Exception:
         print("tag client experiencing problem")

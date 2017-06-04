@@ -40,6 +40,8 @@ class HomeAgent(Agent):
         
         self.Resources = []
         
+        
+        
         loclist = self.location.split('.')
         if type(loclist) is list:
             if loclist[0] == "DC":
@@ -48,6 +50,14 @@ class HomeAgent(Agent):
                 pass
             else:
                 print("the first part of the location path should be AC or DC")
+                
+        self.branchNumber = self.branch[-1]
+        self.busNumber = self.bus[-1]
+        self.loadNumber = self.load[-1]
+        
+        self.relayTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+
+        
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)
@@ -487,8 +497,6 @@ class HomeAgent(Agent):
         else:
             pass
         
-        
-    
     def advancePeriod(self):
         self.CurrentPeriod = self.NextPeriod
         #contra the utility version of this fn, don't create the next period
@@ -556,9 +564,7 @@ class HomeAgent(Agent):
     
     def disconnectLoad(self):
         #we can disconnect load at will
-        tagName = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branch, bus = self.bus, load = self.load)
-        #setTagValue(tagName,False)
-        tagClient.writeTags([tagName],[False])
+        tagClient.writeTags([self.relayTag],[False])
         
     
     def connectLoad(self):

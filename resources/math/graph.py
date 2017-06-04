@@ -11,12 +11,13 @@ def findDisjointSubgraphs(matrix):
         expandlist.append(unexamined[0])
         while len(expandlist) > 0:
             row = expandlist[0]
-            for i in range(row,dim):
+            for i in range(dim):
                 if matrix[row][i] == 1 and row != i:
-                    if i not in expandlist:
+                    if i not in expandlist and i in unexamined:
                         expandlist.append(i)
-            if row in unexamined:
-                unexamined.remove(row)
+            #print("to be expanded: {ex}".format(ex = expandlist))
+            #print("unexamined: {un}".format(un = unexamined))
+            unexamined.remove(row)
             expandlist.remove(row)
             group.append(row)
         groups.append(group)

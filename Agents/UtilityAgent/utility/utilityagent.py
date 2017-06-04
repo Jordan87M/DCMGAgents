@@ -21,6 +21,7 @@ from . import settings
 from zmq.backend.cython.constants import RATE
 from __builtin__ import True
 from bacpypes.vlan import Node
+from twisted.application.service import Service
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -70,6 +71,9 @@ class UtilityAgent(Agent):
         self.supplyBidList = []
         self.demandBidList = []
         self.reserveBidList = []
+        
+        self.outstandingSupplyBidList = []
+        self.outstandingDemandBidList = []
         
         #build grid model objects from the agent's a priori knowledge of system
         #infrastructure relays
@@ -412,13 +416,17 @@ class UtilityAgent(Agent):
             if type(res) is resource.SolarPanel:
                 amount = res.maxDischargePower*self.perceivedInsol/100
                 rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                self.supplyBidList.append(financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
+                newbid = financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
             elif type(res) is resource.LeadAcidBattery:
                 amount = 10
                 rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                self.supplyBidList.append(financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber))
+                newbid = financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
             else:
-                print("trying to plan for unknown resource type")
+                print("trying to plan for an unrecognized resource type")
+            
+            if newbid:
+                self.supplyBidList.append(newbid)
+                self.outstandingSupplyBidList.append(newbid)
         
         for group in self.groupList:
             maxLoad = self.getMaxGroupLoad(group)
@@ -1056,8 +1064,6 @@ class UtilityAgent(Agent):
                 for node in sub:
                     cNode = self.nodes[node]
                     cGroup.addNode(cNode)
-                           
-                    
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
         return subs
@@ -1068,21 +1074,21 @@ class UtilityAgent(Agent):
             print("UTILITY {me} REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
         
         for i,origin in enumerate(self.nodes):
-            print(origin.name)
+            #print(origin.name)
             for edge in origin.originatingedges:
-                print("    " + edge.name)
+                #print("    " + edge.name)
                 for j, terminus in enumerate(self.nodes):
-                    print("        " + terminus.name)
+                    #print("        " + terminus.name)
                     if edge.endNode is terminus:
                         print("            terminus match! {i},{j}".format(i = i, j = j))
                         if edge.checkRelaysClosed():
                             self.connMatrix[i][j] = 1
                             self.connMatrix[j][i] = 1
-                            print("                closed!")
+                            #print("                closed!")
                         else:
                             self.connMatrix[i][j] = 0
                             self.connMatrix[j][i] = 0                    
-                            print("                open!")
+                            #print("                open!")
         
 
                         
@@ -1120,10 +1126,67 @@ class UtilityAgent(Agent):
                     self.demandBidList.append(newbid)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print(message)
+                    #print(message)
                     print("UTILITY {me} RECEIVED A {side} BID#{id} FROM {them}".format(me = self.name, side = side,id = uid, them = messageSender ))
                     if settings.DEBUGGING_LEVEL >= 3:
                         newbid.printInfo(0)
+            elif messageSubject == "bid_acceptance":
+                side = mesdict.get("side",None)
+                amount = mesdict.get("amount",None)
+                rate = mesdict.get("rate",None)
+                period = mesdict.get("period",None)
+                uid = mesdict.get("uid",None)
+                
+                if side == "supply":
+                    service = mesdict.get("service",None)
+                    for bid in self.outstandingSupplyBids:
+                        print("UTILITY {me} COMPARING REC: {rec}|STORED:{sto}".format(me = self.name, rec = uid, sto = bid.uid))
+                        if bid.uid == uid:
+                            bid.service = service
+                            bid.amount = amount
+                            bid.rate = rate
+                            bid.period = period
+                            if bid.period == self.NextPeriod.periodNumber:
+                                self.NextPeriod.actionPlan.addBid(bid)
+                                
+                            self.outstandingSupplyBids.remove(bid)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("-->UTILITY {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
+                                bid.printInfo()
+                                
+                elif side == "demand":
+                    for bid in self.outstandingDemandBids:
+                        print("UTILITY {me} COMPARING REC: {rec}|STORED:{sto}".format(me = self.name, rec = uid, sto = bid.uid))
+                        if bid.uid == uid:
+                            bid.amount = amount
+                            bid.rate = rate
+                            bid.period = period
+                            if bid.period == self.NextPeriod.periodNumber:
+                                self.NextPeriod.actionPlan.addConsumption(bid)
+                                
+                            self.outstandingDemandBids.remove(bid)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("-->UTILITY {me} ACK DEMAND BID ACCEPTANCE".format(me = self.name))
+                                bid.printInfo()
+            elif messageSubject == "bid_rejection":
+                #if the bid is not accepted, remove the bid from the outstanding bids list
+                uid = mesdict.get("uid",None)
+                side = mesdicct.get("side",None)
+                
+                if side == "supply":
+                    for bid in self.outstandingSupplyBIds:
+                        if bid.uid == uid:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("UTILITY {me} ACK BID REJECTION FOR {id}".format(me = self.name, id = bid.uid))
+                                bid.printInfo()
+                            self.outstandingSupplyBids.remove(bid)
+                elif side == "demand":
+                    for bid in self.outstandingDemandBids:
+                        if bid.uid == uid:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("UTILITY {me} ACK DEMAND BID REJECTION FOR {id}".format(me = self.name, id = bid.uid))
+                                bid.printInfo()
+                            self.outstandingDemandBids.remove(bid)
                 
                 
     '''callback for demandresponse topic'''

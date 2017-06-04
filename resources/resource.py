@@ -151,7 +151,7 @@ class Channel():
         #PLC tag names generated from channel number
         #tags for writing
         self.relayTag = "SOURCE_{d}_User".format(d = self.channelNumber)
-        self.pSetpointTag = "SOURCE_{d}_PowerSetpoint".format(d = self.channelNumber)
+        self.pSetpointTag = "SOURCE_{d}_psetpoint".format(d = self.channelNumber)
         self.battSelectTag = "SOURCE_{d}_BATTERY_CHARGE_SElECT".format(d = self.channelNumber)
         self.battReqChargeTag = "SOURCE_{d}_BatteryReqCharge".format(d = self.channelNumber)
         self.droopSelectTag = "SOURCE_{d}_DROOP_SELECT".format(d = self.channelNumber)
@@ -302,7 +302,7 @@ class Channel():
             tags = [self.pSetpointTag,
                    self.battSelectTag]
             tagClient.writeTags([tags],[0,True])
-            tag = "SOURCE_{d}_BatteryReqCharge_DUMMY".format(d = self.channelNumber)
+            tag = "SOURCE_{d}_BatteryReqCharge".format(d = self.channelNumber)
             tagClient.writeTags([tag],[True])
             tagClient.writeTags([self.pSetpointTag],[setpoint])
         else:
@@ -339,7 +339,7 @@ class Channel():
             tags = [self.pSetpointTag,
                    self.battSelectTag]
             tagClient.writeTags([tags],[0,True])
-            tag = "SOURCE_{d}_BatteryReqCharge_DUMMY".format(d = self.channelNumber)
+            tag = "SOURCE_{d}_BatteryReqCharge".format(d = self.channelNumber)
             tagClient.writeTags([tag],[True])
             tagClient.writeTags([self.pSetpointTag],[setpoint])
         else:
