@@ -37,16 +37,14 @@ class CustomerProfile(object):
         self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
 
+    def addResource(self,res):
+        res.owner = self
+        self.Resources.append(res)
+        
         
     #change maximum power draw for a customer
     def updateService(self,amount):
         self.maxDraw = amount
-            
-    def printInfo(self, depth = 0):
-        spaces = '    '
-        print(spaces*depth + "CUSTOMER: {name} is a {type}\n        LOCATION: {loc}\n        RESOURCES:".format(name = self.name, type = self.__class__.__name__, loc = self.location))
-        for res in self.Resources:
-            res.printInfo(depth + 1)
             
     def disconnectCustomer(self):
         tagClient.writeTags([self.relayTag],[False])
@@ -109,6 +107,14 @@ class CustomerProfile(object):
             
         return measurePower()
     
+    def printInfo(self, depth = 0):
+        spaces = '    '
+        print(spaces*depth + "CUSTOMER: {name} is a {type}".format(name = self.name, type = self.__class__.__name__))
+        print(spaces*depth + "LOCATION: {loc}".format(loc = self.location))
+        print(spaces*depth + "RESOURCES:")
+        for res in self.Resources:
+            res.printInfo(depth + 1)
+            
 class ResidentialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,priorityscore,**kwargs):
         super(ResidentialCustomerProfile,self).__init__(name,location,resources,priorityscore,**kwargs)
@@ -136,11 +142,11 @@ class Account(object):
         
         
 class ResourceProfile(object):
-    def __init__(self,owner,location,name,capCost,**kwargs):
-        self.owner = owner
-        self.capCost = capCost
-        self.location = location
-        self.name = name
+    def __init__(self,**res):
+        self.owner = res["owner"]
+        self.capCost = res["capCost"]
+        self.location = res["location"]
+        self.name = res["name"]
         
         self.state = None
         self.setpoint = None
@@ -154,20 +160,22 @@ class ResourceProfile(object):
         print(spaces*depth + "LOCATION: {loc}".format(loc = self.location))
 
 class SourceProfile(ResourceProfile):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,**kwargs):
-        super(SourceProfile,self).__init__(owner,location,name,capCost)
-        self.maxDischargePower = maxDischargePower
+    def __init__(self,**res):
+        super(SourceProfile,self).__init__(**res)
+        self.maxDischargePower = res["maxDischargePower"]
         
 class StorageProfile(SourceProfile):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,**kwargs):
-        super(StorageProfile,self).__init__(owner,location,name,capCost,maxDischargePower,capacity)
+    def __init__(self,**res):
+        super(StorageProfile,self).__init__(**res)
+        self.maxChargePower = res["maxChargePower"]
+        self.capacity = res["capacity"]
 
 class SolarProfile(SourceProfile):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,**kwargs):
-        super(SolarProfile,self).__init__(owner,location,name,capCost,maxDischargePower,**kwargs)
+    def __init__(self,**res):
+        super(SolarProfile,self).__init__(**res)
         
 class LeadAcidBatteryProfile(StorageProfile):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,**kwargs):
-        super(LeadAcidBatteryProfile,self).__init__(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,**kwargs)
+    def __init__(self,**res):
+        super(LeadAcidBatteryProfile,self).__init__(**res)
         
         

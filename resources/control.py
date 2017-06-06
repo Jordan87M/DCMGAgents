@@ -30,10 +30,19 @@ class Plan(object):
         print("------------------------------------")
         
     def addBid(self,newbid):
+        for bid in self.acceptedBids:
+            if bid.uid == newbid.uid:
+                print("can't add duplicate bid ({id}) to period {per} plan".format(id = newbid.uid, per = self.period))
+                return
+        for bid in self.reserveBids:
+            if bid.uid == newbid.uid:
+                print("can't add duplicate reserve bid ({id}) to period {per} plan".format(id = newbid.uid, per = self.period))
+                return
+        
         if newbid.service == "reserve":
             self.reserveBids.append(newbid)
             self.totalreserve += newbid.amount
-        elif newbid.service == "supply":
+        elif newbid.service == "power":
             self.acceptedBids.append(newbid)            
             self.totalsupply += newbid.amount
         

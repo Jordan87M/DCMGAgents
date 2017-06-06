@@ -38,19 +38,19 @@ class Group(object):
     
     def printInfo(self,depth = 0):
         spaces = "    "
-        print(spaces*depth + ">>>>GROUP {me} CONTAINS THE FOLLOWING...".format(me = self.name))
-        print(spaces*depth + ">>>>>>>CUSTOMERS ({n}): ------------".format(n = len(self.customers)))
+        print(spaces*depth + "GROUP {me} CONTAINS THE FOLLOWING...".format(me = self.name))
+        print(spaces*depth + ">>CUSTOMERS ({n}): ------------".format(n = len(self.customers)))
         for cust in self.customers:
             cust.printInfo(depth + 1)
-        print(spaces*depth + ">>>>>>>CUSTOMERS =END=")
-        print(spaces*depth + ">>>>>>>RESOURCES ({n}): ------------".format(n = len(self.resources)))
+        print(spaces*depth + "<<CUSTOMERS =END=")
+        print(spaces*depth + ">>RESOURCES ({n}): ------------".format(n = len(self.resources)))
         for res in self.resources:
             res.printInfo(depth + 1)
-        print(spaces*depth + ">>>>>>>RESOURCES =END=")
-        print(spaces*depth + ">>>>>>>NODES ({n}): ----------------".format(n = len(self.nodes)))
+        print(spaces*depth + "<<RESOURCES =END=")
+        print(spaces*depth + ">>NODES ({n}): ----------------".format(n = len(self.nodes)))
         for node in self.nodes:
             node.printInfo(depth + 1)
-        print(spaces*depth + ">>>>>>>NODES =END=")
+        print(spaces*depth + "<<NODES =END=")
             
     
 class Zone(object):
@@ -133,7 +133,7 @@ class Zone(object):
                     
     def printInfo(self,depth):
         spaces = '    '
-        print(spaces*depth + "ZONE {me} PROBLEMS:".format(me = self.name))
+        print(spaces*depth + "ZONE {me}:".format(me = self.name))
         for key in self.faults:
             print(spaces*depth + "FAULT - {flt}".format(flt = key))
         print(spaces*depth + "ZONE {me} CONTAINS THE FOLLOWING...".format(me = self.name))

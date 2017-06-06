@@ -603,6 +603,9 @@ class HomeAgent(Agent):
             print(">>>START: {start}  STOP: {end}".format(start = self.CurrentPeriod.startTime, end =  self.CurrentPeriod.endTime))
         print("HERE IS MY CURRENT PLAN:")
         self.CurrentPeriod.actionPlan.printInfo(1)
+        print("DECISION VARIABLES:")
+        print("    UTILITY: {util}".format(util = self.marginalutility))
+        
         print("LIST ALL OWNED RESOURCES ({n})".format(n = len(self.Resources)))
         for res in self.Resources:
             res.printInfo(1)
