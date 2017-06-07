@@ -56,8 +56,8 @@ class HomeAgent(Agent):
         self.loadNumber = self.load[-1]
         
         self.relayTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
-
-        
+        self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+        self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)

@@ -33,9 +33,10 @@ class CustomerProfile(object):
         self.DRenrollee = False
         
         #tag names
-        self.relayTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
+        self.relayTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
+        self.powerTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
 
     def addResource(self,res):
         res.owner = self
@@ -65,8 +66,9 @@ class CustomerProfile(object):
         return tagval
     
     def measurePower(self):
-        tagval = self.measureVoltage()*self.measureCurrent()
-        self.tagCache["BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)] = (tagval, datetime.now())
+        tagvals = tagClient.readTags([self.currentTag, self.voltageTag])
+        power = tagvals[self.currentTag]*tagvals[self.voltageTag]
+        self.tagCache[self.powerTag] = (power, datetime.now())
         return tagval
     
     '''calls measureCurrent only if cached value isn't fresh'''    
@@ -96,8 +98,7 @@ class CustomerProfile(object):
     
     '''calls measurePower only if cached value isn't fresh'''
     def getPower(self,threshold = 5.1):
-        tag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Power".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
-        val, time = self.tagCache.get(tag,(None, None))
+        val, time = self.tagCache.get(self.powerTag,(None, None))
         if val is not None and time is not None:
             diff = datetime.now() - time
             et = diff.total_seconds()
@@ -120,6 +121,7 @@ class ResidentialCustomerProfile(CustomerProfile):
         super(ResidentialCustomerProfile,self).__init__(name,location,resources,priorityscore,**kwargs)
         self.maxDraw = 3
         self.rateAdjustment = 1
+        
         
 class CommercialCustomerProfile(CustomerProfile):
     def __init__(self,name,location,resources,priorityscore,**kwargs):

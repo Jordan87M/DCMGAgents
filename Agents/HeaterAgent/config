@@ -1,0 +1,13 @@
+{
+	"agentid": "heater1",
+	"name": "Heaterberg",
+	"owner": "Crunderson",
+	"objectMass": "10",
+	"objectSHC": "4.184",
+	"ambientTemp": "25",
+	"thermalResistance": ".4",
+	"simulationStep": "5",
+	"heaterPowerMax": "100",
+	"objectTemp": "28",
+	"controlDeadband": "1"
+}

@@ -210,7 +210,7 @@ class UtilityAgent(Agent):
                 #if the message is a response to new customer solicitation
                 if messageType == "new_customer_response":
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("UTILITY {me} RECEIVED A RESPONSE TO CUSTOMER ENROLLMENT SOLICITATION".format(me = self.name))
+                        print("UTILITY {me} RECEIVED A RESPONSE TO CUSTOMER ENROLLMENT SOLICITATION FROM {them}".format(me = self.name, them = messageSender))
                     try:
                         name, location, resources, customerType = mesdict.get("info")                        
                     except Exception as e:
@@ -310,7 +310,7 @@ class UtilityAgent(Agent):
                 power = cust.measurePower()
                 energy = power*settings.ACCOUNTING_INTERVAL
                 #credit transfer for period     
-                balanceAdjustment = energy*group.rate*cust.rateAdjustment
+                balanceAdjustment = -energy*group.rate*cust.rateAdjustment
                 
                
                 cust.customerAccount.adjustBalance(balanceAdjustment)
