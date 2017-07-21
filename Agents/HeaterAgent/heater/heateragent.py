@@ -49,6 +49,14 @@ class HeaterAgent(Agent):
         self.topicName = self.owner + "homenetwork"
         
         
+        self.msgElementOn = {"message_target": owner,
+                        "message_sender": self.name,
+                        "message_subject": "element_on"}
+        
+        self.msgElementOff = {"message_target": owner,
+                              "Message_sender": self.name,
+                              "message_subject": "element_off"}
+        
     @Core.receiver("onstart")
     def setup(self,sender,**kwargs):
         self._agent_id = self.config["agentid"]
@@ -76,6 +84,14 @@ class HeaterAgent(Agent):
             self.heaterPower = self.elementR*retval[self.currentTag]**2
                 
         self.objectTemp = (self.heaterPower - (self.objectTemp - self.ambientTemp)/self.thermalResistance)/(self.objectMass*self.objectSHC)
+        
+    def turnElementOff(self):
+        self.elementON = False
+        self.vip.pubsub.publish(peer = "pubsub", topic = self.topicName, headers = {}, message = self.msgElementOff)
+    
+    def turnElementOn(self):
+        self.elementON = True
+        self.vip.pubsub.publish(peer = "pubsub", topic = self.topicName, headers = {}, message = self.msgElementOn)    
             
     def homefeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -93,11 +109,13 @@ class HeaterAgent(Agent):
         
     def printInfo(self,depth):
         tab = "    "
-        print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+        print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print(tab*depth + "DEVICE SUMMARY FOR HEATER: {heat}".format(heat = self.name))
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
         print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.tempSetpoint, temp = objectTemp ))
-        print(tab*depth)
+        print(tab*depth + "HEATER POWER: {pow}".format(pow = self.heaterPower))
+        print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+        
         
 def main(argv = sys.argv):
     try:

@@ -1,18 +1,24 @@
 from DCMGClasses.resources.math import interpolation
 #from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
+from DCMGClasses.resources.misc import control
 from volttron.platform.vip.agent import Core
+
 
 from datetime import datetime, timedelta
 
 class Resource(object):
-    
     def __init__(self,owner,location,name,capCost,**kwargs):
         self.owner = owner
         self.location = location
         self.capCost = capCost
         self.name = name
         self.tagCache = {}
+        
+        self.isintermittent = False
+        self.issource = False
+        self.issink = False
+        
         
     def setOwner(self,newOwner):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
@@ -36,7 +42,19 @@ class Source(Resource):
         
         #should only be nonzero if the resource is enrolled in frequency regulation
         self.FREG_power = 0
-              
+    
+        self.isintermittent = False
+        self.issource = True
+        self.issink = False
+    
+    def statebehaviorcheck(self,state,input):
+        pass
+    
+    def getPowerFromPU(self,pu):
+        return pu*self.maxDischargePower
+    
+    def getPUFromPower(self,power):
+        return power/self.maxDischargePower
         
     def getInputUnregVoltage(self):
         voltage = self.DischargeChannel.getUnregV()
@@ -75,6 +93,7 @@ class Source(Resource):
         
     def disconnectSourceSoft(self):
         self.connected = self.DischargeChannel.disconnectSoft()
+        
     
     def printInfo(self, depth = 0, verbosity = 0):
         spaces = '    '
@@ -98,21 +117,73 @@ class Storage(Source):
         
         self.ChargeChannel = Channel(chargeChannel)
         
+        self.isintermittent = False
+        self.issource = True
+        self.issink = True
+        
+    def statebehaviorcheck(self,state,input):
+        if state < 0.05:
+            if input < 0:
+                print("{name} inconsistency: discharging while empty".format(name = self.name))
+                return False
+        
+    def getPowerFromPU(self,pu):
+        if pu < 0:
+            return pu*self.maxChargePower
+        else:
+            return pu*self.maxDischargePower
+        
+    def getPUFromPower(self,power):
+        if power < 0:
+            return power/self.maxChargePower
+        else:
+            return power/self.maxDischargePower
+    
                 
 class LeadAcidBattery(Storage):
     SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
     def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
         super(LeadAcidBattery,self).__init__(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs)
         self.SOC = self.getSOCfromOCV()
+        self.preferredSOC = .6
         
         self.cyclelife = 1000
         self.amortizationPeriod = 10
         
         self.FREG_power = .2*maxChargePower
         
+        self.gridpoints = [0,20,40,60,80,100]
+        self.actionpoints = [-1, -.5, -.25, -.05, 0, .05, .25, .5, 1]
+        
+        self.isintermittent = False
+        self.issource = True
+        self.issink = False
+        
+        
+    def simulationStep(self,state,action,duration):
+        power = action["power"]
+        cost = power*duration
+        
+        soc = state["soc"]
+        
+        if power > 0:   #if discharging
+            soc = soc + power*duration*.8
+        else:           #if charging
+            soc = soc - power*duration/.8
+        
+        return (soc,cost)
+        
+    def costFn(self,price,soc = self.SOC):
+        #the first term penalizes being too empty to discharge or too full to charge
+        target = price*self.capacity*(self.SOC - self.preferredSOC)^2
+        #the second term accounts for the value of the stored energy
+        energy = self.SOC*self.capacity*price
+        
+        return target + energy
+        
     def getSOC(self):
         #get SOC from PLC
-        pass
+        print("getSOC() method of LeadAcidBattery is unimplemented!")
     
     def getSOCfromOCV(self):
         #get battery voltage from PLC
@@ -132,9 +203,23 @@ class SolarPanel(Source):
         
         self.amortizationPeriod = 10
         
-    def powerAvailable(self):
-        pass
+        self.actionpoints = []
         
+        self.isintermittent = True
+        self.issource = True
+        self.issink = False
+        
+        self.environmentalVariable = "solar_irradiance"
+        
+    #calculates available power from irradiance in W/m^2
+    def powerAvailable(self,irradiance):
+        power = self.maxDischargePower*irradiance/1120
+        return
+    
+    #the marginal cost of running a solar panel is 0    
+    def costFn(self):
+        return 0
+    
     
 class Channel():
     def __init__(self,channelNumber):

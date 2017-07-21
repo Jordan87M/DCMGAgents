@@ -165,7 +165,7 @@ class UtilityAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
-                
+        
         
         self.printInfo(2)
         #self.discoverCustomers()

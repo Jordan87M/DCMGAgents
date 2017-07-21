@@ -1,10 +1,96 @@
-from DCMGClasses.resources import financial, groups
+from DCMGClasses.resources import financial, groups, optimization
 from DCMGClasses.resources import misc
+from datetime import datetime, timedelta
 
+#this class represents the set of planning periods within the time horizon of the home agent.
+#agents won't consider what will happen after the last planning period in the current window
+#when planning their course of action
+#params
+#-length: number of planning periods in window
+#-startingPeriod: period number of the first period in the new window
+#-startTime: datetime object giving start time of first period
+#-increment: default number of seconds between planning periods
+class Window(object):
+    def __init__(self,length,startingPeriod,startTime,increment):
+        self.windowlength = length
+        self.periods = []
+        self.nextstarttime = startTime
+        self.increment = increment
+        
+        self.nextperiodnumber = startingPeriod
+        for i in range(self.windowlength):
+            self.appendPeriod()
+    
+    #remove the expired period and add a new one to the end of the list
+    def shiftWindow(self):
+        self.periods.pop(0)
+        self.appendPeriod()
+        
+    #create a new Period instance and append it to the list of periods in the window
+    def appendPeriod(self):
+        endtime = self.nextstarttime + timedelta(seconds = increment)
+        self.periods.append(Period(self.nextperiodnumber,self.nextstarttime,endtime))
+        self.nextperiodnumber += 1
+        self.nextstarttime = endtime
+        
+    
+    def rescheduleWithNewInterval(self,periodnumber,newstarttime,newinterval):
+        self.increment = newinterval
+        self.rescheduleSubsequent(periodnumber,newstarttime)
+            
+    def rescheduleSubsequent(self,periodnumber,newstarttime):
+        for period in periods:
+            if period.periodnumber >= periodnumber:
+                period.startTime = newstarttime
+                endtime = newstarttime + timdelta(seconds = self.increment)
+                period.endTime = endtime
+                newstarttime = endtime
+                self.nextstarttime = newstarttime
+                
+    def getPeriodByNumber(self,number):
+        for period in periods:
+            if period.periodNumber == number:
+                return period
+                
+        
+
+class Period(object):
+    def __init__(self,periodNumber,startTime,endTime):
+        self.periodNumber = periodNumber
+        self.startTime = startTime
+        self.endTime = endTime
+        
+        self.pendingdrevents = []
+        self.accepteddrevents = []
+        self.forecast = []
+        
+        #initialize the plan for this period
+        self.plan = Plan(periodNumber)
+        
+    def newDRevent(self,event):
+        self.pendingdrevents.append(event)
+        
+    def acceptDRevent(self,event):
+        self.accepteddrevents.append(event)
+        self.pendingdrevents.remove(event)
+    
+    def addForecast(self,forecast):
+        self.forecast.append(forecast)
+        
+    def printInfo(self, depth = 0):
+        print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+        print("SUMMARY OF PERIOD {num}".format(num = self.periodNumber))
+        print("START: {start}".format(start = self.startTime.isoformat()))
+        print("END: {end}".format(end = self.endTime))
+        if self.action is not None:
+            self.action.printInfo(depth + 1)
+        else:
+            print("no plan yet")
+        print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+    
 class Plan(object):
-    def __init__(self,period,planner):
-        self.planner = planner
-        self.period = period
+    def __init__(self,periodNumber):
+        self.periodNumber = periodNumber
         
         self.acceptedBids = []
         self.reserveBids = []
@@ -14,21 +100,14 @@ class Plan(object):
         self.totalsupply = 0
         self.totalreserve = 0
         self.totaldemand = 0
-    
-    def printInfo(self, depth = 0, verbosity = 1):
-        print("------------------------------------")
-        print("PLAN for {per}".format(per = self.period))
-        print("INCLUDES THE FOLLOWING BIDS ({n} bids for {ts} W):".format(n = len(self.acceptedBids), ts = self.totalsupply))
-        for bid in self.acceptedBids:
-            bid.printInfo(depth + 1)
-        print("INCLUDES THE FOLLOWING RESERVE BIDS ({n} bids for {tr} W):".format(n = len(self.reserveBids), tr = self.totalreserve))
-        for bid in self.reserveBids:
-            bid.printInfo(depth + 1)
-        print("ANTICIPATED CONSUMPTION ({n} bids for {td} W):".format(n = len(self.plannedConsumption), td = self.totaldemand))
-        for bid in self.plannedConsumption:
-            bid.printInfo(depth + 1)
-        print("------------------------------------")
         
+        self.stategrid = None
+        self.admissiblecontrols = None
+        self.optimalcontrol = None
+        
+    def addGrid(self,grid):
+        self.stategrid = grid
+    
     def addBid(self,newbid):
         for bid in self.acceptedBids:
             if bid.uid == newbid.uid:
@@ -62,23 +141,23 @@ class Plan(object):
     def removeConsumption(self,demandbid):
         self.plannedConsumption.remove(demandbid)
         self.totaldemand -= demandbid.amount
-    
-class Period(object):
-    def __init__(self,periodNumber,startTime,endTime,planner):
-        self.periodNumber = periodNumber
-        self.startTime = startTime
-        self.endTime = endTime
         
-        #initialize the plan for this period
-        self.actionPlan = Plan(self.periodNumber,planner)
-        
-    def printInfo(self, depth = 0):
-        print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
-        print("SUMMARY OF PERIOD {num}".format(num = self.periodNumber))
-        print("START: {start}".format(start = self.startTime.isoformat()))
-        print("END: {end}".format(end = self.endTime))
-        if self.actionPlan is not None:
-            self.actionPlan.printInfo(depth + 1)
-        else:
-            print("no plan yet")
-        print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+    def printInfo(self, depth = 0, verbosity = 1):
+        print("------------------------------------")
+        print("PLAN for {per}".format(per = self.period))
+        print("INCLUDES THE FOLLOWING BIDS ({n} bids for {ts} W):".format(n = len(self.acceptedBids), ts = self.totalsupply))
+        for bid in self.acceptedBids:
+            bid.printInfo(depth + 1)
+        print("INCLUDES THE FOLLOWING RESERVE BIDS ({n} bids for {tr} W):".format(n = len(self.reserveBids), tr = self.totalreserve))
+        for bid in self.reserveBids:
+            bid.printInfo(depth + 1)
+        print("ANTICIPATED CONSUMPTION ({n} bids for {td} W):".format(n = len(self.plannedConsumption), td = self.totaldemand))
+        for bid in self.plannedConsumption:
+            bid.printInfo(depth + 1)
+        print("------------------------------------")
+            
+class Forecast(object):
+    def __init__(self,data,period):
+        self.data = data
+        self.creationperiod = period
+            

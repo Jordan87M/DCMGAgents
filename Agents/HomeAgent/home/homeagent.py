@@ -5,13 +5,13 @@ import sys
 import json
 import random
 
-from volttron.platform.vip.agent import Agent, Core, PubSub, compat
+from volttron.platform.vip.agent import Agent, Core, PubSub, compat, RPC
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
-from DCMGClasses.resources.math import interpolation
+from DCMGClasses.resources.math import interpolation, combin
 from DCMGClasses.resources import resource, customer, control, financial
 
 
@@ -31,6 +31,7 @@ class HomeAgent(Agent):
         self.name = self.config["name"]
         self.location = self.config["location"]
         self.resources = self.config["resources"]
+        self.devices = self.config["devices"]
         self.demandCurve = self.config["demandCurve"]
         self.refload = float(self.config["refload"])
         self.perceivedInsol = 10
@@ -39,7 +40,7 @@ class HomeAgent(Agent):
         self.DRpart = bool(self.config["DRpart"])
         
         self.Resources = []
-        
+        self.Devices = []
         
         
         loclist = self.location.split('.')
@@ -62,6 +63,12 @@ class HomeAgent(Agent):
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)
         
+        for dev in self.devices:
+            if dev["type"] == "heater":
+                self.Devices(devices.HeatingElement(**dev))
+            else:
+                pass
+        
                     
         self.DR_participant = False
         self.FREG_participant = False
@@ -76,6 +83,8 @@ class HomeAgent(Agent):
         start = datetime.now()
         #this value doesn't matter
         end = start + timedelta(seconds = 30)
+        
+        self.PlanningWindow = Window(6)
         self.CurrentPeriod = control.Period(0,start,end,self.name)
         self.NextPeriod = control.Period(0,start,end,self.name)
         
@@ -398,17 +407,44 @@ class HomeAgent(Agent):
                 self.currentSpot = mesdict.get("rate")
                 self.priceChange(self.currentSpot)
                 
+    
+    def homefeed(self,peer,sender,bus,topic,headers,message):
+        mesdict = json.loads(message)
+        messageTarget = mesdict.get('message_target',None)
+        if listparse.isRecipient(messageTarget,self.name):
+            messageSubject = mesdict.get('message_subject',None)
+            messageSender = mesdict.get('message_sender',None)
+            
+                
     def weatherfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
         messageSubject = mesdict.get('message_subject',None)
         messageTarget = mesdict.get('message_target',None)
         messageSender = mesdict.get('message_sender',None)
-        messageType = mesdict.get("message_type",None)
+        messageTypes = mesdict.get("message_type",None)
         
         if listparse.isRecipient(messageTarget,self.name):    
+            foredict = {}
             if messageSubject == "nowcast":
-                if messageType == "solar_irradiance":
-                    self.perceivedInsol = mesdict.get("info",None)
+                for msg in messageTypes:
+                    if msg[0] == "solar_irradiance":
+                        foredict[msg[0]] = msg[1]
+                    elif msg[0] == "wind_speed":
+                        foredict[msg[0]] = msg[1]
+                    elif msg[0] == "temperature":
+                        foredict[msg[0]] = msg[1]
+                self.CurrentPeriod.add(Forecast(foredict,self.CurrentPeriod))
+            elif messageSubject == "forecast":
+                periodnumber = mesdict.get("forecast_period")
+                for msg in messageTypes:
+                    if msg[0] == "solar_irradiance":
+                        foredict[msg[0]] = msg[1]
+                    elif msg[0] == "wind_speed":
+                        foredict[msg[0]] = msg[1]
+                    elif msg[0] == "temperature":
+                        foredict[msg[0]] = msg[1]
+                period = self.PlanningWindow.getPeriodByNumber(periodnumber)
+                period.addForecast(Forecast(foredict,period))
                 
     def DRfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -460,7 +496,7 @@ class HomeAgent(Agent):
                         self.vip.pubsub.publish("pubsub","demandresponse",{},mes)
                         
                         if settings.DEBUGGING_LEVEL >= 1:
-                            print("\nHOME {me} opted in to DR program".format(me = self.name), )
+                            print("\nHOME {me} opted in to DR program".format(me = self.name) )
                     
                 elif type == "enrollment_confirm":
                     self.DR_participant = True    
@@ -477,6 +513,188 @@ class HomeAgent(Agent):
         #update demand curve    
         self.demandCurve = [[1,0],[1,thresh],[0,thresh],[0,3]]
         self.marginalutility = thresh
+        
+        
+    def planningRemakeWindow(self):
+        pass
+    
+    def planningPeriod(self,period):
+        pass
+    
+    def makeInputs(self,state,period):
+        devactions = combin.makeop(self.Devices)
+        
+        #generate input components
+        #grid connected inputs
+        for devact in devactions:
+            inputs = InputSignal(,True,period.accepteddrevents)
+        
+        
+        
+        #non grid connected inputs
+        
+        
+        
+        for input in inputs:
+            self.admissibleInput(input,state,period)
+        
+        
+    def admissibleInput(self,input,state,period):
+        #sum power from all components
+        totalsource = 0
+        totalsink = 0
+        maxavail = 0
+        
+        for comp in input.components:
+            if comp.device.issource:
+                #we may be dealing with a source or storage element
+                #the sign of the setpoint must indicate whether it is acting as a source or sink
+                
+                #is the disposition of the device consistent with its state?
+                if comp.dev.statebehaviorcheck(comp.state):
+                    pass
+                else:
+                    #input not consistent with state
+                    print("inadmissible state: input doesn't make sense for this state")
+                    return False
+                #keep track of contribution from source
+                totalsource += comp.device.getPowerFromPU(comp.device.state)
+            else:
+                if comp.device.issink:
+                    #we're dealing with a device that is only a sink
+                    #whatever the sign of its setpoint, it is consuming power
+                    totalsink += comp.device.getPowerFromPU(comp.device.state)
+            
+            if comp.device.issource:
+                if comp.device.isintermittent:
+                    #get maximum available power for intermittent sources
+                    maxavail += self.checkForecastAvailablePower(comp.device,period)
+                    if comp.state > maxavail:
+                        #power contribution exceeds expected capability
+                        print("inadmissible state: {name} device contribution exceeds expected capability")
+                        return False
+                else:
+                    maxavail += comp.device.maxDischargePower
+            
+                
+        totalnet = totalsource - totalsink
+        
+        minpower = 0
+        maxpower = 0
+        
+        if not input.gridconnected:
+            if totalnet != 0:
+                #not connected to grid, all load must be locally served
+                print("Inadmissible input: source and load must balance when not grid connected")
+                
+        if input.drpart:
+            dr = input.drpart
+            if isinstance(dr,CurtailmentEvent):
+                if input.gridconnected:
+                    minpower = 0
+                    maxpower = self.getDRPower(dr)
+                else:
+                    minpower = 0
+                    maxpower = self.getLocallyAvailablePower()
+            elif isinstance(dr,LoadUpEvent):
+                if input.gridconnected:
+                    minpower = self.getDRPower(dr)
+                    maxpower = 999
+                else:
+                    #can't load up if we aren't loading at all
+                    print("inadmissible input: load up and disconnect")  # just for debugging
+                    return False
+            else:
+                #if not participating in a DR event
+                if input.gridconnected:
+                    minpower = -999
+                    maxpower = 999
+                else:
+                    minpower = 0
+                    
+        
+        return True
+    
+    def checkForecastAvailablePower(self,device,period):
+        irradiance = self.checkForecast(device,period)
+        power = device.powerAvailable(irradiance)
+        return power
+    
+    def checkForecast(self,device,period):
+        if period.forecast:
+            if device.environmentalVariable in period.forecast.data:
+                return period.forecast.data[device.environmentalVariable]
+            else:
+                print("Agent {me}'s forecast for period {per} doesn't include data for {dat}".format(me = self.name, per = period.periodNumber,dat = device.environmentalVariable))
+                
+        else:
+            print("Agent {me} doesn't have a forecast for period {per} yet".format(me = self.name, per = period.periodNumber))
+            self.requestForecast(period)
+    
+    def getDRpower(self,event):
+        if event.spec == "reducebypercent":
+            pass
+        
+    def getLocallyAvailablePower(self,period):
+        total = 0
+        for res in self.Resources:
+            total += self.forecastAvailPower(period,res)
+            
+        return total
+    
+    def requestForecast(self,period):
+        mesdict = {}
+        mesdict["message_sender"] = self.name
+        mesdict["message_target"] = "Goddard"
+        mesdict["message_subject"] = "forecast"
+        mesdict["message_type"] = ["solar_irradiance", "wind_speed", "temperature"]
+        mesdict["forecast_time"] = period.startTime.strptime(startTime,"%Y-%m-%dT%H:%M:%S.%f")
+        mesdict["forecast_period"] = period.periodNumber
+        
+        mes = json.dumps(mesdict)
+        self.vip.pubsub.publish("pubsub","weatherservice",{},mes)
+
+        
+    def makeDPGrid(self,devs):
+        statecomps = []
+        dimensions = []
+        ndim = len(devs)
+        nmem = 0
+        indices = [0]*ndim
+        names = ['']*ndim
+        
+        for i,dev in enumerate(devs):
+            dimensions[i] = len(dev.gridpoints)
+            names[i] = dev.name
+            indices[i] = 0
+            
+        newgrid = StateGrid(dimensions)
+        
+        for dim in dimensions:
+            nmem *= dim
+        print("Grid has {n} points".format(n = nmem))
+        
+        while indices[0] < dimensions[0]:
+            statedict = {}
+            for i,dev in enumerate(devs):
+                statedict[dev.name] = dev.gridpoints[indices[i]]
+                
+            newGrid.setPoint(indices,StateGridPoint(statedict,self.HomeUser.costFn(statedict)))
+             
+            
+            indices[-1] += 1
+            indexindex = 2
+            while indices[indexindex] >= dimensions[indexindex]:
+                indices[indexindex] = 0
+                indexindex += 1
+                indices[indexindex] += 1 
+                
+                if indexindex > dimensions[0]:
+                    break
+    
+    def simStep(self,state,input,tstep):
+        for dev in self.Devices:
+            dev.simulationStep(state,input,tstep)
         
     def generateDemandBids(self):
         ''''a load agent that can vary its consumption might want to split up its
@@ -543,7 +761,7 @@ class HomeAgent(Agent):
                         res.DischargeChannel.connectWithSet(bid.amount,0 )
                         if settings.DEBUGGING_LEVEL >= 2:
                                 print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
-                    elif bid.servie == "reserve":
+                    elif bid.service == "reserve":
                         #res.connectSourceSoft("Preg",.1)
                         res.DischargeChannel.connectWithSet(bid.amount, -.2)
                         if settings.DEBUGGING_LEVEL >= 2:
