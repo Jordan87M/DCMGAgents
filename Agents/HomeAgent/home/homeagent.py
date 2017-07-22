@@ -31,7 +31,7 @@ class HomeAgent(Agent):
         self.name = self.config["name"]
         self.location = self.config["location"]
         self.resources = self.config["resources"]
-        self.devices = self.config["devices"]
+        self.appliances = self.config["devices"]
         self.demandCurve = self.config["demandCurve"]
         self.refload = float(self.config["refload"])
         self.perceivedInsol = 10
@@ -40,6 +40,7 @@ class HomeAgent(Agent):
         self.DRpart = bool(self.config["DRpart"])
         
         self.Resources = []
+        self.Appliances = []
         self.Devices = []
         
         
@@ -63,12 +64,16 @@ class HomeAgent(Agent):
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)
         
-        for dev in self.devices:
-            if dev["type"] == "heater":
-                self.Devices(devices.HeatingElement(**dev))
+        for app in self.appliances:
+            if app["type"] == "heater":
+                self.Appliances(appliances.HeatingElement(**app))
             else:
                 pass
-        
+            
+        #Both smart appliances and distributed resources are considered Devices
+        #it is useful to consider the two of these together sometimes
+        self.Devices.extend(self.Resources)
+        self.Devices.extend(self.Appliances)
                     
         self.DR_participant = False
         self.FREG_participant = False
@@ -522,12 +527,16 @@ class HomeAgent(Agent):
         pass
     
     def makeInputs(self,state,period):
-        devactions = combin.makeop(self.Devices)
+        inputdict = {}
+        for dev in self.Devices:
+            inputdict[dev.name] = dev.actionpoints
+            
+        devactions = combin.makeop(inputlists)
         
         #generate input components
         #grid connected inputs
         for devact in devactions:
-            inputs = InputSignal(,True,period.accepteddrevents)
+            inputs = InputSignal(devact,True,period.accepteddrevents)
         
         
         
@@ -693,8 +702,8 @@ class HomeAgent(Agent):
                     break
     
     def simStep(self,state,input,tstep):
-        for dev in self.Devices:
-            dev.simulationStep(state,input,tstep)
+        for app in self.Appliances:
+            app.simulationStep(state,input,tstep)
         
     def generateDemandBids(self):
         ''''a load agent that can vary its consumption might want to split up its

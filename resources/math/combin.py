@@ -1,3 +1,4 @@
+import copy
 #makes a list of all lists of indices for an outer product in a space with given dimensions
 def makeindexop(dimensions):
     indlist = []
@@ -62,6 +63,39 @@ def makeop(lists):
             indices[-position] += 1
     return outlist
 
+def makeopdict(listdict):
+    outlist = []
+    length = len(listdict)
+    indices = [0]*length
+    position = 1
+    dimensions = []
+    keys = []
+
+    for key in listdict:
+        dimensions.append(len(listdict[key]))
+        keys.append(key)
+
+    print(keys)
+    print(dimensions)
+    while position <= length:
+        outmember = {}
+        for i in range(length):
+            outmember[keys[i]] = listdict[keys[i]][indices[i]]
+        outlist.append(outmember.copy())
+
+        indices[-1] += 1
+        position = 1
+        while indices[-position] >= dimensions[-position]:
+            indices[-position] = 0
+            position += 1
+            if position > length:
+                return outlist
+            indices[-position] += 1
+    return outlist
+
+
+    
+    
         
         
     
