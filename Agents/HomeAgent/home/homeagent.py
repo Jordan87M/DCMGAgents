@@ -521,31 +521,73 @@ class HomeAgent(Agent):
         
         
     def planningRemakeWindow(self):
-        pass
+        for period in self.PlanningWindow:
+            planningRemakePeriod(period)
     
-    def planningPeriod(self,period):
-        pass
-    
+    def planningRemakePeriod(self,period):
+        #remake new inputs
+        if not period.plan.stategrid:
+            print("Homeowner agent {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
+            return
+        for state in period.plan.stategrid:
+            #make inputs for the state currently being examined
+            self.makeInputs(state,period)
+            
+            for input in period.plan.admissiblecontrols:
+                self.applySimulatedInput(state,input,settings.ST_PLAN_INTERVAL)
+                
+                
+            
+            #find the best input for this state
+            
+    def applySimulatedInput(self,state,input,duration):
+        total = 0
+        for device in self.Devices:
+            devstate = state.components[device.name]
+            devinput = input.components[device.name]
+            newstate = device.applySimulatedInput(devstate,devinput,duration)
+
     def makeInputs(self,state,period):
         inputdict = {}
+        inputs = []
+        
         for dev in self.Devices:
             inputdict[dev.name] = dev.actionpoints
             
-        devactions = combin.makeop(inputlists)
+        devactions = combin.makeopdict(inputdict)
         
         #generate input components
         #grid connected inputs
         for devact in devactions:
-            inputs = InputSignal(devact,True,period.accepteddrevents)
+            inputs.append(InputSignal(devact,True,period.accepteddrevents))
         
-        
+        #no DR participation
+        for devact in devactions:
+            inputs.append(InputSignal(devact,True,None))
         
         #non grid connected inputs
-        
+        #do this later... needs special consideration
         
         
         for input in inputs:
-            self.admissibleInput(input,state,period)
+            #weed out inadmissible inputs
+            if not self.admissibleInput(input,state,period):
+                inputs.remove(input)
+            else:
+                #input is admissible keep going
+                #sum cost of all actions
+                total = 0
+                for devkey in input.components:
+                    device = listparse.lookUpByName(devkey,self.Devices)
+                    total += device.inputCostFn(input.components[devkey],period.expectedenergycost,settings.ST_PLAN_INTERVAL)
+                
+                input.setcost(total)
+                
+        #having generated the list of admissible inputs and computed their costs
+        #we replace any previously existing list of admissible controls for the
+        #period's plan with this one
+        
+        period.plan.setAdmissibleInputs(inputs)
         
         
     def admissibleInput(self,input,state,period):
@@ -554,36 +596,37 @@ class HomeAgent(Agent):
         totalsink = 0
         maxavail = 0
         
-        for comp in input.components:
-            if comp.device.issource:
+        for compkey in input.components:
+            device = listparse.lookUpByName(compkey,self.Devices)
+            if device.issource:
                 #we may be dealing with a source or storage element
                 #the sign of the setpoint must indicate whether it is acting as a source or sink
                 
                 #is the disposition of the device consistent with its state?
-                if comp.dev.statebehaviorcheck(comp.state):
+                if device.statebehaviorcheck(comp.state):
                     pass
                 else:
                     #input not consistent with state
                     print("inadmissible state: input doesn't make sense for this state")
                     return False
                 #keep track of contribution from source
-                totalsource += comp.device.getPowerFromPU(comp.device.state)
+                totalsource += device.getPowerFromPU(input.components[compkey])
             else:
-                if comp.device.issink:
+                if device.issink:
                     #we're dealing with a device that is only a sink
                     #whatever the sign of its setpoint, it is consuming power
-                    totalsink += comp.device.getPowerFromPU(comp.device.state)
+                    totalsink += device.getPowerFromPU(input.components[compkey])
             
-            if comp.device.issource:
-                if comp.device.isintermittent:
+            if device.issource:
+                if device.isintermittent:
                     #get maximum available power for intermittent sources
-                    maxavail += self.checkForecastAvailablePower(comp.device,period)
-                    if comp.state > maxavail:
+                    maxavail += self.checkForecastAvailablePower(device,period)
+                    if input.components[compkey] > maxavail:
                         #power contribution exceeds expected capability
                         print("inadmissible state: {name} device contribution exceeds expected capability")
                         return False
                 else:
-                    maxavail += comp.device.maxDischargePower
+                    maxavail += device.maxDischargePower
             
                 
         totalnet = totalsource - totalsink
@@ -747,7 +790,7 @@ class HomeAgent(Agent):
                 print("RESIDENCE {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
                 
             for bid in self.CurrentPeriod.actionPlan.ownBids:
-                res = listparse.lookUpByName(bid.resourceName)
+                res = listparse.lookUpByName(bid.resourceName,self.Resources)
                 involvedResources.append(res)
                 #if the resource is already connected, change the setpoint
                 if res.connected == True:

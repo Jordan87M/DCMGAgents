@@ -160,18 +160,16 @@ class LeadAcidBattery(Storage):
         self.issink = False
         
         
-    def simulationStep(self,state,action,duration):
-        power = action["power"]
-        cost = power*duration
-        
-        soc = state["soc"]
+    def applySimulatedInput(self,state,input,duration):
+        power = getPowerFromPU(input)
+        soc = input
         
         if power > 0:   #if discharging
             soc = soc + power*duration*.8
         else:           #if charging
             soc = soc - power*duration/.8
         
-        return (soc,cost)
+        return soc
         
     def costFn(self,price,soc = self.SOC):
         #the first term penalizes being too empty to discharge or too full to charge
@@ -180,6 +178,10 @@ class LeadAcidBattery(Storage):
         energy = self.SOC*self.capacity*price
         
         return target + energy
+    
+    def inputCostFn(self,puaction,energycost,duration):
+        power = self.getPowerFromPU(puaction)
+        return power*duration*energycost
         
     def getSOC(self):
         #get SOC from PLC
@@ -220,6 +222,11 @@ class SolarPanel(Source):
     def costFn(self):
         return 0
     
+    def inputCostFn(self,puaction,energycost,duration):
+        return 0
+    
+    def applySimulatedInput(self,state,input,duration):
+        return 0
     
 class Channel():
     def __init__(self,channelNumber):

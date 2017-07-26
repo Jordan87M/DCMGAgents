@@ -48,6 +48,8 @@ class StateGridPoint(object):
         
         self.components = []
         
+        self.optimalinput = None
+        
     def addComponent(self,comp):
         self.components.append(comp)
     
@@ -61,8 +63,14 @@ class InputSignal(object):
         self.gridconnected = gridconnected
         self.drevents = drpart
         self.components = comps
-        self.transcost = -1
+        self.transcost = None
+        self.pathcost = None
     
-        
+    #sets cost of transition associated with input
+    #returns old the old cost
+    def setcost(self,cost):
+        temp = self.transcost
+        self.transcost = cost
+        return temp
 
     

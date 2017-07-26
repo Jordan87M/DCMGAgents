@@ -44,6 +44,9 @@ class HeatingElement(Device):
             
         self.setpoint = new
         
+    def applySimulatedInput(self,state,input,duration):
+        pass
+        
     def simulationStep(self,deltat,pin):
         if self.elementOn:
             if self.temperature > self.setpoint + self.deadband/2:
@@ -56,7 +59,10 @@ class HeatingElement(Device):
                 self.elementOn = True
                 
         self.temperature = (pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc)*self.deltat + self.temperature
-        
+    
+    def inputCostFn(self,puaction,energycost,duration):
+        power = self.getPowerFromPU(puaction)
+        return power*duration*energycost    
         
     def printInfo(self,depth):
         tab = "    "

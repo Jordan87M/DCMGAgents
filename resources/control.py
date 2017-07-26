@@ -29,7 +29,11 @@ class Window(object):
     #create a new Period instance and append it to the list of periods in the window
     def appendPeriod(self):
         endtime = self.nextstarttime + timedelta(seconds = increment)
-        self.periods.append(Period(self.nextperiodnumber,self.nextstarttime,endtime))
+        newperiod = Period(self.nextperiodnumber,self.nextstarttime,endtime)
+        #default assumption is that price won't change from previous period
+        if self.periods:
+            newperiod.setExpectedCost(self.periods[-1].expectedenergycost)
+        self.periods.append(newperiod)
         self.nextperiodnumber += 1
         self.nextstarttime = endtime
         
@@ -64,8 +68,13 @@ class Period(object):
         self.accepteddrevents = []
         self.forecast = []
         
+        self.expectedenergycost = 0
+        
         #initialize the plan for this period
         self.plan = Plan(periodNumber)
+        
+    def setExpectedCost(self,cost):
+        self.expectedenergycost = cost
         
     def newDRevent(self,event):
         self.pendingdrevents.append(event)
@@ -97,6 +106,7 @@ class Plan(object):
         self.ownBids = []
         self.plannedConsumption = []
         
+        
         self.totalsupply = 0
         self.totalreserve = 0
         self.totaldemand = 0
@@ -107,6 +117,11 @@ class Plan(object):
         
     def addGrid(self,grid):
         self.stategrid = grid
+        
+    def setAdmissibleInputs(self,inputs):
+        temp = self.admissiblecontrols
+        self.admissiblecontrols = inputs
+        return temp
     
     def addBid(self,newbid):
         for bid in self.acceptedBids:
