@@ -1,16 +1,21 @@
 from volttron.platform.vip.agent import RPC
 
 class Device(object):
-    def __init__(self, initstate):
+    def __init__(self, initstate, behavior):
         self.state = initstate
         
         self.isintermittent = False
         self.issource = False
         self.issink = True
+        
+        self.associatedbehavior = behavior
     
     def printInfo(self,depth):
         tab = "    "
         print(tab*depth + "DEVICE NAME: {name}".format(name = self.name))
+        
+    def costFn(self,period,statecomponents):
+        self.associatedbehavior.costFn(period)
     
     
 class HeatingElement(Device):
@@ -22,6 +27,7 @@ class HeatingElement(Device):
         self.maxSetpoint = dev["maxsetpoint"]
         self.deadband = dev["deadband"]
         self.deltat = dev["deltat"]
+        self.nominalpower = dev["nominalpower"]
         
         self.tamb = self.vip.rpc.call('weatheragent','getTemperatureRPC').get(timeout = 4)
         self.setpoint = self.tamb 
@@ -33,10 +39,10 @@ class HeatingElement(Device):
         self.temperature = self.tamb
     
     def getPowerFromPU(self,pu):
-        return pu*self.maxSetpoint
+        return pu*self.nominalpower
     
     def getPUFromPower(self,power):
-        return power/self.maxSetpoint
+        return power/self.nominalpower
     
     def updateSetpoint(self,new):
         if new > self.maxSetpoint:
@@ -44,8 +50,12 @@ class HeatingElement(Device):
             
         self.setpoint = new
         
+    #Euler's method, use only for relatively short time periods
     def applySimulatedInput(self,state,input,duration):
-        pass
+        if input != 0:
+            input = 1
+        newstate = (((self.nominalpower*input)-(state - self.tamb)/self.thermR)/(self.mass*self.shc))*duration + state
+        return newstate
         
     def simulationStep(self,deltat,pin):
         if self.elementOn:
@@ -58,9 +68,10 @@ class HeatingElement(Device):
                 #turn element on
                 self.elementOn = True
                 
-        self.temperature = (pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc)*self.deltat + self.temperature
+        self.temperature = ((pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc))*self.deltat + self.temperature
     
-    def inputCostFn(self,puaction,energycost,duration):
+    def inputCostFn(self,puaction,period,state,duration):
+        energycost = period.expectedenergycost
         power = self.getPowerFromPU(puaction)
         return power*duration*energycost    
         

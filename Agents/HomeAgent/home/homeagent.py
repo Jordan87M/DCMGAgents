@@ -521,8 +521,11 @@ class HomeAgent(Agent):
         
         
     def planningRemakeWindow(self):
-        for period in self.PlanningWindow:
-            planningRemakePeriod(period)
+        #remake plans from end of window forward
+        selperiod = self.PlanningWindow[-1]
+        while selperiod:
+            self.planningRemakePeriod(selperiod)
+            selperiod = selperiod.previousperiod
     
     def planningRemakePeriod(self,period):
         #remake new inputs
@@ -533,19 +536,41 @@ class HomeAgent(Agent):
             #make inputs for the state currently being examined
             self.makeInputs(state,period)
             
-            for input in period.plan.admissiblecontrols:
-                self.applySimulatedInput(state,input,settings.ST_PLAN_INTERVAL)
-                
-                
-            
             #find the best input for this state
+            currentbest = period.plan.admissiblecontrols[0]
+            for input in period.plan.admissiblecontrols:
+                self.findInputCost(state,input,settings.ST_PLAN_INTERVAL)
+                if input.pathcost < currentbest.optcost:
+                    currentbest = input
+            #associate state with optimal input
+            state.optimalinput = currentbest
+            
+            
+
+    def findInputCost(self,state,input,period,duration):
+        comps = self.applySimulatedInput(state,input,duration)
+        #endstatecost = self.HomeUser.costFn(period.nextperiod,comps)
+        #not this way^^, have to interpolate the pathcost
+        pathcost = 
+        totaltrans = 0
+        for key in input.components:
+            device = lookUpByName(key, self.Devices)
+            totaltrans += dev.inputCostFn(input.components[key],period.nextperiod,state,duration)
+        input.pathcost = endstatecost + totaltrans
+        return input.pathcost
+    
             
     def applySimulatedInput(self,state,input,duration):
         total = 0
+        newstatecomps = {}
+        
         for device in self.Devices:
             devstate = state.components[device.name]
             devinput = input.components[device.name]
             newstate = device.applySimulatedInput(devstate,devinput,duration)
+            newstatecomps[device.name] = newstate
+        return newstatecomps
+        
 
     def makeInputs(self,state,period):
         inputdict = {}
@@ -579,7 +604,7 @@ class HomeAgent(Agent):
                 total = 0
                 for devkey in input.components:
                     device = listparse.lookUpByName(devkey,self.Devices)
-                    total += device.inputCostFn(input.components[devkey],period.expectedenergycost,settings.ST_PLAN_INTERVAL)
+                    total += device.inputCostFn(input.components[devkey],period,state,settings.ST_PLAN_INTERVAL)
                 
                 input.setcost(total)
                 

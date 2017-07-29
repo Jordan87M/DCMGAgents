@@ -23,7 +23,11 @@ class Window(object):
     
     #remove the expired period and add a new one to the end of the list
     def shiftWindow(self):
+        #get rid of oldest period
         self.periods.pop(0)
+        #remove link to newly removed period
+        self.periods[0].previousperiod = None
+        
         self.appendPeriod()
         
     #create a new Period instance and append it to the list of periods in the window
@@ -33,6 +37,10 @@ class Window(object):
         #default assumption is that price won't change from previous period
         if self.periods:
             newperiod.setExpectedCost(self.periods[-1].expectedenergycost)
+            #link new period to last one currently in list
+            newperiod.previousperiod = self.periods[-1]
+            #link last period to new period
+            self.periods[-1].nextperiod = newperiod
         self.periods.append(newperiod)
         self.nextperiodnumber += 1
         self.nextstarttime = endtime
@@ -72,6 +80,10 @@ class Period(object):
         
         #initialize the plan for this period
         self.plan = Plan(periodNumber)
+        
+        #links to previous and subsequent periods
+        self.previousperiod = None
+        self.nextperiod = None
         
     def setExpectedCost(self,cost):
         self.expectedenergycost = cost

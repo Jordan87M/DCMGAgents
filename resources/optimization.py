@@ -41,22 +41,13 @@ class StateGrid(object):
                 
         
 class StateGridPoint(object):
-    def __init__(self,state,cost = 0):
-        self.state = state
+    def __init__(self,components):
         self.cost = cost
-        self.optcost = -1
         
-        self.components = []
+        self.components = components
         
         self.optimalinput = None
         
-    def addComponent(self,comp):
-        self.components.append(comp)
-    
-class StateComponent(object):
-    def __init__(self,device,value):
-        self.device = device
-        self.state = value
     
 class InputSignal(object):
     def __init__(self,comps,gridconnected,drpart):

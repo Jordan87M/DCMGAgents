@@ -3,6 +3,7 @@ class User(object):
     def __init__(self, name):
         self.name = name
         
+        self.devices = []
         self.energyBehaviors = []
         
     def printInfo(self,depth):
@@ -11,12 +12,8 @@ class User(object):
         for behavior in self.energyBehaviors:
             behavior.printInfo(depth + 1)
             
-    def aggregate(self):
-        aggutility = 0
-        for behavior in self.energyBehaviors:
-            aggutility += behavior.utilityfn
             
-    def costFn(self,state):
+    def costFn(self,period,statecomponents):
         #the costFn() method is implemented at the level of the User class
         #to allow the implementation of cost functions that are not independent
         #of other devices
@@ -24,7 +21,8 @@ class User(object):
         #for now, my cost functions are independent
         totalcost = 0
         for dev in devices:
-            totalcost += dev.costFn(state.dev)
+            devstate = statecomponents[dev.name]
+            totalcost += dev.costFn(period.expectedenergycost,devstate)
             
         return totalcost
             
