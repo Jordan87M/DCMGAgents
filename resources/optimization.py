@@ -30,14 +30,31 @@ class StateGrid(object):
             else:
                 a = a[index]
             
-    def interpolate(self,values):
-        #first find which indices bracket the point
-        indices = [0]*len(values)
-        for value in values:
-            pass
+    def interpolate(self,x):
+        #use inverse distance weighting interpolation
+        
+        #power to which distance should be raised
+        p = 4
+        
+        nsum = 0
+        dsum = 0
+        for point in grid:
+            #if the point falls directly on a grid point, just use that point's value
+            if point.components == x:
+                return point.optimalinput.pathcost
             
-    def interpolateDimension(self,dimension,value):
-        pass
+            d = self.getdistance(x,point.components)
+            w = d**-p
+            dsum += w
+            nsum += w*point.optimalinput.pathcost
+            
+        return nsum/dsum
+            
+    def getdistance(a,b):
+        sumsq = 0
+        for key in a:
+            sumsq += (a[key] - b[key])**2
+        return sumsq ** .5
                 
         
 class StateGridPoint(object):

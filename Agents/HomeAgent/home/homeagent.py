@@ -520,14 +520,20 @@ class HomeAgent(Agent):
         self.marginalutility = thresh
         
         
-    def planningRemakeWindow(self):
+    def planningRemakeWindow(self,debug = False):
+        if debug:
+            print("HOMEOWNER AGENT {me} coming up with new plan".format(me = self.name))
+        
         #remake plans from end of window forward
         selperiod = self.PlanningWindow[-1]
         while selperiod:
             self.planningRemakePeriod(selperiod)
             selperiod = selperiod.previousperiod
     
-    def planningRemakePeriod(self,period):
+    def planningRemakePeriod(self,period,debug = False):
+        if debug:
+            print("HOMEOWNER AGENT {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
+            
         #remake new inputs
         if not period.plan.stategrid:
             print("Homeowner agent {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
@@ -545,13 +551,10 @@ class HomeAgent(Agent):
             #associate state with optimal input
             state.optimalinput = currentbest
             
-            
 
     def findInputCost(self,state,input,period,duration):
         comps = self.applySimulatedInput(state,input,duration)
-        #endstatecost = self.HomeUser.costFn(period.nextperiod,comps)
-        #not this way^^, have to interpolate the pathcost
-        pathcost = 
+        pathcost = period.nextperiod.plan.stategrid.interpolate(comps)
         totaltrans = 0
         for key in input.components:
             device = lookUpByName(key, self.Devices)
