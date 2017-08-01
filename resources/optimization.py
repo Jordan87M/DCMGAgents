@@ -14,7 +14,11 @@ def generateStates(inputs,grid,nextgrid):
                                 
 class StateGrid(object):
     def __init__(self,dimensions):
-        self.grid = initarray(dimensions,-1)
+        #self.grid = initarray(dimensions,-1)
+        self.grid = []
+        
+    def addGridPoint(self,point):
+        self.grid.append(point)
         
     def getPoint(self,indices):
         a = self.grid
@@ -30,9 +34,10 @@ class StateGrid(object):
             else:
                 a = a[index]
             
-    def interpolate(self,x):
+    def interpolate(self,x,debug = False):
         #use inverse distance weighting interpolation
-        
+        if debug:
+            print("****finding value at {x} using inverse distance weighting interpolation".format(x = x))
         #power to which distance should be raised
         p = 4
         
@@ -41,6 +46,8 @@ class StateGrid(object):
         for point in grid:
             #if the point falls directly on a grid point, just use that point's value
             if point.components == x:
+                if debug:
+                    print("****point falls on a grid point: {pnt}".format(pnt = point.components))
                 return point.optimalinput.pathcost
             
             d = self.getdistance(x,point.components)
@@ -48,7 +55,15 @@ class StateGrid(object):
             dsum += w
             nsum += w*point.optimalinput.pathcost
             
-        return nsum/dsum
+            if debug:
+                print("****contribution from {pnt}: \n        DISTANCE: {dist}, \n        WEIGHT: {weight}, \n        VALUE: {val}".format(pnt = point.components, dist = d, weight = w, val = point.optimalinput.pathcost))
+        
+        intval = nsum/dsum
+        
+        if debug:
+            print("****FINISHED INTERPOLATING! interpolated value = {int}".format(int = intval ))
+        
+        return intval
             
     def getdistance(a,b):
         sumsq = 0

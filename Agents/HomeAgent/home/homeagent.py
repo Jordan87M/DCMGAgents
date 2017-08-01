@@ -31,7 +31,7 @@ class HomeAgent(Agent):
         self.name = self.config["name"]
         self.location = self.config["location"]
         self.resources = self.config["resources"]
-        self.appliances = self.config["devices"]
+        self.appliances = self.config["appliances"]
         self.demandCurve = self.config["demandCurve"]
         self.refload = float(self.config["refload"])
         self.perceivedInsol = 10
@@ -352,7 +352,7 @@ class HomeAgent(Agent):
                             bid.rate = rate
                             bid.period = period
                             if bid.period == self.NextPeriod.periodNumber:
-                                self.NextPeriod.actionPlan.addBid(bid)
+                                self.NextPeriod.plan.addBid(bid)
                                 
                             self.outstandingSupplyBids.remove(bid)
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -366,7 +366,7 @@ class HomeAgent(Agent):
                             bid.rate = rate
                             bid.period = period
                             if bid.period == self.NextPeriod.periodNumber:
-                                self.NextPeriod.actionPlan.addConsumption(bid)
+                                self.NextPeriod.plan.addConsumption(bid)
                                 
                             self.outstandingDemandBids.remove(bid)
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -522,21 +522,23 @@ class HomeAgent(Agent):
         
     def planningRemakeWindow(self,debug = False):
         if debug:
-            print("HOMEOWNER AGENT {me} coming up with new plan".format(me = self.name))
+            print("HOMEOWNER {me} coming up with new plan".format(me = self.name))
         
         #remake plans from end of window forward
         selperiod = self.PlanningWindow[-1]
         while selperiod:
-            self.planningRemakePeriod(selperiod)
+            self.planningRemakePeriod(selperiod,True)
             selperiod = selperiod.previousperiod
     
     def planningRemakePeriod(self,period,debug = False):
         if debug:
-            print("HOMEOWNER AGENT {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
+            print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
             
+        #remake grid points
+        self.makeDPGrid(period,True)
         #remake new inputs
         if not period.plan.stategrid:
-            print("Homeowner agent {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
+            print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
             return
         for state in period.plan.stategrid:
             #make inputs for the state currently being examined
@@ -545,25 +547,34 @@ class HomeAgent(Agent):
             #find the best input for this state
             currentbest = period.plan.admissiblecontrols[0]
             for input in period.plan.admissiblecontrols:
-                self.findInputCost(state,input,settings.ST_PLAN_INTERVAL)
+                self.findInputCost(state,input,settings.ST_PLAN_INTERVAL,True)
                 if input.pathcost < currentbest.optcost:
                     currentbest = input
             #associate state with optimal input
             state.optimalinput = currentbest
             
+            if debug:
+                print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state, inp = input))
+            
 
-    def findInputCost(self,state,input,period,duration):
-        comps = self.applySimulatedInput(state,input,duration)
-        pathcost = period.nextperiod.plan.stategrid.interpolate(comps)
+    def findInputCost(self,state,input,period,duration,debug = False):
+        if debug:
+            print(">>HOMEOWNER {me}: finding cost for input {inp}".format(me = self.name, inp = input))
+        comps = self.applySimulatedInput(state,input,duration,True)
+        pathcost = period.nextperiod.plan.stategrid.interpolate(comps,True)
         totaltrans = 0
         for key in input.components:
             device = lookUpByName(key, self.Devices)
             totaltrans += dev.inputCostFn(input.components[key],period.nextperiod,state,duration)
         input.pathcost = endstatecost + totaltrans
+        
+        if debug:
+            print(">>HOMEOWNER {me}: transition cost is {trans}, total path cost is {path}".format(me = self.name, trans = totaltrans, path = input.pathcost))
+        
         return input.pathcost
     
             
-    def applySimulatedInput(self,state,input,duration):
+    def applySimulatedInput(self,state,input,duration,debug = False):
         total = 0
         newstatecomps = {}
         
@@ -572,10 +583,27 @@ class HomeAgent(Agent):
             devinput = input.components[device.name]
             newstate = device.applySimulatedInput(devstate,devinput,duration)
             newstatecomps[device.name] = newstate
+        
+        if debug:
+            print(">>>HOMEOWNER {me}: starting state is {start}, ending state is {end}".format(me = self.name, start = state.components, end = newstatecomps))
+        
         return newstatecomps
         
-
-    def makeInputs(self,state,period):
+    def makeDPGrid(self,period,debug = False):
+        inputdict = {}
+        
+        for dev in self.Devices:
+            inputdict[dev.name] = dev.gridpoints
+            
+        devstates = combin.makeopdict(inputdict)
+        
+        period.plan.stategrid = devstates
+        
+        if debug:
+            print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.Number, num = len(period.plan.stategrid)))
+        
+        
+    def makeInputs(self,state,period,debug = False):
         inputdict = {}
         inputs = []
         
@@ -596,10 +624,13 @@ class HomeAgent(Agent):
         #non grid connected inputs
         #do this later... needs special consideration
         
+        if debug:
+            print("HOMEOWNER {me} made input list for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(inputs)))
+        
         
         for input in inputs:
             #weed out inadmissible inputs
-            if not self.admissibleInput(input,state,period):
+            if not self.admissibleInput(input,state,period,True):
                 inputs.remove(input)
             else:
                 #input is admissible keep going
@@ -618,7 +649,7 @@ class HomeAgent(Agent):
         period.plan.setAdmissibleInputs(inputs)
         
         
-    def admissibleInput(self,input,state,period):
+    def admissibleInput(self,input,state,period,debug = False):
         #sum power from all components
         totalsource = 0
         totalsink = 0
@@ -635,7 +666,8 @@ class HomeAgent(Agent):
                     pass
                 else:
                     #input not consistent with state
-                    print("inadmissible state: input doesn't make sense for this state")
+                    if debug:
+                        print("inadmissible state: input doesn't make sense for this state")
                     return False
                 #keep track of contribution from source
                 totalsource += device.getPowerFromPU(input.components[compkey])
@@ -651,7 +683,8 @@ class HomeAgent(Agent):
                     maxavail += self.checkForecastAvailablePower(device,period)
                     if input.components[compkey] > maxavail:
                         #power contribution exceeds expected capability
-                        print("inadmissible state: {name} device contribution exceeds expected capability")
+                        if debug:
+                            print("inadmissible state: {name} device contribution exceeds expected capability")
                         return False
                 else:
                     maxavail += device.maxDischargePower
@@ -665,7 +698,8 @@ class HomeAgent(Agent):
         if not input.gridconnected:
             if totalnet != 0:
                 #not connected to grid, all load must be locally served
-                print("Inadmissible input: source and load must balance when not grid connected")
+                if debug:
+                    print("Inadmissible input: source and load must balance when not grid connected")
                 
         if input.drpart:
             dr = input.drpart
@@ -682,7 +716,8 @@ class HomeAgent(Agent):
                     maxpower = 999
                 else:
                     #can't load up if we aren't loading at all
-                    print("inadmissible input: load up and disconnect")  # just for debugging
+                    if debug:
+                        print("inadmissible input: load up and disconnect")  # just for debugging
                     return False
             else:
                 #if not participating in a DR event
@@ -735,43 +770,7 @@ class HomeAgent(Agent):
         self.vip.pubsub.publish("pubsub","weatherservice",{},mes)
 
         
-    def makeDPGrid(self,devs):
-        statecomps = []
-        dimensions = []
-        ndim = len(devs)
-        nmem = 0
-        indices = [0]*ndim
-        names = ['']*ndim
         
-        for i,dev in enumerate(devs):
-            dimensions[i] = len(dev.gridpoints)
-            names[i] = dev.name
-            indices[i] = 0
-            
-        newgrid = StateGrid(dimensions)
-        
-        for dim in dimensions:
-            nmem *= dim
-        print("Grid has {n} points".format(n = nmem))
-        
-        while indices[0] < dimensions[0]:
-            statedict = {}
-            for i,dev in enumerate(devs):
-                statedict[dev.name] = dev.gridpoints[indices[i]]
-                
-            newGrid.setPoint(indices,StateGridPoint(statedict,self.HomeUser.costFn(statedict)))
-             
-            
-            indices[-1] += 1
-            indexindex = 2
-            while indices[indexindex] >= dimensions[indexindex]:
-                indices[indexindex] = 0
-                indexindex += 1
-                indices[indexindex] += 1 
-                
-                if indexindex > dimensions[0]:
-                    break
-    
     def simStep(self,state,input,tstep):
         for app in self.Appliances:
             app.simulationStep(state,input,tstep)
@@ -796,7 +795,13 @@ class HomeAgent(Agent):
             pass
         
     def advancePeriod(self):
-        self.CurrentPeriod = self.NextPeriod
+        self.CurrentPeriod = self.PlanningWindow.periods[0]
+        self.PlanningWindow.shiftWindow()
+        self.NextPeriod = self.PlanningWindow.periods[0]
+        
+        #make a new plan over entire window
+        self.planningRemakeWindow(True)
+        
         #contra the utility version of this fn, don't create the next period
         
         if settings.DEBUGGING_LEVEL >= 1:
@@ -813,11 +818,11 @@ class HomeAgent(Agent):
         #involvedResources will help figure out which resources must be disconnected
         involvedResources = []
         #change setpoints
-        if self.CurrentPeriod.actionPlan:
+        if self.CurrentPeriod.plan:
             if settings.DEBUGGING_LEVEL >= 2:
                 print("RESIDENCE {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
                 
-            for bid in self.CurrentPeriod.actionPlan.ownBids:
+            for bid in self.CurrentPeriod.plan.ownBids:
                 res = listparse.lookUpByName(bid.resourceName,self.Resources)
                 involvedResources.append(res)
                 #if the resource is already connected, change the setpoint
@@ -855,7 +860,7 @@ class HomeAgent(Agent):
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
                             
-            if self.CurrentPeriod.actionPlan.plannedConsumption:
+            if self.CurrentPeriod.plan.plannedConsumption:
                 self.changeConsumption(1)
             else:
                 self.changeConsumption(0)
@@ -900,7 +905,7 @@ class HomeAgent(Agent):
             print("PERIOD: {per}".format(per = self.CurrentPeriod.periodNumber))
             print(">>>START: {start}  STOP: {end}".format(start = self.CurrentPeriod.startTime, end =  self.CurrentPeriod.endTime))
         print("HERE IS MY CURRENT PLAN:")
-        self.CurrentPeriod.actionPlan.printInfo(1)
+        self.CurrentPeriod.plan.printInfo(1)
         print("DECISION VARIABLES:")
         print("    UTILITY: {util}".format(util = self.marginalutility))
         
