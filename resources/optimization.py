@@ -1,4 +1,3 @@
-from multidimarray import initarray
 
 def generateStates(inputs,grid,nextgrid):
     for state in grid:
@@ -14,7 +13,6 @@ def generateStates(inputs,grid,nextgrid):
                                 
 class StateGrid(object):
     def __init__(self,dimensions):
-        #self.grid = initarray(dimensions,-1)
         self.grid = []
         
     def addGridPoint(self,point):
@@ -95,5 +93,10 @@ class InputSignal(object):
         temp = self.transcost
         self.transcost = cost
         return temp
+    
+    def printInfo(self,depth = 0):
+        tab = "    "
+        print(tab*depth + "PATH COST: {cost}".format(cost = self.pathcost))
+        print(tab*depth + "INPUTS: {inp}".format(inp = self.components))
 
     

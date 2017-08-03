@@ -8,6 +8,6 @@
 	"refload" : ".25",
 	"demandCurve":[[1.0, 0],[1.0, 1],[0, 1],[0, 3]],
 	"resources": [{"type":"solar","owner":"Crunderson", "location": "DC.BRANCH1.BUS1.LOAD1", "name":"Apollo", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}],
-	"appliances": [{"type": "heater","owner":"Crunderson","name":"Mendeleev","specificheatcapacity":4.184,"mass":10,"thermalresistance":.4}]
+	"appliances": [{"type": "heater","owner":"Crunderson","name":"Mendeleev","specificheatcapacity":4.184,"mass":10,"thermalresistance":0.4,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10}]
 }
 	

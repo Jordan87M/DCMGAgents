@@ -1,7 +1,6 @@
 from DCMGClasses.resources.math import interpolation
 #from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
-from DCMGClasses.resources.misc import control
 from volttron.platform.vip.agent import Core
 
 
@@ -171,11 +170,11 @@ class LeadAcidBattery(Storage):
         
         return soc
         
-    def costFn(self,price,soc = self.SOC):
+    def costFn(self,price,soc):
         #the first term penalizes being too empty to discharge or too full to charge
-        target = price*self.capacity*(self.SOC - self.preferredSOC)^2
+        target = price*self.capacity*(soc - self.preferredSOC)^2
         #the second term accounts for the value of the stored energy
-        energy = self.SOC*self.capacity*price
+        energy = soc*self.capacity*price
         
         return target + energy
     

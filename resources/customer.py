@@ -69,7 +69,7 @@ class CustomerProfile(object):
         tagvals = tagClient.readTags([self.currentTag, self.voltageTag])
         power = tagvals[self.currentTag]*tagvals[self.voltageTag]
         self.tagCache[self.powerTag] = (power, datetime.now())
-        return tagval
+        return power
     
     '''calls measureCurrent only if cached value isn't fresh'''    
     def getCurrent(self,threshold = 5.1):

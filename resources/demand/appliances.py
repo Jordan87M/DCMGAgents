@@ -1,14 +1,14 @@
 from volttron.platform.vip.agent import RPC
 
 class Device(object):
-    def __init__(self, initstate, behavior):
-        self.state = initstate
+    def __init__(self, **dev):
+        self.name = dev["name"]
         
         self.isintermittent = False
         self.issource = False
         self.issink = True
         
-        self.associatedbehavior = behavior
+        self.associatedbehavior = None
     
     def printInfo(self,depth):
         tab = "    "
@@ -20,7 +20,7 @@ class Device(object):
     
 class HeatingElement(Device):
     def __init__(self,**dev):
-        super(Heater,self).__init__(**dev)
+        super(HeatingElement,self).__init__(**dev)
         self.shc = dev["specificheatcapacity"]
         self.mass = dev["mass"]        
         self.thermR = dev["thermalresistance"]
@@ -29,7 +29,7 @@ class HeatingElement(Device):
         self.deltat = dev["deltat"]
         self.nominalpower = dev["nominalpower"]
         
-        self.tamb = self.vip.rpc.call('weatheragent','getTemperatureRPC').get(timeout = 4)
+        self.tamb = 25
         self.setpoint = self.tamb 
         
         self.gridpoints = [25,30,35,40]

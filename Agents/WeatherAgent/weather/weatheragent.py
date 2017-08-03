@@ -37,7 +37,7 @@ class WeatherAgent(Agent):
     @Core.periodic(settings.COLLECTION_INTERVAL)
     def pollEnvironmentVariables(self):
         #call CIP wrapper to get environment variables from SG PLC
-        
+        pass
 
     @RPC.export('getTemperatureRPC')
     def getTemperature(self):

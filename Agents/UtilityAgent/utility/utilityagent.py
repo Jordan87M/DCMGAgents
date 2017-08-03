@@ -14,7 +14,7 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation, graph
-from DCMGClasses.resources import resource, groups, financial, control, customer
+from DCMGClasses.resources import resource, groups, control, customer
 
 
 from . import settings
@@ -148,9 +148,9 @@ class UtilityAgent(Agent):
         
         now = datetime.now()
         end = datetime.now() + timedelta(seconds = settings.ST_PLAN_INTERVAL)
-        self.CurrentPeriod = control.Period(0,now,end,self.name)
+        self.CurrentPeriod = control.Period(0,now,end)
         
-        self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
+        self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL))
         
         self.bidstate = BidState()
         
@@ -422,12 +422,12 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             if type(res) is resource.SolarPanel:
                 amount = res.maxDischargePower*self.perceivedInsol/100
-                rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                newbid = financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
+                rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
             elif type(res) is resource.LeadAcidBattery:
                 amount = 10
-                rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                newbid = financial.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
+                rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
             else:
                 print("trying to plan for an unrecognized resource type")
             
@@ -631,7 +631,7 @@ class UtilityAgent(Agent):
                 if bid.accepted:
                     totalsupply += bid.amount
                     self.sendBidAcceptance(bid, group.rate)
-                    self.NextPeriod.actionPlan.addBid(bid)
+                    self.NextPeriod.plan.addBid(bid)
                 else:
                     self.sendBidRejection(bid, group.rate)   
                     
@@ -643,7 +643,7 @@ class UtilityAgent(Agent):
                 if bid.accepted:
                     totaldemand += bid.amount
                     self.sendBidAcceptance(bid, group.rate)
-                    self.NextPeriod.actionPlan.addConsumption(bid)
+                    self.NextPeriod.plan.addConsumption(bid)
                     #give customer permission to connect
                     cust.permission = True                    
                 else:
@@ -668,7 +668,7 @@ class UtilityAgent(Agent):
             for bid in self.reserveBidList:
                 if bid.accepted:
                     self.sendBidAcceptance(bid,group.rate)
-                    self.NextPeriod.actionPlan.addBid(bid)
+                    self.NextPeriod.plan.addBid(bid)
                 else:
                     self.sendBidRejection(bid,group.rate)
                     
@@ -680,7 +680,7 @@ class UtilityAgent(Agent):
             for cust in group.customers:
                 self.announceRate(cust,group.rate,self.NextPeriod.startTime)
                         
-        self.NextPeriod.actionPlan.printInfo(0)
+        self.NextPeriod.plan.printInfo(0)
                 
     def sendDR(self,target,type,duration):
         mesdict = {"message_subject" : "DR_event",
@@ -702,7 +702,7 @@ class UtilityAgent(Agent):
         self.bidstate.acceptnone()
         #make next period the current period and create new object for next period
         self.CurrentPeriod = self.NextPeriod
-        self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL),self.name)
+        self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL))
         
         if settings.DEBUGGING_LEVEL >= 1:
             print("+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*\nUTILITY AGENT {me} moving into new period:".format(me = self.name))
@@ -720,11 +720,11 @@ class UtilityAgent(Agent):
         #which resources are being used during this period? keep track with this list
         involvedResources = []
         #change setpoints
-        if self.CurrentPeriod.actionPlan:
+        if self.CurrentPeriod.plan:
             if settings.DEBUGGING_LEVEL >= 2:
                 print("UTILITY {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
                 
-            for bid in self.CurrentPeriod.actionPlan.ownBids:
+            for bid in self.CurrentPeriod.plan.ownBids:
                 res = listparse.lookUpByName(bid.resourceName,self.Resources)
                 if res is not None:
                     involvedResources.append(res)
@@ -1124,13 +1124,13 @@ class UtilityAgent(Agent):
                 
                 if side == "supply":
                     service = mesdict.get("service",None)
-                    newbid = financial.SupplyBid(resourceName,service,amount,rate,messageSender,period,uid)
+                    newbid = control.SupplyBid(resourceName,service,amount,rate,messageSender,period,uid)
                     if service == "power":
                         self.supplyBidList.append(newbid)
                     elif service == "reserve":                  
                         self.reserveBidList.append(newbid)
                 elif side == "demand":
-                    newbid = financial.DemandBid(amount,rate,messageSender,period,uid)
+                    newbid = control.DemandBid(amount,rate,messageSender,period,uid)
                     self.demandBidList.append(newbid)
                 
                 if settings.DEBUGGING_LEVEL >= 1:

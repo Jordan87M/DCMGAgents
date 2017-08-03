@@ -12,7 +12,8 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation, combin
-from DCMGClasses.resources import resource, customer, control, financial
+from DCMGClasses.resources import control, resource, customer  
+from DCMGClasses.resources.demand import appliances
 
 
 from . import settings
@@ -21,8 +22,6 @@ utils.setup_logging()
 _log = logging.getLogger(__name__)
 
 class HomeAgent(Agent):
-    
-    
     def __init__(self,config_path,**kwargs):
         super(HomeAgent,self).__init__(**kwargs)
         self.config = utils.load_config(config_path)
@@ -63,10 +62,9 @@ class HomeAgent(Agent):
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)
-        
         for app in self.appliances:
             if app["type"] == "heater":
-                self.Appliances(appliances.HeatingElement(**app))
+                self.Appliances.append(appliances.HeatingElement(**app))
             else:
                 pass
             
@@ -89,9 +87,9 @@ class HomeAgent(Agent):
         #this value doesn't matter
         end = start + timedelta(seconds = 30)
         
-        self.PlanningWindow = Window(6)
-        self.CurrentPeriod = control.Period(0,start,end,self.name)
-        self.NextPeriod = control.Period(0,start,end,self.name)
+        self.PlanningWindow = control.Window(self.name,6,1,start,30)
+        self.CurrentPeriod = control.Period(0,start,end)
+        self.NextPeriod = self.PlanningWindow.periods[0]
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -264,7 +262,7 @@ class HomeAgent(Agent):
                             biddict["duration"] = 1
                             biddict["period"] = period
                             #add to local list of outstanding bids
-                            newBid = financial.DemandBid(amount,rate,counterparty,period)
+                            newBid = control.DemandBid(amount,rate,counterparty,period)
                             self.outstandingDemandBids.append(newBid)
                             biddict["uid"] = newBid.uid
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -281,7 +279,7 @@ class HomeAgent(Agent):
                         for res in self.Resources:
                             if type(res) is resource.SolarPanel:
                                 amount = res.maxDischargePower*self.perceivedInsol/100
-                                rate = financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                                rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
                                 biddict["amount"] = amount
                                 biddict["service"] = service
                                 biddict["side"] = side
@@ -291,7 +289,7 @@ class HomeAgent(Agent):
                                 biddict["period"] = period
                                 biddict["resource"] = res.name
                                 #add to local list of outstanding bids
-                                newBid = financial.SupplyBid(res.name,service,amount,rate,counterparty,period)
+                                newBid = control.SupplyBid(res.name,service,amount,rate,counterparty,period)
                                 self.outstandingSupplyBids.append(newBid)
                                 biddict["uid"] = newBid.uid
                                 if settings.DEBUGGING_LEVEL >= 2:
@@ -307,7 +305,7 @@ class HomeAgent(Agent):
                             elif type(res) is resource.LeadAcidBattery:
                                 if res.SOC > .2:
                                     amount = 10
-                                    rate = max(financial.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                                    rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
                                     bid["amount"] = amount
                                     bid["service"] = service
                                     biddict["side"] = side
@@ -317,7 +315,7 @@ class HomeAgent(Agent):
                                     bid["period"] = period
                                     bid["resource"] = res.name
                                     
-                                    newBid = financial.Bid(res.name,service,amount,rate,counterparty,period)
+                                    newBid = control.Bid(res.name,service,amount,rate,counterparty,period)
                                     self.outstandingSupplyBids.append(newBid)
                                     
                                     if settings.DEBUGGING_LEVEL >= 2:
@@ -351,8 +349,15 @@ class HomeAgent(Agent):
                             bid.amount = amount
                             bid.rate = rate
                             bid.period = period
-                            if bid.period == self.NextPeriod.periodNumber:
-                                self.NextPeriod.plan.addBid(bid)
+                            #if bid.period == self.NextPeriod.periodNumber:
+                            #    self.NextPeriod.plan.addBid(bid)
+                            
+                            #look up object from period number and add bid
+                            bidperiod = self.PlanningWindow.getPeriodByNumber(bid.period)
+                            if bidperiod:
+                                bidperiod.plan.addBid(bid)
+                            else:
+                                print("bid is not for a period in the planning window")
                                 
                             self.outstandingSupplyBids.remove(bid)
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -365,8 +370,13 @@ class HomeAgent(Agent):
                             bid.amount = amount
                             bid.rate = rate
                             bid.period = period
-                            if bid.period == self.NextPeriod.periodNumber:
-                                self.NextPeriod.plan.addConsumption(bid)
+                            #if bid.period == self.NextPeriod.periodNumber:
+                            #    self.NextPeriod.plan.addConsumption(bid)
+                            bidperiod = self.PlanningWindow.getPeriodByNumber(bid.period)
+                            if bidperiod:
+                                bidperiod.plan.addConsumption(bid)
+                            else:
+                                print("bid is not for a period in the planning window")
                                 
                             self.outstandingDemandBids.remove(bid)
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -405,7 +415,7 @@ class HomeAgent(Agent):
                         endTime = mesdict.get("end_time",None)
                         startdtime = datetime.strptime(startTime,"%Y-%m-%dT%H:%M:%S.%f")
                         enddtime = datetime.strptime(endTime,"%Y-%m-%dT%H:%M:%S.%f")
-                        self.NextPeriod = control.Period(period,startdtime,enddtime,self.name)
+                        self.NextPeriod = control.Period(period,startdtime,enddtime)
                         #schedule a callback to begin the new period
                         self.core.schedule(startdtime,self.advancePeriod)
             elif messageSubject == "rate_announcement":
@@ -800,6 +810,8 @@ class HomeAgent(Agent):
         self.NextPeriod = self.PlanningWindow.periods[0]
         
         #make a new plan over entire window
+        if settings.DEBUGGING_LEVEL >= 1:
+            print("HOMEOWNER {me} remaking planning window".format(me = self.name))
         self.planningRemakeWindow(True)
         
         #contra the utility version of this fn, don't create the next period
@@ -906,9 +918,10 @@ class HomeAgent(Agent):
             print(">>>START: {start}  STOP: {end}".format(start = self.CurrentPeriod.startTime, end =  self.CurrentPeriod.endTime))
         print("HERE IS MY CURRENT PLAN:")
         self.CurrentPeriod.plan.printInfo(1)
-        print("DECISION VARIABLES:")
-        print("    UTILITY: {util}".format(util = self.marginalutility))
         
+        print("SMART APPLIANCES:")
+        for app in self.Appliances:
+            app.printInfo(1)
         print("LIST ALL OWNED RESOURCES ({n})".format(n = len(self.Resources)))
         for res in self.Resources:
             res.printInfo(1)
