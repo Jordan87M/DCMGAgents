@@ -13,7 +13,7 @@ from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation, combin
 from DCMGClasses.resources import control, resource, customer  
-from DCMGClasses.resources.demand import appliances
+from DCMGClasses.resources.demand import appliances, human
 
 
 from . import settings
@@ -64,7 +64,10 @@ class HomeAgent(Agent):
         resource.makeResource(self.resources,self.Resources,True)
         for app in self.appliances:
             if app["type"] == "heater":
-                self.Appliances.append(appliances.HeatingElement(**app))
+                newapp = appliances.HeatingElement(**app)
+                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,0,28))
+                self.Appliances.append(newapp)
+                
             else:
                 pass
             
@@ -535,7 +538,7 @@ class HomeAgent(Agent):
             print("HOMEOWNER {me} coming up with new plan".format(me = self.name))
         
         #remake plans from end of window forward
-        selperiod = self.PlanningWindow[-1]
+        selperiod = self.PlanningWindow.periods[-1]
         while selperiod:
             self.planningRemakePeriod(selperiod,True)
             selperiod = selperiod.previousperiod
@@ -603,14 +606,15 @@ class HomeAgent(Agent):
         inputdict = {}
         
         for dev in self.Devices:
-            inputdict[dev.name] = dev.gridpoints
+            if dev.gridpoints:
+                inputdict[dev.name] = dev.gridpoints
             
         devstates = combin.makeopdict(inputdict)
         
         period.plan.stategrid = devstates
         
         if debug:
-            print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.Number, num = len(period.plan.stategrid)))
+            print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(period.plan.stategrid)))
         
         
     def makeInputs(self,state,period,debug = False):

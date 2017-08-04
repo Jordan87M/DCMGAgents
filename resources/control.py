@@ -64,7 +64,7 @@ class Window(object):
                 self.nextstarttime = newstarttime
                 
     def getPeriodByNumber(self,number):
-        for period in periods:
+        for period in self.periods:
             if period.periodNumber == number:
                 return period
         return None
@@ -91,7 +91,7 @@ class Period(object):
         self.expectedenergycost = 0
         
         #initialize the plan for this period
-        self.plan = Plan(self,planner)
+        self.plan = Plan(self,self.planner)
         
         #links to previous and subsequent periods
         self.previousperiod = None

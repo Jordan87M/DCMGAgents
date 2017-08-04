@@ -3,6 +3,7 @@ from volttron.platform.vip.agent import RPC
 class Device(object):
     def __init__(self, **dev):
         self.name = dev["name"]
+        self.owner = dev["owner"]
         
         self.isintermittent = False
         self.issource = False
@@ -69,6 +70,7 @@ class HeatingElement(Device):
                 self.elementOn = True
                 
         self.temperature = ((pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc))*self.deltat + self.temperature
+        return self.elementOn
     
     def inputCostFn(self,puaction,period,state,duration):
         energycost = period.expectedenergycost
@@ -80,8 +82,8 @@ class HeatingElement(Device):
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print(tab*depth + "DEVICE SUMMARY FOR HEATER: {heat}".format(heat = self.name))
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
-        print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.tempSetpoint, temp = objectTemp ))
-        print(tab*depth + "HEATER POWER: {pow}".format(pow = self.heaterPower))
+        print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
+        print(tab*depth + "STATE: {state}".format(state = self.elementOn))
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
     
 class HeatEngine(Device):

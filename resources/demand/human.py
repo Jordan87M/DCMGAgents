@@ -28,18 +28,21 @@ class User(object):
             
         
 class EnergyBehavior(object):
-    def __init__(self, name, device, utilityfns):
+    def __init__(self, name, device, utilityfn = None):
         self.name = name
         
         self.device = device
         self.setpoint = 0
-        self.utilityfn = []
         self.params = []
+        
+        if utilityfn:
+            self.utilityfn = utilityfn
         
         
     def printInfo(self,depth):
         tab = "    "
         print(tab*depth + "ENERGY BEHAVIOR: {name}".format(name = self.name))
+        self.utilityfn.printInfo(depth + 1)
         print(tab*depth + "ASSOCIATED DEVICE: ")
         self.device.printInfo(depth + 1)
         
@@ -57,7 +60,11 @@ class QuadraticCostFn(object):
         self.c = c
     
     def eval(self,x):
-        return b + a*(x-b)^2
+        return b + a*(x-c)^2
+    
+    def printInfo(self,depth):
+        tab = "    "
+        print(tab*depth + "COST FUNCTION = {b} + {a}*(x-{c})^2".format(a = self.a,b = self.b,c = self.c))
     
 class QuadraticWCapCostFn(QuadraticCostFn):
     def __init__(self,a,b,c,cap):
@@ -87,7 +94,7 @@ class QuadraticOneSideCostFn(QuadraticCostFn):
             else:
                 return c
             
-class QuadraticOneSideWCapCostFn(QuadraticOneSideWCapCostFn):
+class QuadraticOneSideWCapCostFn(QuadraticOneSideCostFn):
     def __init__(self,a,b,c,side,cap):
         super(QuadraticOneSideWCapCostFn,self).__init__(a,b,c,side)
         self.cap = cap

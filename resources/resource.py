@@ -205,6 +205,7 @@ class SolarPanel(Source):
         self.amortizationPeriod = 10
         
         self.actionpoints = []
+        self.gridpoints = []
         
         self.isintermittent = True
         self.issource = True
