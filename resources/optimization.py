@@ -9,11 +9,32 @@ def generateStates(inputs,grid,nextgrid):
                 stepcost = statecost + controlcost;
                 #interpolate optimal cost from end state
                 nextstepopt = dpinterp(endstate,nextstate)
-                
+
+class StateGridPoint(object):
+    def __init__(self,user,period,components):
+        self.components = components
+        self.statecost = user.costFn(period,state)
+        self.optimalinput = None 
+        
+        
+    
+    def printInfo(depth):
+        tab = "    "
+        print(tab*depth + "STATE {comps}".format(comps = self.components))
+        print(tab*depth + "PATHCOST: {cost}".format(cost = self.pathcost))
+        if self.optimalinput:
+            print(tab*depth + "OPTIMAL INPUT:")
+            self.optimalinput.printinfo(depth + 1)       
                                 
 class StateGrid(object):
     def __init__(self,dimensions):
         self.grid = []
+        
+    def makeGrid(self,user,period,devstates):
+        #clear to be safe
+        self.grid = []
+        for state in devstates:
+            self.grid.append(StateGridPoint(user,period,state))
         
     def addGridPoint(self,point):
         self.grid.append(point)
@@ -32,16 +53,23 @@ class StateGrid(object):
             else:
                 a = a[index]
             
-    def interpolate(self,x,debug = False):
+    def interpolatepath(self,x,debug = False):
         #use inverse distance weighting interpolation
         if debug:
             print("****finding value at {x} using inverse distance weighting interpolation".format(x = x))
         #power to which distance should be raised
         p = 4
         
+        
         nsum = 0
         dsum = 0
-        for point in grid:
+        for point in self.grid:
+            #if there is no optimal input, this may be an end state
+            if not point.optimalinput:
+                if debug:
+                    print("there is no optimal input for this point")
+                return 0
+            
             #if the point falls directly on a grid point, just use that point's value
             if point.components == x:
                 if debug:
@@ -62,6 +90,37 @@ class StateGrid(object):
             print("****FINISHED INTERPOLATING! interpolated value = {int}".format(int = intval ))
         
         return intval
+    
+    def interpolatestate(self,x,debug = False):
+        #use inverse distance weighting interpolation
+        if debug:
+            print("****finding value at {x} using inverse distance weighting interpolation".format(x = x))
+        #power to which distance should be raised
+        p = 4
+        
+        nsum = 0
+        dsum = 0
+        for point in self.grid:
+            #if the point falls directly on a grid point, just use that point's value
+            if point.components == x:
+                if debug:
+                    print("****point falls on a grid point: {pnt}".format(pnt = point.components))
+                return point.statecost
+            
+            d = self.getdistance(x,point.components)
+            w = d**-p
+            dsum += w
+            nsum += w*point.statecost
+            
+            if debug:
+                print("****contribution from {pnt}: \n        DISTANCE: {dist}, \n        WEIGHT: {weight}, \n        VALUE: {val}".format(pnt = point.components, dist = d, weight = w, val = point.statecost))
+        
+        intval = nsum/dsum
+        
+        if debug:
+            print("****FINISHED INTERPOLATING! interpolated value = {int}".format(int = intval ))
+        
+        return intval
             
     def getdistance(a,b):
         sumsq = 0
@@ -69,20 +128,14 @@ class StateGrid(object):
             sumsq += (a[key] - b[key])**2
         return sumsq ** .5
                 
-        
-class StateGridPoint(object):
-    def __init__(self,components):
-        self.cost = cost
-        
-        self.components = components
-        
-        self.optimalinput = None
-        
+    def printInfo(self,depth):
+        tab = "    "
+        print(tab*depth + "STATE GRID has {n} grid points".format(n = len(self.grid)))
     
 class InputSignal(object):
     def __init__(self,comps,gridconnected,drpart):
         self.gridconnected = gridconnected
-        self.drevents = drpart
+        self.drevent = drpart
         self.components = comps
         self.transcost = None
         self.pathcost = None

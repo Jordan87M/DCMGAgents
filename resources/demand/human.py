@@ -13,16 +13,15 @@ class User(object):
             behavior.printInfo(depth + 1)
             
             
-    def costFn(self,period,statecomponents):
+    def costFn(self,period,statecomps):
         #the costFn() method is implemented at the level of the User class
         #to allow the implementation of cost functions that are not independent
         #of other devices
         
         #for now, my cost functions are independent
         totalcost = 0
-        for dev in devices:
-            devstate = statecomponents[dev.name]
-            totalcost += dev.costFn(period.expectedenergycost,devstate)
+        for devkey in statecomps:
+            totalcost += dev.costFn(period.expectedenergycost,statecomps[dev.name])
             
         return totalcost
             

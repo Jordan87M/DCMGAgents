@@ -178,10 +178,10 @@ class LeadAcidBattery(Storage):
         
         return target + energy
     
-    def inputCostFn(self,puaction,energycost,duration):
+    def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
-        return power*duration*energycost
-        
+        return power*duration*period.expectedenergycost
+            
     def getSOC(self):
         #get SOC from PLC
         print("getSOC() method of LeadAcidBattery is unimplemented!")
@@ -222,7 +222,7 @@ class SolarPanel(Source):
     def costFn(self):
         return 0
     
-    def inputCostFn(self,puaction,energycost,duration):
+    def inputCostFn(self,puaction,period,state,duration):
         return 0
     
     def applySimulatedInput(self,state,input,duration):

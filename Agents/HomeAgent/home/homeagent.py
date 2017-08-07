@@ -12,7 +12,7 @@ from volttron.platform.messaging import headers as headers_mod
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 from DCMGClasses.resources.math import interpolation, combin
-from DCMGClasses.resources import control, resource, customer  
+from DCMGClasses.resources import control, resource, customer, optimization
 from DCMGClasses.resources.demand import appliances, human
 
 
@@ -60,6 +60,8 @@ class HomeAgent(Agent):
         self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
         
+        self.user = human.User(self.name)
+        
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)
         for app in self.appliances:
@@ -93,6 +95,7 @@ class HomeAgent(Agent):
         self.PlanningWindow = control.Window(self.name,6,1,start,30)
         self.CurrentPeriod = control.Period(0,start,end)
         self.NextPeriod = self.PlanningWindow.periods[0]
+        self.CurrentPeriod.nextperiod = self.NextPeriod
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -554,32 +557,44 @@ class HomeAgent(Agent):
             print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
             return
         for state in period.plan.stategrid:
-            #make inputs for the state currently being examined
-            self.makeInputs(state,period)
+            #if this is not the last period
+            if period.nextperiod:
+                if debug:
+                    print(">WORKING ON A NEW STATE: {sta}".format(sta = state))
+                #make inputs for the state currently being examined
+                self.makeInputs(state,period)
+                
+                #find the best input for this state
+                currentbest = period.plan.admissiblecontrols[0]
+                for input in period.plan.admissiblecontrols:
+                    self.findInputCost(state,input,period,settings.ST_PLAN_INTERVAL,True)
+                    if input.pathcost < currentbest.optcost:
+                        currentbest = input
+                #associate state with optimal input
+                state.optimalinput = currentbest
+                
+                if debug:
+                    print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state, inp = input))
             
-            #find the best input for this state
-            currentbest = period.plan.admissiblecontrols[0]
-            for input in period.plan.admissiblecontrols:
-                self.findInputCost(state,input,settings.ST_PLAN_INTERVAL,True)
-                if input.pathcost < currentbest.optcost:
-                    currentbest = input
-            #associate state with optimal input
-            state.optimalinput = currentbest
-            
-            if debug:
-                print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state, inp = input))
-            
-
+                
     def findInputCost(self,state,input,period,duration,debug = False):
         if debug:
             print(">>HOMEOWNER {me}: finding cost for input {inp}".format(me = self.name, inp = input))
+            period.printInfo(1)
+        #find next state if this input is applied
         comps = self.applySimulatedInput(state,input,duration,True)
-        pathcost = period.nextperiod.plan.stategrid.interpolate(comps,True)
+        
+        #cost of optimal path from next state forward
+        pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,True)
+        #add cost of being in next state for next period
+        pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,True)
+        
+        #cost of getting to next state with t
         totaltrans = 0
         for key in input.components:
-            device = lookUpByName(key, self.Devices)
+            device = listparse.lookUpByName(key, self.Devices)
             totaltrans += dev.inputCostFn(input.components[key],period.nextperiod,state,duration)
-        input.pathcost = endstatecost + totaltrans
+        input.pathcost = pathcost + totaltrans
         
         if debug:
             print(">>HOMEOWNER {me}: transition cost is {trans}, total path cost is {path}".format(me = self.name, trans = totaltrans, path = input.pathcost))
@@ -591,14 +606,14 @@ class HomeAgent(Agent):
         total = 0
         newstatecomps = {}
         
-        for device in self.Devices:
-            devstate = state.components[device.name]
-            devinput = input.components[device.name]
-            newstate = device.applySimulatedInput(devstate,devinput,duration)
-            newstatecomps[device.name] = newstate
+        for devname in state:
+            devstate = state.components[devname]
+            devinput = input.components[devname]
+            newstate = listparse.lookUpByName(devname,self.Devices).applySimulatedInput(devstate,devinput,duration)
+            newstatecomps[devname] = newstate
         
         if debug:
-            print(">>>HOMEOWNER {me}: starting state is {start}, ending state is {end}".format(me = self.name, start = state.components, end = newstatecomps))
+            print(">>>HOMEOWNER {me}: starting state is {start}, ending state is {end}".format(me = self.name, start = state, end = newstatecomps))
         
         return newstatecomps
         
@@ -611,7 +626,7 @@ class HomeAgent(Agent):
             
         devstates = combin.makeopdict(inputdict)
         
-        period.plan.stategrid = devstates
+        period.plan.stategrid.makeGrid(self.user,period,devstates)
         
         if debug:
             print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(period.plan.stategrid)))
@@ -622,18 +637,19 @@ class HomeAgent(Agent):
         inputs = []
         
         for dev in self.Devices:
-            inputdict[dev.name] = dev.actionpoints
+            if dev.actionpoints:
+                inputdict[dev.name] = dev.actionpoints
             
         devactions = combin.makeopdict(inputdict)
         
         #generate input components
         #grid connected inputs
         for devact in devactions:
-            inputs.append(InputSignal(devact,True,period.accepteddrevents))
+            inputs.append(optimization.InputSignal(devact,True,period.accepteddrevents))
         
         #no DR participation
         for devact in devactions:
-            inputs.append(InputSignal(devact,True,None))
+            inputs.append(optimization.InputSignal(devact,True,None))
         
         #non grid connected inputs
         #do this later... needs special consideration
@@ -644,7 +660,7 @@ class HomeAgent(Agent):
         
         for input in inputs:
             #weed out inadmissible inputs
-            if not self.admissibleInput(input,state,period,True):
+            if not self.admissibleInput(input,state,period,True): 
                 inputs.remove(input)
             else:
                 #input is admissible keep going
@@ -652,7 +668,7 @@ class HomeAgent(Agent):
                 total = 0
                 for devkey in input.components:
                     device = listparse.lookUpByName(devkey,self.Devices)
-                    total += device.inputCostFn(input.components[devkey],period,state,settings.ST_PLAN_INTERVAL)
+                    total += device.inputCostFn(input.components[devkey],period,state,settings.ST_PLAN_INTERVAL) 
                 
                 input.setcost(total)
                 
@@ -676,12 +692,12 @@ class HomeAgent(Agent):
                 #the sign of the setpoint must indicate whether it is acting as a source or sink
                 
                 #is the disposition of the device consistent with its state?
-                if device.statebehaviorcheck(comp.state):
+                if device.statebehaviorcheck(state,input):
                     pass
                 else:
                     #input not consistent with state
                     if debug:
-                        print("inadmissible state: input doesn't make sense for this state")
+                        print("inadmissible input: input doesn't make sense for this state")
                     return False
                 #keep track of contribution from source
                 totalsource += device.getPowerFromPU(input.components[compkey])
@@ -698,7 +714,7 @@ class HomeAgent(Agent):
                     if input.components[compkey] > maxavail:
                         #power contribution exceeds expected capability
                         if debug:
-                            print("inadmissible state: {name} device contribution exceeds expected capability")
+                            print("inadmissible input: {name} device contribution exceeds expected capability")
                         return False
                 else:
                     maxavail += device.maxDischargePower
@@ -715,8 +731,8 @@ class HomeAgent(Agent):
                 if debug:
                     print("Inadmissible input: source and load must balance when not grid connected")
                 
-        if input.drpart:
-            dr = input.drpart
+        if input.drevent:
+            dr = input.drevent
             if isinstance(dr,CurtailmentEvent):
                 if input.gridconnected:
                     minpower = 0
