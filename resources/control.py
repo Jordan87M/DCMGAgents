@@ -138,8 +138,8 @@ class Plan(object):
         self.admissiblecontrols = None
         self.optimalcontrol = None
         
-    def addGrid(self,grid):
-        self.stategrid = grid
+    def makeGrid(self,period,gridstates,costfunc):
+        self.stategrid = optimization.StateGrid(period,gridstates,costfunc)
         
     def setAdmissibleInputs(self,inputs):
         temp = self.admissiblecontrols

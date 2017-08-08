@@ -15,8 +15,8 @@ class Device(object):
         tab = "    "
         print(tab*depth + "DEVICE NAME: {name}".format(name = self.name))
         
-    def costFn(self,period,statecomponents):
-        self.associatedbehavior.costFn(period)
+    def costFn(self,period,devstate):
+        return self.associatedbehavior.costFn(period,devstate)
     
     
 class HeatingElement(Device):
@@ -75,7 +75,7 @@ class HeatingElement(Device):
     def inputCostFn(self,puaction,period,state,duration):
         energycost = period.expectedenergycost
         power = self.getPowerFromPU(puaction)
-        return power*duration*energycost    
+        return power*duration*period.expectedenergycost    
         
     def printInfo(self,depth):
         tab = "    "
@@ -84,6 +84,9 @@ class HeatingElement(Device):
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
         print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
         print(tab*depth + "STATE: {state}".format(state = self.elementOn))
+        if self.associatedbehavior:
+            print(tab*depth + "BEHAVIOR:")
+            self.associatedbehavior.printInfo(depth + 1)
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
     
 class HeatEngine(Device):

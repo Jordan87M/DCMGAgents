@@ -11,13 +11,15 @@ def generateStates(inputs,grid,nextgrid):
                 nextstepopt = dpinterp(endstate,nextstate)
 
 class StateGridPoint(object):
-    def __init__(self,user,period,components):
+    def __init__(self,period,components,costfunc):
         self.components = components
-        self.statecost = user.costFn(period,state)
+        self.statecost = costfunc(period,components)
         self.optimalinput = None 
         
+    def setoptimalinput(self,input):
+        self.optimalinput = input
         
-    
+        
     def printInfo(depth):
         tab = "    "
         print(tab*depth + "STATE {comps}".format(comps = self.components))
@@ -27,14 +29,16 @@ class StateGridPoint(object):
             self.optimalinput.printinfo(depth + 1)       
                                 
 class StateGrid(object):
-    def __init__(self,dimensions):
+    def __init__(self,period,gridstates,costfunc):
         self.grid = []
+        self.makeGrid(period,gridstates,costfunc)
         
-    def makeGrid(self,user,period,devstates):
+        
+    def makeGrid(self,period,gridstates,costfunc):
         #clear to be safe
         self.grid = []
-        for state in devstates:
-            self.grid.append(StateGridPoint(user,period,state))
+        for state in gridstates:
+            self.grid.append(StateGridPoint(period,state,costfunc))
         
     def addGridPoint(self,point):
         self.grid.append(point)
@@ -59,7 +63,6 @@ class StateGrid(object):
             print("****finding value at {x} using inverse distance weighting interpolation".format(x = x))
         #power to which distance should be raised
         p = 4
-        
         
         nsum = 0
         dsum = 0
@@ -122,7 +125,7 @@ class StateGrid(object):
         
         return intval
             
-    def getdistance(a,b):
+    def getdistance(self,a,b):
         sumsq = 0
         for key in a:
             sumsq += (a[key] - b[key])**2

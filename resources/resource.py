@@ -170,11 +170,11 @@ class LeadAcidBattery(Storage):
         
         return soc
         
-    def costFn(self,price,soc):
+    def costFn(self,period,soc):
         #the first term penalizes being too empty to discharge or too full to charge
-        target = price*self.capacity*(soc - self.preferredSOC)^2
+        target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)^2
         #the second term accounts for the value of the stored energy
-        energy = soc*self.capacity*price
+        energy = soc*self.capacity*period.expectedenergycost
         
         return target + energy
     
@@ -219,7 +219,7 @@ class SolarPanel(Source):
         return
     
     #the marginal cost of running a solar panel is 0    
-    def costFn(self):
+    def costFn(self,period,devstate):
         return 0
     
     def inputCostFn(self,puaction,period,state,duration):

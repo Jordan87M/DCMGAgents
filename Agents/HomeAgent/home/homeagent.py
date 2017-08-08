@@ -60,7 +60,6 @@ class HomeAgent(Agent):
         self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
         
-        self.user = human.User(self.name)
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,True)
@@ -69,7 +68,8 @@ class HomeAgent(Agent):
                 newapp = appliances.HeatingElement(**app)
                 newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,0,28))
                 self.Appliances.append(newapp)
-                
+                print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
+                newapp.printInfo(1)
             else:
                 pass
             
@@ -111,6 +111,20 @@ class HomeAgent(Agent):
         self.vip.pubsub.subscribe("pubsub","FREG",callback = self.FREGfeed)
         
         self.printInfo(1)
+        
+    def costFn(self,period,statecomps):
+        #the costFn() method is implemented at the level of the User class
+        #to allow the implementation of cost functions that are not independent
+        #of other devices
+        
+        #for now, my cost functions are independent
+        totalcost = 0
+        for devkey in statecomps:
+            print(devkey)
+            dev = listparse.lookUpByName(devkey, self.Devices)
+            totalcost += dev.costFn(period,statecomps[devkey])
+            
+        return totalcost
         
     '''callback for frequency regulation signal topic'''
     def FREGfeed(self, peer, sender, bus, topic, headers, message):
@@ -553,10 +567,10 @@ class HomeAgent(Agent):
         #remake grid points
         self.makeDPGrid(period,True)
         #remake new inputs
-        if not period.plan.stategrid:
+        if not period.plan.stategrid.grid:
             print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
             return
-        for state in period.plan.stategrid:
+        for state in period.plan.stategrid.grid:
             #if this is not the last period
             if period.nextperiod:
                 if debug:
@@ -568,14 +582,17 @@ class HomeAgent(Agent):
                 currentbest = period.plan.admissiblecontrols[0]
                 for input in period.plan.admissiblecontrols:
                     self.findInputCost(state,input,period,settings.ST_PLAN_INTERVAL,True)
-                    if input.pathcost < currentbest.optcost:
+                    if input.pathcost < currentbest.pathcost:
                         currentbest = input
                 #associate state with optimal input
-                state.optimalinput = currentbest
+                state.setoptimalinput = currentbest
                 
                 if debug:
                     print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state, inp = input))
-            
+            else:
+                if debug:
+                    print(">HOMEOWNEr {me}: this is the final period in the window".format(me = self.name))
+                
                 
     def findInputCost(self,state,input,period,duration,debug = False):
         if debug:
@@ -584,15 +601,20 @@ class HomeAgent(Agent):
         #find next state if this input is applied
         comps = self.applySimulatedInput(state,input,duration,True)
         
-        #cost of optimal path from next state forward
-        pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,True)
+        #if the next period is not the last, consider the path cost
+        if period.nextperiod.nextperiod:
+            #cost of optimal path from next state forward
+            pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,True)
+        else:
+            #otherwise, only consider the statecost 
+            pathcost = 0
         #add cost of being in next state for next period
         pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,True)
         
         #cost of getting to next state with t
         totaltrans = 0
         for key in input.components:
-            device = listparse.lookUpByName(key, self.Devices)
+            dev = listparse.lookUpByName(key, self.Devices)
             totaltrans += dev.inputCostFn(input.components[key],period.nextperiod,state,duration)
         input.pathcost = pathcost + totaltrans
         
@@ -606,7 +628,7 @@ class HomeAgent(Agent):
         total = 0
         newstatecomps = {}
         
-        for devname in state:
+        for devname in state.components:
             devstate = state.components[devname]
             devinput = input.components[devname]
             newstate = listparse.lookUpByName(devname,self.Devices).applySimulatedInput(devstate,devinput,duration)
@@ -626,10 +648,10 @@ class HomeAgent(Agent):
             
         devstates = combin.makeopdict(inputdict)
         
-        period.plan.stategrid.makeGrid(self.user,period,devstates)
+        period.plan.makeGrid(period,devstates,self.costFn)
         
         if debug:
-            print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(period.plan.stategrid)))
+            print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(period.plan.stategrid.grid)))
         
         
     def makeInputs(self,state,period,debug = False):
