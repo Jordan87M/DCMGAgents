@@ -142,7 +142,9 @@ class Plan(object):
         self.stategrid = optimization.StateGrid(period,gridstates,costfunc)
         
     def setAdmissibleInputs(self,inputs):
-        temp = self.admissiblecontrols
+        temp = []
+        if self.admissiblecontrols:
+            temp = self.admissiblecontrols[:]
         self.admissiblecontrols = inputs
         return temp
     

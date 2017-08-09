@@ -73,8 +73,8 @@ class HeatingElement(Device):
         return self.elementOn
     
     def inputCostFn(self,puaction,period,state,duration):
-        energycost = period.expectedenergycost
         power = self.getPowerFromPU(puaction)
+        print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
         return power*duration*period.expectedenergycost    
         
     def printInfo(self,depth):

@@ -66,7 +66,7 @@ class HomeAgent(Agent):
         for app in self.appliances:
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
-                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,0,28))
+                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,0,38))
                 self.Appliances.append(newapp)
                 print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
                 newapp.printInfo(1)
@@ -120,11 +120,23 @@ class HomeAgent(Agent):
         #for now, my cost functions are independent
         totalcost = 0
         for devkey in statecomps:
-            print(devkey)
+            #print(devkey)
             dev = listparse.lookUpByName(devkey, self.Devices)
             totalcost += dev.costFn(period,statecomps[devkey])
             
         return totalcost
+    
+    #update expectations regarding future prices
+    def priceForecast(self):
+        for period in self.PlanningWindow.periods:
+            if self.currentSpot:
+                period.expectedenergycost = self.currentSpot
+            elif self.CurrentPeriod.plan.acceptedBids:
+                period.expectedenergycost = self.CurrentPeriod.plan.acceptedBids[0].rate
+            else:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("HOMEOWNER {me} no official rate announced".format(me = self.name))
+                period.expectedenergycost = settings.ASSUMED_RATE
         
     '''callback for frequency regulation signal topic'''
     def FREGfeed(self, peer, sender, bus, topic, headers, message):
@@ -536,19 +548,6 @@ class HomeAgent(Agent):
                 elif type == "enrollment_confirm":
                     self.DR_participant = True    
                     
-    @Core.periodic(settings.REASSESS_INTERVAL)
-    def reassessUtility(self):
-        #model price point as random walk -- only use this with binary loads
-        thresh = self.demandCurve[1][1]
-        thresh += random.normalvariate(0,.2)
-        if thresh < .05:
-            thresh = .05
-        elif thresh > 3:
-            thresh = 3
-        #update demand curve    
-        self.demandCurve = [[1,0],[1,thresh],[0,thresh],[0,3]]
-        self.marginalutility = thresh
-        
         
     def planningRemakeWindow(self,debug = False):
         if debug:
@@ -574,30 +573,37 @@ class HomeAgent(Agent):
             #if this is not the last period
             if period.nextperiod:
                 if debug:
-                    print(">WORKING ON A NEW STATE: {sta}".format(sta = state))
+                    print(">WORKING ON A NEW STATE: {sta}".format(sta = state.components))
                 #make inputs for the state currently being examined
                 self.makeInputs(state,period)
+                if debug:
+                    print(">EVALUATING {n} ACTIONS".format(n = len(period.plan.admissiblecontrols)))
                 
                 #find the best input for this state
-                currentbest = period.plan.admissiblecontrols[0]
+                currentbest = float('inf')
                 for input in period.plan.admissiblecontrols:
                     self.findInputCost(state,input,period,settings.ST_PLAN_INTERVAL,True)
-                    if input.pathcost < currentbest.pathcost:
-                        currentbest = input
-                #associate state with optimal input
-                state.setoptimalinput = currentbest
+                    if input.pathcost < currentbest:
+                        if debug:
+                            print(">NEW BEST OPTION! {newcost} < {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
+                        currentbest = input.pathcost
+                        #associate state with optimal input
+                        state.setoptimalinput(input)
+                    else:
+                        if debug:
+                            print(">NOT AS GOOD {newcost} >= {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
+                
                 
                 if debug:
-                    print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state, inp = input))
+                    print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state.components, inp = state.optimalinput.components))
             else:
                 if debug:
-                    print(">HOMEOWNEr {me}: this is the final period in the window".format(me = self.name))
-                
+                    print(">HOMEOWNER {me}: this is the final period in the window".format(me = self.name))
+                    state.printInfo()
                 
     def findInputCost(self,state,input,period,duration,debug = False):
         if debug:
-            print(">>HOMEOWNER {me}: finding cost for input {inp}".format(me = self.name, inp = input))
-            period.printInfo(1)
+            print(">>HOMEOWNER {me}: finding cost for input {inp}".format(me = self.name, inp = input.components))
         #find next state if this input is applied
         comps = self.applySimulatedInput(state,input,duration,True)
         
@@ -635,7 +641,7 @@ class HomeAgent(Agent):
             newstatecomps[devname] = newstate
         
         if debug:
-            print(">>>HOMEOWNER {me}: starting state is {start}, ending state is {end}".format(me = self.name, start = state, end = newstatecomps))
+            print(">>>HOMEOWNER {me}: starting state is {start}, ending state is {end}".format(me = self.name, start = state.components, end = newstatecomps))
         
         return newstatecomps
         
@@ -666,13 +672,14 @@ class HomeAgent(Agent):
         
         #generate input components
         #grid connected inputs
-        for devact in devactions:
-            inputs.append(optimization.InputSignal(devact,True,period.accepteddrevents))
+        if period.pendingdrevents:
+            for devact in devactions:
+                inputs.append(optimization.InputSignal(devact,True,period.pendingdrevents[0]))
         
         #no DR participation
         for devact in devactions:
             inputs.append(optimization.InputSignal(devact,True,None))
-        
+            
         #non grid connected inputs
         #do this later... needs special consideration
         
@@ -850,6 +857,9 @@ class HomeAgent(Agent):
         self.CurrentPeriod = self.PlanningWindow.periods[0]
         self.PlanningWindow.shiftWindow()
         self.NextPeriod = self.PlanningWindow.periods[0]
+        
+        #run new price forecast
+        self.priceForecast()
         
         #make a new plan over entire window
         if settings.DEBUGGING_LEVEL >= 1:

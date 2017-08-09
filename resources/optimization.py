@@ -20,10 +20,10 @@ class StateGridPoint(object):
         self.optimalinput = input
         
         
-    def printInfo(depth):
+    def printInfo(self, depth = 0):
         tab = "    "
         print(tab*depth + "STATE {comps}".format(comps = self.components))
-        print(tab*depth + "PATHCOST: {cost}".format(cost = self.pathcost))
+        print(tab*depth + "STATE COST: {sta}".format(sta = self.statecost))
         if self.optimalinput:
             print(tab*depth + "OPTIMAL INPUT:")
             self.optimalinput.printinfo(depth + 1)       
@@ -60,7 +60,7 @@ class StateGrid(object):
     def interpolatepath(self,x,debug = False):
         #use inverse distance weighting interpolation
         if debug:
-            print("****finding value at {x} using inverse distance weighting interpolation".format(x = x))
+            print("****finding path cost value at {x} using inverse distance weighting interpolation".format(x = x))
         #power to which distance should be raised
         p = 4
         
@@ -97,7 +97,7 @@ class StateGrid(object):
     def interpolatestate(self,x,debug = False):
         #use inverse distance weighting interpolation
         if debug:
-            print("****finding value at {x} using inverse distance weighting interpolation".format(x = x))
+            print("****finding state cost value at {x} using inverse distance weighting interpolation".format(x = x))
         #power to which distance should be raised
         p = 4
         
@@ -131,7 +131,7 @@ class StateGrid(object):
             sumsq += (a[key] - b[key])**2
         return sumsq ** .5
                 
-    def printInfo(self,depth):
+    def printInfo(self,depth = 0):
         tab = "    "
         print(tab*depth + "STATE GRID has {n} grid points".format(n = len(self.grid)))
     
@@ -152,7 +152,8 @@ class InputSignal(object):
     
     def printInfo(self,depth = 0):
         tab = "    "
-        print(tab*depth + "PATH COST: {cost}".format(cost = self.pathcost))
-        print(tab*depth + "INPUTS: {inp}".format(inp = self.components))
+        print(tab*depth + "INPUT: {inp}".format(inp = self.components))
+        if self.pathcost:
+            print(tab*depth + "PATH COST: {cost}".format(cost = self.pathcost))
 
     
