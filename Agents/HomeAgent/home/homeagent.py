@@ -67,11 +67,14 @@ class HomeAgent(Agent):
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
                 newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,0,38))
-                self.Appliances.append(newapp)
-                print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
-                newapp.printInfo(1)
+            elif app["type"] == "refrigerator":
+                newapp = appliances.Refrigerator(**app)
+                newapp.associatedbehavior = human.EnergyBehavior("fridge",newapp,human.PiecewiseConstant([10,1,0,1,10],[0,2,4,6]))
             else:
                 pass
+            self.Appliances.append(newapp)
+            print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
+            newapp.printInfo(1)
             
         #Both smart appliances and distributed resources are considered Devices
         #it is useful to consider the two of these together sometimes

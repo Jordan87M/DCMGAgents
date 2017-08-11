@@ -114,6 +114,39 @@ class ConstantCostFn(object):
     def eval(self,x):
         return self.c
     
-
+class PiecewiseConstant(object):
+    def __init__(self,values,bounds):
+        self.values = values
+        self.bounds = bounds
+        self.bounds.sort()
+        
+    def eval(self,x):
+        for index,bound in enumerate(self.bounds):
+            if x <= self.bounds:
+                return self.values[index]
+        return self.values[-1]
+    
+    def printInfo(self,depth):
+        tab = "    "
+        print(tab*depth + "PIECEWISE CONSTANT with {n} intervals".format(n = len(self.values)))
+    
+    
+class Interpolated(object):
+    def __init__(self,points):
+        self.points = points
+        
+    def eval(self,x):
+        right = None
+        for point in self.points:
+            if x <= point[0]:
+                right = point.index
+        if right == None:
+            return self.points[-1][1]
+        if right == 0:
+            return self.points[0][1]
+        
+        slope = (self.points[right][1] - self.points[right - 1][1])/(self.points[right][0] - self.points[right - 1][0])
+        return self.points[right-1][1] + slope*(x - self.points[right][0])        
+            
 
         
