@@ -10,6 +10,31 @@ class Device(object):
         self.issink = True
         
         self.associatedbehavior = None
+        
+        self.gridpoints = []
+        self.actionpoints = []
+        self.tempgridpoints = []
+        
+    def addCurrentStateToGrid(self):
+        #obtain current state
+        currentstate = self.getState()
+        #if the device has a state
+        if currentstate:
+            #and it isn't already in the list of grids
+            if currentstate not in self.gridpoints:
+                #add the current point to the grid
+                self.gridpoints.append(currentstate)
+                if currentstate not in self.tempgridpoints:
+                    self.tempgridpoints.append(currentstate)
+                
+    def revertStateGrid(self):
+        for point in self.tempgridpoints:
+            if point in self.gridpoints:
+                self.gridpoints.remove(point)
+            self.tempgridpoints.remove(point)
+        
+    def getState(self):
+        return None
     
     def printInfo(self,depth):
         tab = "    "
@@ -38,6 +63,9 @@ class HeatingElement(Device):
         
         self.elementOn = False
         self.temperature = self.tamb
+        
+    def getState(self):
+        return self.temperature
     
     def getPowerFromPU(self,pu):
         return pu*self.nominalpower
@@ -118,6 +146,9 @@ class HeatPump(Device):
         
         self.on = False
         self.temperature = self.tamb
+        
+    def getState(self):
+        return self.temperature
     
     def getPowerFromPU(self,pu):
         return pu*self.nominalpower

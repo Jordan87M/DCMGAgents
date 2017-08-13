@@ -18,6 +18,28 @@ class Resource(object):
         self.issource = False
         self.issink = False
         
+        self.gridpoints = []
+        self.tempgridpoints = []
+        self.actionpoints = []
+        
+    def addCurrentStateToGrid(self):
+        #obtain current state
+        currentstate = self.getState()
+        #if the device has a state
+        if currentstate:
+            #and it isn't already in the list of grids
+            if currentstate not in self.gridpoints:
+                #add the current point to the grid
+                self.gridpoints.append(currentstate)
+                if currentstate not in self.tempgridpoints:
+                    self.tempgridpoints.append(currentstate)
+                
+    def revertStateGrid(self):
+        for point in self.tempgridpoints:
+            if point in self.gridpoints:
+                self.gridpoints.remove(point)
+            self.tempgridpoints.remove(point)
+        
         
     def setOwner(self,newOwner):
         print("transferring ownership of {resource} from {owner} to {newowner}".format(resource = self, owner = self.owner, newowner = newOwner))
@@ -120,6 +142,9 @@ class Storage(Source):
         self.issource = True
         self.issink = True
         
+    def getState(self):
+        return self.SOC
+        
     def statebehaviorcheck(self,state,input):
         if state < 0.05:
             if input < 0:
@@ -212,6 +237,9 @@ class SolarPanel(Source):
         self.issink = False
         
         self.environmentalVariable = "solar_irradiance"
+        
+    def getState(self):
+        return None
         
     #calculates available power from irradiance in W/m^2
     def powerAvailable(self,irradiance):

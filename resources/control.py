@@ -97,6 +97,9 @@ class Period(object):
         self.previousperiod = None
         self.nextperiod = None
         
+        #has an official rate been announced for this period?
+        self.rateannounced = False
+        
     def setExpectedCost(self,cost):
         self.expectedenergycost = cost
         

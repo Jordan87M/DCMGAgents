@@ -331,21 +331,23 @@ class UtilityAgent(Agent):
                    }
         
         if settings.DEBUGGING_LEVEL >= 2:
-            print("\nUTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
+            print("UTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
         message = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","energymarket",{},message)
         
-    def announceRate(self, recipient, rate, start):
+    def announceRate(self, recipient, rate, period):
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} ANNOUNCING RATE {rate} to {rec}".format(me = self.name, rate = rate, rec = recipient.name))
         mesdict = {"message_sender" : self.name,
                    "message_subject" : "rate_announcement",
                    "message_target" : recipient.name,
-                   "start_time" : start.isoformat(),
+                   "period" : period.periodNumber,
                    "rate" : rate
                    }
         message = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","energymarket",{},message)
     
-    @Core.periodic(settings.ST_PLAN_INTERVAL)
+    #solicit bids for the next period
     def solicitBids(self):
         if settings.DEBUGGING_LEVEL >=2 :
             print("\nUTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
@@ -411,7 +413,7 @@ class UtilityAgent(Agent):
                     
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} SOLICITING RESERVE POWER BIDS FROM {them}".format(me = self.name, them = cust.name))
-        sched = datetime.now() + timedelta(seconds = 10)            
+        sched = datetime.now() + timedelta(seconds = 5)            
         delaycall = self.core.schedule(sched,self.planShortTerm)
         
     def planShortTerm(self):
@@ -673,12 +675,11 @@ class UtilityAgent(Agent):
                     self.sendBidRejection(bid,group.rate)
                     
             self.bidstate.reserveonly()
-            #now look at the revised bids
             
                                    
             #announce rates for next period
             for cust in group.customers:
-                self.announceRate(cust,group.rate,self.NextPeriod.startTime)
+                self.announceRate(cust,group.rate,self.NextPeriod)
                         
         self.NextPeriod.plan.printInfo(0)
                 
@@ -710,6 +711,10 @@ class UtilityAgent(Agent):
         
         #call enactPlan
         self.enactPlan()
+        
+        #solicit bids for next period, this function schedules a delayed function call to process
+        #the bids it has solicited
+        self.solicitBids()
                 
         #schedule next advancePeriod call
         self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)

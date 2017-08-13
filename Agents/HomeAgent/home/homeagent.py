@@ -43,6 +43,8 @@ class HomeAgent(Agent):
         self.Devices = []
         
         
+        self.currentSpot = None
+        
         loclist = self.location.split('.')
         if type(loclist) is list:
             if loclist[0] == "DC":
@@ -66,10 +68,10 @@ class HomeAgent(Agent):
         for app in self.appliances:
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
-                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,0,38))
+                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,-1,38))
             elif app["type"] == "refrigerator":
                 newapp = appliances.Refrigerator(**app)
-                newapp.associatedbehavior = human.EnergyBehavior("fridge",newapp,human.PiecewiseConstant([10,1,0,1,10],[0,2,4,6]))
+                newapp.associatedbehavior = human.EnergyBehavior("fridge",newapp,human.PiecewiseConstant([10,-0.1,-0.5,-0.1,10],[0,2,4,6]))
             else:
                 pass
             self.Appliances.append(newapp)
@@ -123,7 +125,7 @@ class HomeAgent(Agent):
         #for now, my cost functions are independent
         totalcost = 0
         for devkey in statecomps:
-            #print(devkey)
+            print(devkey)
             dev = listparse.lookUpByName(devkey, self.Devices)
             totalcost += dev.costFn(period,statecomps[devkey])
             
@@ -454,8 +456,29 @@ class HomeAgent(Agent):
                         #schedule a callback to begin the new period
                         self.core.schedule(startdtime,self.advancePeriod)
             elif messageSubject == "rate_announcement":
-                self.currentSpot = mesdict.get("rate")
-                self.priceChange(self.currentSpot)
+                rate = mesdict.get("rate")
+                pnum = mesdict.get("period")
+                period = self.PlanningWindow.getPeriodByNumber(pnum)
+                if period:
+                    print("period exists")
+                    #update expected energy cost variable
+                    period.expectedenergycost = rate
+                    
+                    if period == self.CurrentPeriod:
+                        self.currentSpot = rate
+                        self.priceForecast()
+                    #if the rate announcement is for the next period
+                    elif period == self.NextPeriod:
+                        print("period is next period")
+                        #and there had either not been an announcement or the announced rate differs
+                        if not period.rateannounced or rate != period.expectedenergycost:
+                            print("should remake planning window")
+                            #remake the planning window
+                            self.planningRemakeWindow(True)
+                            period.rateannounced = True
+                
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("RECEIVED RATE NOTIFICATION FROM {them} FOR PERIOD {per}. NEW RATE IS {rate}".format(them = messageSender, per = pnum, rate = rate))
                 
     
     def homefeed(self,peer,sender,bus,topic,headers,message):
@@ -566,6 +589,10 @@ class HomeAgent(Agent):
         if debug:
             print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
             
+        #add current state to grid points
+        for dev in self.Devices:
+            dev.addCurrentStateToGrid()
+            
         #remake grid points
         self.makeDPGrid(period,True)
         #remake new inputs
@@ -603,6 +630,9 @@ class HomeAgent(Agent):
                 if debug:
                     print(">HOMEOWNER {me}: this is the final period in the window".format(me = self.name))
                     state.printInfo()
+        
+        for dev in self.Devices:
+            dev.revertStateGrid()
                 
     def findInputCost(self,state,input,period,duration,debug = False):
         if debug:
@@ -613,12 +643,12 @@ class HomeAgent(Agent):
         #if the next period is not the last, consider the path cost
         if period.nextperiod.nextperiod:
             #cost of optimal path from next state forward
-            pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,True)
+            pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,False)
         else:
             #otherwise, only consider the statecost 
             pathcost = 0
         #add cost of being in next state for next period
-        pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,True)
+        pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,False)
         
         #cost of getting to next state with t
         totaltrans = 0
@@ -784,8 +814,8 @@ class HomeAgent(Agent):
             else:
                 #if not participating in a DR event
                 if input.gridconnected:
-                    minpower = -999
-                    maxpower = 999
+                    minpower = -float('inf')
+                    maxpower = float('inf')
                 else:
                     minpower = 0
                     
@@ -861,13 +891,18 @@ class HomeAgent(Agent):
         self.PlanningWindow.shiftWindow()
         self.NextPeriod = self.PlanningWindow.periods[0]
         
+        #call enact plan
+        self.enactPlan()
+        
         #run new price forecast
         self.priceForecast()
         
         #make a new plan over entire window
         if settings.DEBUGGING_LEVEL >= 1:
             print("HOMEOWNER {me} remaking planning window".format(me = self.name))
-        self.planningRemakeWindow(True)
+        
+        #remaking the planning window is now done only after the next perid rate is announced    
+        #self.planningRemakeWindow(True)
         
         #contra the utility version of this fn, don't create the next period
         
@@ -875,8 +910,7 @@ class HomeAgent(Agent):
             print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
             self.CurrentPeriod.printInfo()
         
-        #call enact plan
-        self.enactPlan()
+        
         
         #also don't schedule next call, wait for announcement from utility
     
