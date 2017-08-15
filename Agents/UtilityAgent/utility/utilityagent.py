@@ -324,7 +324,7 @@ class UtilityAgent(Agent):
         mesdict = {"message_sender" : self.name,
                    "message_target" : "broadcast",
                    "message_subject" : "announcement",
-                   "message_type" : "next_period_time",
+                   "message_type" : "period_announcement",
                    "period_number" : self.NextPeriod.periodNumber,
                    "start_time" : self.NextPeriod.startTime.isoformat(),
                    "end_time" : self.NextPeriod.endTime.isoformat()
@@ -706,7 +706,7 @@ class UtilityAgent(Agent):
         self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL))
         
         if settings.DEBUGGING_LEVEL >= 1:
-            print("+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*+*++*+++*++*\nUTILITY AGENT {me} moving into new period:".format(me = self.name))
+            print("UTILITY AGENT {me} moving into new period:".format(me = self.name))
             self.CurrentPeriod.printInfo(0)
         
         #call enactPlan
@@ -718,6 +718,7 @@ class UtilityAgent(Agent):
                 
         #schedule next advancePeriod call
         self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
+        self.announcePeriod()
         
                     
     #responsible for enacting the plan which has been defined for a planning period

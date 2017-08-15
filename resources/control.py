@@ -55,10 +55,10 @@ class Window(object):
         self.rescheduleSubsequent(periodnumber,newstarttime)
             
     def rescheduleSubsequent(self,periodnumber,newstarttime):
-        for period in periods:
-            if period.periodnumber >= periodnumber:
+        for period in self.periods:
+            if period.periodNumber >= periodnumber:
                 period.startTime = newstarttime
-                endtime = newstarttime + timdelta(seconds = self.increment)
+                endtime = newstarttime + timedelta(seconds = self.increment)
                 period.endTime = endtime
                 newstarttime = endtime
                 self.nextstarttime = newstarttime

@@ -102,6 +102,9 @@ class HomeAgent(Agent):
         self.NextPeriod = self.PlanningWindow.periods[0]
         self.CurrentPeriod.nextperiod = self.NextPeriod
         
+        #core.schedule event object for the function call to begin next period
+        self.advanceEvent = None
+        
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
         _log.info(self.config['message'])
@@ -140,7 +143,7 @@ class HomeAgent(Agent):
                 period.expectedenergycost = self.CurrentPeriod.plan.acceptedBids[0].rate
             else:
                 if settings.DEBUGGING_LEVEL >= 2:
-                    print("HOMEOWNER {me} no official rate announced".format(me = self.name))
+                    print("HOMEOWNER {me} no official rate announced for PERIOD {per}".format(me = self.name, per = period.periodNumber))
                 period.expectedenergycost = settings.ASSUMED_RATE
         
     '''callback for frequency regulation signal topic'''
@@ -444,17 +447,49 @@ class HomeAgent(Agent):
             elif messageSubject == "announcement":
                 messageType = mesdict.get("message_type",None)
                 #announcement of next period start and stop times to ensure synchronization
-                if messageType == "next_period_time":
-                    period = mesdict.get("period_number",None)
-                    #if this is a period we don't know about, it should be a new one
-                    if period > self.NextPeriod.periodNumber:
+                if messageType == "period_announcement":
+                    pnum = mesdict.get("period_number",None)
+                    
+                    #look up period in planning window -- if not in planning window, ignore
+                    period = self.PlanningWindow.getPeriodByNumber(pnum)
+                    if period:
+                        #make datetime object
                         startTime = mesdict.get("start_time",None)
                         endTime = mesdict.get("end_time",None)
                         startdtime = datetime.strptime(startTime,"%Y-%m-%dT%H:%M:%S.%f")
                         enddtime = datetime.strptime(endTime,"%Y-%m-%dT%H:%M:%S.%f")
-                        self.NextPeriod = control.Period(period,startdtime,enddtime)
-                        #schedule a callback to begin the new period
-                        self.core.schedule(startdtime,self.advancePeriod)
+                        if period.startTime == startdtime:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("HOMEOWNER {me} already knew start time for PERIOD {per}".format(me = self.name, per = pnum))
+                        else:
+                            oldtime = period.startTime
+                            period.startTime = startdtime
+                            #since we are changing our start time, cancel any existing advancePeriod() calls
+                            if self.advanceEvent:
+                                self.advanceEvent.cancel()
+                            #now create new call
+                            self.advanceEvent = self.core.schedule(startdtime,self.advancePeriod)
+                            
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("HOMEOWNER {me} revised start time for PERIOD {per} from {old} to {new}".format(me = self.name, per = pnum, old =  oldtime.isoformat(), new = startdtime.isoformat()))
+                        
+                        if period.endTime == enddtime:
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("HOMEOWNER {me} already knew end time for PERIOD {per}".format(me = self.name, per = pnum))
+                        else:
+                            #update end time
+                            oldtime = period.endTime
+                            period.endTime = enddtime
+                            #now update all subsequent periods accordingly
+                            self.PlanningWindow.rescheduleSubsequent(pnum+1,enddtime)
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("HOMEOWNER {me} revised start time for PERIOD {per} from {old} to {new}".format(me = self.name, per = pnum, old = oldtime.isoformat(), new = enddtime.isoformat()))
+                    
+                elif messageSubject == "period_duration_announcement":
+                    newduration = mesdict.get("duration",None)
+                    self.PlanningWindow.increment = newduration    
+                        
+                        
             elif messageSubject == "rate_announcement":
                 rate = mesdict.get("rate")
                 pnum = mesdict.get("period")
@@ -621,7 +656,7 @@ class HomeAgent(Agent):
                         state.setoptimalinput(input)
                     else:
                         if debug:
-                            print(">NOT AS GOOD {newcost} >= {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
+                            print(">NO BETTER: {newcost} >= {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
                 
                 
                 if debug:
@@ -739,7 +774,7 @@ class HomeAgent(Agent):
         #period's plan with this one
         
         period.plan.setAdmissibleInputs(inputs)
-        
+
         
     def admissibleInput(self,input,state,period,debug = False):
         #sum power from all components
@@ -912,7 +947,10 @@ class HomeAgent(Agent):
         
         
         
-        #also don't schedule next call, wait for announcement from utility
+        #provisionally schedule next period pending any revisions from utility
+        #if the next period's start time changes, this event must be cancelled
+        self.advanceEvent = self.core.schedule(self.CurrentPeriod.endTime,self.advancePeriod)
+
     
     '''responsible for enacting the plan which has been defined for a planning period'''
     def enactPlan(self):
