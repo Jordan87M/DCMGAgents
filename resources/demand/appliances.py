@@ -18,14 +18,18 @@ class Device(object):
     def addCurrentStateToGrid(self):
         #obtain current state
         currentstate = self.getState()
+        print("DEVICE {me} adding state {cur} to grid".format(me = self.name, cur = currentstate))
         #if the device has a state
         if currentstate:
             #and it isn't already in the list of grids
+            print("has a state")
             if currentstate not in self.gridpoints:
+                print("not already in state. added : {pts}".format(pts = self.gridpoints))
                 #add the current point to the grid
                 self.gridpoints.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
+        return currentstate
                 
     def revertStateGrid(self):
         for point in self.tempgridpoints:
@@ -52,7 +56,6 @@ class HeatingElement(Device):
         self.thermR = dev["thermalresistance"]
         self.maxSetpoint = dev["maxsetpoint"]
         self.deadband = dev["deadband"]
-        self.deltat = dev["deltat"]
         self.nominalpower = dev["nominalpower"]
         
         self.tamb = 25
@@ -95,7 +98,9 @@ class HeatingElement(Device):
             #print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
         return state
         
-    def simulationStep(self,deltat,pin):
+    def simulationStep(self,pin,deltat):
+        et = 0
+        defstep = 1
         if self.elementOn:
             if self.temperature > self.setpoint + self.deadband/2:
                 #turn element off
@@ -105,8 +110,16 @@ class HeatingElement(Device):
             if self.temperature < self.setpoint - self.deadband/2:
                 #turn element on
                 self.elementOn = True
-                
-        self.temperature = ((pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc))*self.deltat + self.temperature
+        while et < duration:
+            if (deltat - et) >= defstep:
+                step = defstep
+            else:
+                step = (duration - et)
+            et += step
+            self.temperature = ((pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc))*deltat + self.temperature
+        
+        self.printInfo()
+            
         return self.elementOn
     
     def inputCostFn(self,puaction,period,state,duration):
@@ -114,7 +127,7 @@ class HeatingElement(Device):
         #print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
         return power*duration*period.expectedenergycost    
         
-    def printInfo(self,depth):
+    def printInfo(self,depth = 0):
         tab = "    "
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print(tab*depth + "DEVICE SUMMARY FOR HEATER: {heat}".format(heat = self.name))
@@ -134,7 +147,6 @@ class HeatPump(Device):
         self.thermR = dev["thermalresistance"]
         self.maxSetpoint = dev["minsetpoint"]
         self.deadband = dev["deadband"]
-        self.deltat = dev["deltat"]
         self.nominalpower = dev["nominalpower"]
         self.carnotrelativeefficiency = dev["relativeefficiency"]
         

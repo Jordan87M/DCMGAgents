@@ -33,6 +33,7 @@ class Resource(object):
                 self.gridpoints.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
+        return currentstate
                 
     def revertStateGrid(self):
         for point in self.tempgridpoints:
@@ -220,6 +221,25 @@ class LeadAcidBattery(Storage):
     
     def charge(self,setpoint):
         self.chargeChannel.connect("BattCharge",setpoint)
+
+class Generator(Source):
+    def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,fuelCost,**kwargs):
+        super(Generator,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
+        self.fuelCost = fuelCost
+        
+        self.actionpoints = [0, .1, .25, .5, 1]
+        
+    def getState(self):
+        return None
+    
+    def costFn(self,period,devstate):
+        return 0
+    
+    def inputCostFn(self,input,period,state,duration):
+        return self.getPowerFromPU(input)*duration*self.fuelCost
+    
+    def applySimulatedInput(self,state,input,duration):
+        return 0
         
 class SolarPanel(Source):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,Voc,Vmpp,**kwargs):

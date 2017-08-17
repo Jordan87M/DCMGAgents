@@ -4,6 +4,7 @@ import logging
 import sys
 import json
 import random
+import copy
 
 from volttron.platform.vip.agent import Agent, Core, PubSub, compat, RPC
 from volttron.platform.agent import utils
@@ -33,6 +34,7 @@ class HomeAgent(Agent):
         self.appliances = self.config["appliances"]
         self.demandCurve = self.config["demandCurve"]
         self.refload = float(self.config["refload"])
+        self.winlength = self.config["windowlength"]
         self.perceivedInsol = 10
         #the following variables 
         self.FREGpart = bool(self.config["FREGpart"])
@@ -95,9 +97,9 @@ class HomeAgent(Agent):
         
         start = datetime.now()
         #this value doesn't matter
-        end = start + timedelta(seconds = 30)
+        end = start + timedelta(seconds = settings.ST_PLAN_INTERVAL)
         
-        self.PlanningWindow = control.Window(self.name,6,1,start,30)
+        self.PlanningWindow = control.Window(self.name,self.winlength,1,start,settings.ST_PLAN_INTERVAL)
         self.CurrentPeriod = control.Period(0,start,end)
         self.NextPeriod = self.PlanningWindow.periods[0]
         self.CurrentPeriod.nextperiod = self.NextPeriod
@@ -120,6 +122,11 @@ class HomeAgent(Agent):
         
         self.printInfo(1)
         
+    @Core.Periodic(settings.SIMSTEP_INTERVAL)
+    def simStep(self,state,input):
+        for app in self.Appliances:
+            app.simulationStep(input,settings.SIMSTEP_INTERVAL)
+        
     def costFn(self,period,statecomps):
         #the costFn() method is implemented at the level of the User class
         #to allow the implementation of cost functions that are not independent
@@ -128,7 +135,7 @@ class HomeAgent(Agent):
         #for now, my cost functions are independent
         totalcost = 0
         for devkey in statecomps:
-            print(devkey)
+            #print(devkey)
             dev = listparse.lookUpByName(devkey, self.Devices)
             totalcost += dev.costFn(period,statecomps[devkey])
             
@@ -608,25 +615,165 @@ class HomeAgent(Agent):
                     
                 elif type == "enrollment_confirm":
                     self.DR_participant = True    
+    
+    #determine offer price by finding a price for which the cost function is 0          
+    def determineOffer(self,debug = False):
+        threshold = 1
+        maxstep = 5
+        maxitr = 10
+        price = 0
+        pstep = .1
+        
+        cost = self.getOptimalCost(price)
+        while cost < 0 and itr < maxstep:
+            lower = cost
+            itr += 1
+        upper = cost
+            
+        itr = 0
+        while abs(cost) > threshold:
+            mid = (upper + lower)/2
+            
+            cost = self.getOptimalCost(mid)
+            
+            if cost > 0:
+                upper = mid
+            elif cost < 0:
+                lower = mid
+            else:
+                pass
+            
+            itr += 1
+            
+            if (upper - lower) > .01:
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("HOMEOWNER {me} has narrowed the price window without reducing cost sufficiently. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = cost))
+                return cost
+            
+            if itr > maxitr:
+                if settings.DEBUGGING_LEVEL >= 1:
+                    print("HOMEOWNER {me} took too many iterations to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = cost))
+                return None
+        
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("HOMEOWNER {me} determined offer price: {bid}".format(me = self.name, bid = price))
+        
+        return             
+    
+    def getOptimalCost(self,price,debug = True):
+        window = control.Window(self.name,self.winlength,self.NextPeriod.periodNumber,self.NextPeriod.startTime,settings.ST_PLAN_INTERVAL)
+        
+        #add current state to grid points
+        snapstate = {}
+        for dev in self.Devices:
+            snapcomp = dev.addCurrentStateToGrid()
+            if snapcomp:
+                snapstate[dev.name] = snapcomp
+        
+        selperiod = window.periods[-1]
+        while selperiod:
+            #begin sub
+            if debug:
+                print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = selperiod.periodNumber))
+                
+                
+            #remake grid points
+            self.makeDPGrid(selperiod,True)
+            #remake new inputs
+            if not selperiod.plan.stategrid.grid:
+                print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = selperiod.periodNumber))
+                return
+            for state in selperiod.plan.stategrid.grid:
+                #if this is not the last period
+                if selperiod.nextperiod:
+                    if debug:
+                        print(">WORKING ON A NEW STATE: {sta}".format(sta = state.components))
+                    #make inputs for the state currently being examined
+                    self.makeInputs(state,selperiod)
+                    if debug:
+                        print(">EVALUATING {n} ACTIONS".format(n = len(selperiod.plan.admissiblecontrols)))
                     
+                    #find the best input for this state
+                    currentbest = float('inf')
+                    for input in selperiod.plan.admissiblecontrols:
+                        self.findInputCost(state,input,selperiod,settings.ST_PLAN_INTERVAL,True)
+                        if input.pathcost < currentbest:
+                            if debug:
+                                print(">NEW BEST OPTION! {newcost} < {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
+                            currentbest = input.pathcost
+                            #associate state with optimal input
+                            state.setoptimalinput(input)
+                        else:
+                            if debug:
+                                print(">NO BETTER: {newcost} >= {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
+                    
+                    
+                    if debug:
+                        print(">HOMEOWNER {me}: optimal input for state {sta} is {inp}".format(me = self.name, sta = state.components, inp = state.optimalinput.components))
+                else:
+                    if debug:
+                        print(">HOMEOWNER {me}: this is the final period in the window".format(me = self.name))
+                        state.printInfo()
+            
+            #end sub
+            for dev in self.Devices:
+                dev.revertStateGrid()
+               
+            selperiod = selperiod.previousperiod
+            
+        #get beginning of path from current state
+        curstate = self.PlanningWindow.periods[0].plan.stategrid.match(snapstate)
+        if curstate:
+            recaction = curstate.optimalinput
+        else:
+            recaction = None
+            
+        return recaction.pathcost
+            
         
     def planningRemakeWindow(self,debug = False):
         if debug:
             print("HOMEOWNER {me} coming up with new plan".format(me = self.name))
+        
+        #add current state to grid points
+        snapstate = {}
+        for dev in self.Devices:
+            snapcomp = dev.addCurrentStateToGrid()
+            if snapcomp:
+                snapstate[dev.name] = snapcomp
         
         #remake plans from end of window forward
         selperiod = self.PlanningWindow.periods[-1]
         while selperiod:
             self.planningRemakePeriod(selperiod,True)
             selperiod = selperiod.previousperiod
+        
+        #get beginning of path from current state
+        curstate = self.PlanningWindow.periods[0].plan.stategrid.match(snapstate)
+        if curstate:
+            recaction = curstate.optimalinput
+        else:
+            recaction = None
+            
+        
+        #remove temporary state from list
+        for dev in self.Devices:
+            dev.revertStateGrid()
+            
+        return recaction
+        
+    def takeStateSnapshot(self):
+        comps = {}
+        for dev in self.Devices:
+            state = dev.getState()
+            if state:
+                comps[dev.name] = state
+        return comps
     
     def planningRemakePeriod(self,period,debug = False):
         if debug:
             print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
             
-        #add current state to grid points
-        for dev in self.Devices:
-            dev.addCurrentStateToGrid()
             
         #remake grid points
         self.makeDPGrid(period,True)
@@ -666,8 +813,7 @@ class HomeAgent(Agent):
                     print(">HOMEOWNER {me}: this is the final period in the window".format(me = self.name))
                     state.printInfo()
         
-        for dev in self.Devices:
-            dev.revertStateGrid()
+        
                 
     def findInputCost(self,state,input,period,duration,debug = False):
         if debug:
@@ -897,10 +1043,6 @@ class HomeAgent(Agent):
         self.vip.pubsub.publish("pubsub","weatherservice",{},mes)
 
         
-        
-    def simStep(self,state,input,tstep):
-        for app in self.Appliances:
-            app.simulationStep(state,input,tstep)
         
     def generateDemandBids(self):
         ''''a load agent that can vary its consumption might want to split up its

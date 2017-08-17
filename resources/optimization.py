@@ -33,7 +33,12 @@ class StateGrid(object):
         self.grid = []
         self.makeGrid(period,gridstates,costfunc)
         
-        
+    def match(self,comps):
+        for point in self.grid:
+            if point.components == comps:
+                return point
+        return None
+    
     def makeGrid(self,period,gridstates,costfunc):
         #clear to be safe
         self.grid = []
