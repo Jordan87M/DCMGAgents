@@ -122,7 +122,7 @@ class PiecewiseConstant(object):
         
     def eval(self,x):
         for index,bound in enumerate(self.bounds):
-            if x <= self.bounds:
+            if x <= bound:
                 return self.values[index]
         return self.values[-1]
     

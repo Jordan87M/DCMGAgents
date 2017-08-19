@@ -24,11 +24,11 @@ class Device(object):
             #and it isn't already in the list of grids
             print("has a state")
             if currentstate not in self.gridpoints:
-                print("not already in state. added : {pts}".format(pts = self.gridpoints))
                 #add the current point to the grid
                 self.gridpoints.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
+                print("not already in state. added : {pts}".format(pts = self.gridpoints))
         return currentstate
                 
     def revertStateGrid(self):
@@ -59,13 +59,13 @@ class HeatingElement(Device):
         self.nominalpower = dev["nominalpower"]
         
         self.tamb = 25
-        self.setpoint = self.tamb 
+        self.setpoint = dev["initsetpoint"]
         
         self.gridpoints = [25,30,35,40,45]
         self.actionpoints = [0,1]
         
         self.elementOn = False
-        self.temperature = self.tamb
+        self.temperature = dev["inittemp"]
         
     def getState(self):
         return self.temperature
@@ -98,7 +98,7 @@ class HeatingElement(Device):
             #print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
         return state
         
-    def simulationStep(self,pin,deltat):
+    def simulationStep(self,pin,duration):
         et = 0
         defstep = 1
         if self.elementOn:
@@ -111,12 +111,12 @@ class HeatingElement(Device):
                 #turn element on
                 self.elementOn = True
         while et < duration:
-            if (deltat - et) >= defstep:
+            if (duration - et) >= defstep:
                 step = defstep
             else:
                 step = (duration - et)
             et += step
-            self.temperature = ((pin-(self.state - self.tamb)/self.thermR)/(self.mass*self.shc))*deltat + self.temperature
+            self.temperature = ((pin-(self.temperature - self.tamb)/self.thermR)/(self.mass*self.shc))*duration + self.temperature
         
         self.printInfo()
             
@@ -151,13 +151,13 @@ class HeatPump(Device):
         self.carnotrelativeefficiency = dev["relativeefficiency"]
         
         self.tamb = 25
-        self.setpoint = self.tamb 
+        self.setpoint = dev["initsetpoint"]
         
         self.gridpoints = [15,20,25,30,35,40]
         self.actionpoints = [0,1]
         
         self.on = False
-        self.temperature = self.tamb
+        self.temperature = dev["inittemp"]
         
     def getState(self):
         return self.temperature
@@ -197,7 +197,7 @@ class HeatPump(Device):
             print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
         return state
         
-    def simulationStep(self,deltat,pin):
+    def simulationStep(self,pin,duration):
         if self.on:
             if self.temperature > self.setpoint + self.deadband/2:
                 #turn element off
@@ -211,7 +211,7 @@ class HeatPump(Device):
             input = 1
         else:
             input = 0
-        self.temperature = self.applySimulatedInput(self.temperature,input,deltat,pin)
+        self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
         return self.on
     
     def inputCostFn(self,puaction,period,state,duration):

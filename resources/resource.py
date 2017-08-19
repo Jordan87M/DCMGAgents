@@ -33,6 +33,7 @@ class Resource(object):
                 self.gridpoints.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
+                print("not already in state. added : {pts}".format(pts = self.gridpoints))
         return currentstate
                 
     def revertStateGrid(self):

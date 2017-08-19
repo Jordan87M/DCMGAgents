@@ -36,6 +36,7 @@ class StateGrid(object):
     def match(self,comps):
         for point in self.grid:
             if point.components == comps:
+                print("found match for state {co}".format(co = comps))
                 return point
         return None
     

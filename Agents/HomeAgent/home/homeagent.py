@@ -70,7 +70,7 @@ class HomeAgent(Agent):
         for app in self.appliances:
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
-                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.1,-1,38))
+                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.05,-1.5,38))
             elif app["type"] == "refrigerator":
                 newapp = appliances.Refrigerator(**app)
                 newapp.associatedbehavior = human.EnergyBehavior("fridge",newapp,human.PiecewiseConstant([10,-0.1,-0.5,-0.1,10],[0,2,4,6]))
@@ -122,10 +122,20 @@ class HomeAgent(Agent):
         
         self.printInfo(1)
         
-    @Core.Periodic(settings.SIMSTEP_INTERVAL)
-    def simStep(self,state,input):
+    @Core.periodic(settings.SIMSTEP_INTERVAL)
+    def simStep(self):
+        totalavail = self.measurePower()
+        unconstrained = 0
         for app in self.Appliances:
-            app.simulationStep(input,settings.SIMSTEP_INTERVAL)
+            unconstrained += app.nominalpower
+        
+        if unconstrained > totalavail:
+            frac = totalavail/unconstrained
+            for app in self.Appliances:
+                app.simulationStep(frac*app.nominalpower,settings.SIMSTEP_INTERVAL)            
+        else:
+            for app in self.Appliances:            
+                app.simulationStep(app.nominalpower,settings.SIMSTEP_INTERVAL)
         
     def costFn(self,period,statecomps):
         #the costFn() method is implemented at the level of the User class
@@ -621,20 +631,50 @@ class HomeAgent(Agent):
         threshold = 1
         maxstep = 5
         maxitr = 10
-        price = 0
+        initprice = 0
+        price = initprice
+        lower = price
         pstep = .1
         
-        cost = self.getOptimalCost(price)
-        while cost < 0 and itr < maxstep:
-            lower = cost
+        
+        cost = self.getOptimalCost(price,True)
+        print("initial cost: {cos}".format(cos = cost))
+        
+        itr = 0
+        while cost > 0:
+            lower -= pstep
+            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = cost))
+            
+            cost = self.getOptimalCost(lower,True)
+            
             itr += 1
-        upper = cost
+            if itr > maxitr:
+                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = lower, cos = cost))
+                break
+            
+        itr = 0
+        while cost < 0:
+            lower += pstep
+            #temporary debugging
+            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = cost))
+            
+            cost = self.getOptimalCost(lower,True)
+            
+            itr += 1
+            if itr > maxitr:
+                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = price, cos = cost))
+                break
+            
+        upper = price
+        print("bracketed price - upper: {upp}, lower: {low}".format(upp = upper, low = lower))
             
         itr = 0
         while abs(cost) > threshold:
             mid = (upper + lower)/2
             
             cost = self.getOptimalCost(mid)
+            
+            print("new cost {cos} for price {mid}".format(cos = cost, mid = mid))
             
             if cost > 0:
                 upper = mid
@@ -644,6 +684,9 @@ class HomeAgent(Agent):
                 pass
             
             itr += 1
+            
+            #temporary debugging
+            print("new range {low} - {upp}".format(low = lower, upp = upper))
             
             if (upper - lower) > .01:
                 if settings.DEBUGGING_LEVEL >= 1:
@@ -660,7 +703,11 @@ class HomeAgent(Agent):
         
         return             
     
-    def getOptimalCost(self,price,debug = True):
+    def getOptimalCost(self,price,debug = False):
+        
+        if debug:
+            print("HOMEOWNER {me} starting new iteration".format(me = self.name))
+            
         window = control.Window(self.name,self.winlength,self.NextPeriod.periodNumber,self.NextPeriod.startTime,settings.ST_PLAN_INTERVAL)
         
         #add current state to grid points
@@ -670,12 +717,15 @@ class HomeAgent(Agent):
             if snapcomp:
                 snapstate[dev.name] = snapcomp
         
+        if debug:
+            print("HOMEOWNER {me} saving current state: {sta}".format(me =  self.name, sta = snapstate))
+        
         selperiod = window.periods[-1]
         while selperiod:
+            selperiod.expectedenergycost = price
             #begin sub
             if debug:
                 print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = selperiod.periodNumber))
-                
                 
             #remake grid points
             self.makeDPGrid(selperiod,True)
@@ -715,20 +765,30 @@ class HomeAgent(Agent):
                         print(">HOMEOWNER {me}: this is the final period in the window".format(me = self.name))
                         state.printInfo()
             
-            #end sub
-            for dev in self.Devices:
-                dev.revertStateGrid()
-               
             selperiod = selperiod.previousperiod
+            #end sub
+            
+        for dev in self.Devices:
+            dev.revertStateGrid()
+           
+        
             
         #get beginning of path from current state
-        curstate = self.PlanningWindow.periods[0].plan.stategrid.match(snapstate)
+        curstate = window.periods[0].plan.stategrid.match(snapstate)
         if curstate:
+            print("this is the current state: {sta}".format(sta = curstate.components))                
             recaction = curstate.optimalinput
         else:
+            if debug:
+                print("no state match found")
             recaction = None
             
-        return recaction.pathcost
+        if recaction:
+            return recaction.pathcost
+        else:
+            if debug:
+                print("no recommended action")
+            return 0
             
         
     def planningRemakeWindow(self,debug = False):
@@ -759,8 +819,16 @@ class HomeAgent(Agent):
         #remove temporary state from list
         for dev in self.Devices:
             dev.revertStateGrid()
-            
-        return recaction
+        
+        if recaction:
+            if debug:
+                print("this is the current state: {sta} and this is its optimal control: {opt}".format(sta = curstate.components, opt = recaction.components))
+                            
+            return recaction
+        else:
+            if debug:
+                print("no recommended action")
+            return 0
         
     def takeStateSnapshot(self):
         comps = {}
@@ -773,7 +841,6 @@ class HomeAgent(Agent):
     def planningRemakePeriod(self,period,debug = False):
         if debug:
             print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
-            
             
         #remake grid points
         self.makeDPGrid(period,True)
@@ -1074,12 +1141,8 @@ class HomeAgent(Agent):
         #run new price forecast
         self.priceForecast()
         
-        #make a new plan over entire window
-        if settings.DEBUGGING_LEVEL >= 1:
-            print("HOMEOWNER {me} remaking planning window".format(me = self.name))
-        
-        #remaking the planning window is now done only after the next perid rate is announced    
-        #self.planningRemakeWindow(True)
+        #find offer price
+        self.determineOffer(True)
         
         #contra the utility version of this fn, don't create the next period
         
@@ -1168,12 +1231,10 @@ class HomeAgent(Agent):
         #tagClient.writeTags([tagName],[True])
         
     def measureVoltage(self):
-        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
-        return tagClient.readTags([tag])
+        return tagClient.readTags([self.voltageTag])
     
     def measureCurrent(self):
-        tag = "BRANCH{branch}_BUS{bus}_LOAD{load}_Current".format(branch = self.branch, bus = self.bus, load = self.load)
-        return tagClient.readTags([tag])
+        return tagClient.readTags([self.currentTag])
     
     def measurePower(self):
         return self.measureVoltage()*self.measureCurrent()
