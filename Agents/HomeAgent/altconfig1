@@ -9,6 +9,6 @@
 	"windowlength": 6,
 	"demandCurve":[[3.0, 0],[3.0, 1],[0, 1],[0, 3]],
 	"resources": [{"type":"solar","owner":"Ganderley", "location": "DC.BRANCH1.BUS2.LOAD1", "name":"Helios", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}],
-	"appliances": [{"type": "heater","owner":"Ganderley","name":"Kolmogorov","specificheatcapacity":4.184,"mass":10,"thermalresistance":2,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10,"inittemp":5}]
+	"appliances": [{"type": "heater","owner":"Ganderley","name":"Kolmogorov","specificheatcapacity":4.184,"mass":5,"thermalresistance":2,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10,"inittemp":45,"initsetpoint":41}]
 }
 	

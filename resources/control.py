@@ -89,6 +89,7 @@ class Period(object):
         self.forecast = []
         
         self.expectedenergycost = 0
+        self.offerprice = None
         
         #initialize the plan for this period
         self.plan = Plan(self,self.planner)

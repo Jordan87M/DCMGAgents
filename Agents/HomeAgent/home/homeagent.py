@@ -92,6 +92,12 @@ class HomeAgent(Agent):
         
         self.marginalutility = .2
         self.avgEnergyCost = 1
+        
+        #bid solicitations awaiting response
+        self.pendingSupplyBids = []
+        self.pendingDemandBids = []
+        
+        #bid responses awaiting acknowledgement
         self.outstandingSupplyBids = []
         self.outstandingDemandBids = []
         
@@ -306,8 +312,9 @@ class HomeAgent(Agent):
                     biddict["message_target"] = messageSender
                     biddict["message_sender"] = self.name
                     if side == "demand":
+                        
                         #determine amount and rate
-                        bidcomponents = self.generateDemandBids()
+                        bidcomponents = self.generateDemandBids(period)
                         
                         for bidcomp in bidcomponents:
                             amount = bidcomp.get("amount")
@@ -630,55 +637,63 @@ class HomeAgent(Agent):
     def determineOffer(self,debug = False):
         threshold = 1
         maxstep = 5
-        maxitr = 10
+        maxitr = 4
         initprice = 0
         price = initprice
         lower = price
-        pstep = .1
+        pstep = 1
         
         
-        cost = self.getOptimalCost(price,True)
-        print("initial cost: {cos}".format(cos = cost))
+        rec = self.getOptimalCost(price,True)
+        print("initial cost: {cos}".format(cos = rec.pathcost))
         
         itr = 0
-        while cost > 0:
+        while rec.pathcost > 0:
             lower -= pstep
-            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = cost))
             
-            cost = self.getOptimalCost(lower,True)
+            rec = self.getOptimalCost(lower,True)
+            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
             
             itr += 1
             if itr > maxitr:
-                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = lower, cos = cost))
+                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
                 break
             
         itr = 0
-        while cost < 0:
+        while rec.pathcost < 0:
             lower += pstep
             #temporary debugging
-            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = cost))
             
-            cost = self.getOptimalCost(lower,True)
+            rec = self.getOptimalCost(lower,True)
+            
+            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
             
             itr += 1
             if itr > maxitr:
-                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = price, cos = cost))
+                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = price, cos = rec.pathcost))
                 break
             
         upper = price
         print("bracketed price - upper: {upp}, lower: {low}".format(upp = upper, low = lower))
+        
+        if upper == lower:
+            #if the two bids are the same, then we haven't managed to see a zero crossing
+            #that might be because our current state is good and we don't need to use any power
+            
+            #the best action is to do nothing
+            return rec
             
         itr = 0
-        while abs(cost) > threshold:
+        while abs(rec.pathcost) > threshold:
             mid = (upper + lower)/2
             
-            cost = self.getOptimalCost(mid)
+            rec = self.getOptimalCost(mid)
             
-            print("new cost {cos} for price {mid}".format(cos = cost, mid = mid))
+            print("new cost {cos} for price {mid}".format(cos = rec.pathcost, mid = mid))
             
-            if cost > 0:
+            if rec.pathcost > 0:
                 upper = mid
-            elif cost < 0:
+            elif rec.pathcost < 0:
                 lower = mid
             else:
                 pass
@@ -690,18 +705,19 @@ class HomeAgent(Agent):
             
             if (upper - lower) > .01:
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print("HOMEOWNER {me} has narrowed the price window without reducing cost sufficiently. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = cost))
-                return cost
+                    print("HOMEOWNER {me} has narrowed the price window without reducing cost sufficiently. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
+                return rec
             
             if itr > maxitr:
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print("HOMEOWNER {me} took too many iterations to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = cost))
+                    print("HOMEOWNER {me} took too many iterations to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
                 return None
         
+        price = (upper + lower)/2
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} determined offer price: {bid}".format(me = self.name, bid = price))
         
-        return             
+        return price
     
     def getOptimalCost(self,price,debug = False):
         
@@ -784,7 +800,8 @@ class HomeAgent(Agent):
             recaction = None
             
         if recaction:
-            return recaction.pathcost
+            #return recaction.pathcost
+            return recaction
         else:
             if debug:
                 print("no recommended action")
@@ -886,7 +903,7 @@ class HomeAgent(Agent):
         if debug:
             print(">>HOMEOWNER {me}: finding cost for input {inp}".format(me = self.name, inp = input.components))
         #find next state if this input is applied
-        comps = self.applySimulatedInput(state,input,duration,True)
+        comps = self.applySimulatedInput(state,input,duration,False)
         
         #if the next period is not the last, consider the path cost
         if period.nextperiod.nextperiod:
@@ -896,7 +913,10 @@ class HomeAgent(Agent):
             #otherwise, only consider the statecost 
             pathcost = 0
         #add cost of being in next state for next period
-        pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,False)
+        
+        #we don't need to interpolate, just evaluate the state function
+        #pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,False)
+        pathcost += self.costFn(period,comps)
         
         #cost of getting to next state with t
         totaltrans = 0
@@ -1111,14 +1131,16 @@ class HomeAgent(Agent):
 
         
         
-    def generateDemandBids(self):
+    def generateDemandBids(self,periodNumber):
         ''''a load agent that can vary its consumption might want to split up its
         total consumption into components at different rates'''
+        period = self.PlanningWindow.getPeriodByNumber(periodNumber)
+        
         
         bidcomponents = []
         
-        #maybe later this will be a loop for generating multiple bids from demand curve
-        bid ={"amount":  self.refload, "rate": self.marginalutility }        
+        if period.offerprice:
+            bid ={"amount":  self.refload, "rate": period.offerprice }        
         bidcomponents.append(bid)
         return bidcomponents
 
@@ -1142,7 +1164,9 @@ class HomeAgent(Agent):
         self.priceForecast()
         
         #find offer price
-        self.determineOffer(True)
+        NextPeriod.offerprice = self.determineOffer(True)
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = recaction.pathcost))
         
         #contra the utility version of this fn, don't create the next period
         

@@ -83,7 +83,10 @@ class HeatingElement(Device):
         self.setpoint = new
         
     #Euler's method, use only for relatively short time periods
-    def applySimulatedInput(self,state,input,duration):
+    def applySimulatedInput(self,state,input,duration,pin = "default"):
+        if pin == "default":
+            pin = self.nominalpower
+            
         et = 0
         defstep = 5
         if input != 0:
@@ -94,33 +97,40 @@ class HeatingElement(Device):
             else:
                 step = (duration -et)
             et += step
-            state = (((self.nominalpower*input)-((state - self.tamb)/self.thermR))/(self.mass*self.shc))*step + state
+            state = (((pin*input)-((state - self.tamb)/self.thermR))/(self.mass*self.shc))*step + state
             #print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
         return state
         
     def simulationStep(self,pin,duration):
-        et = 0
-        defstep = 1
-        if self.elementOn:
-            if self.temperature > self.setpoint + self.deadband/2:
-                #turn element off
-                self.elementOn = False
-                pin = 0
-        else:
-            if self.temperature < self.setpoint - self.deadband/2:
-                #turn element on
-                self.elementOn = True
-        while et < duration:
-            if (duration - et) >= defstep:
-                step = defstep
-            else:
-                step = (duration - et)
-            et += step
-            self.temperature = ((pin-(self.temperature - self.tamb)/self.thermR)/(self.mass*self.shc))*duration + self.temperature
+#         et = 0
+#         defstep = 1
+#         if self.elementOn:
+#             if self.temperature > self.setpoint + self.deadband/2:
+#                 #turn element off
+#                 self.elementOn = False
+#                 pin = 0
+#         else:
+#             if self.temperature < self.setpoint - self.deadband/2:
+#                 #turn element on
+#                 self.elementOn = True
+#         while et < duration:
+#             if (duration - et) >= defstep:
+#                 step = defstep
+#             else:
+#                 step = (duration - et)
+#             et += step
+#             self.temperature = ((pin-(self.temperature - self.tamb)/self.thermR)/(self.mass*self.shc))*duration + self.temperature
         
         self.printInfo()
             
-        return self.elementOn
+        if pin > 0:
+            input = 1
+        else:
+            input = 0
+        
+        self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
+        
+        return self.temperature
     
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
@@ -189,34 +199,41 @@ class HeatPump(Device):
                 step = (duration - et)
             et += step
             #estimate working fluid temperatures
-            tc = state - 6
-            th = self.tamb + 4
-            efficiency = self.carnotrelativeefficiency*(1-((tc + 273)/(th + 273)))
-            peff = pin * efficiency
-            state = ((peff-((state - self.tamb)/self.thermR))/(self.heatcap))*step + state            
-            print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
+            tc = state - 6 + 273
+            th = self.tamb + 4 + 273
+            #print("tc: {cold}, th: {hot}, ratio: {rat}".format(cold = tc, hot = th, rat = (th/tc)))
+            #efficiency = self.carnotrelativeefficiency*(1-((tc + 273)/(th + 273)))
+            efficiency = self.carnotrelativeefficiency/((float(th)/float(tc))-1.0)
+            peff = pin*efficiency
+            state = ((-peff*input-((state - self.tamb)/self.thermR))/(self.heatcap))*step + state            
+            #print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
         return state
         
     def simulationStep(self,pin,duration):
-        if self.on:
-            if self.temperature > self.setpoint + self.deadband/2:
-                #turn element off
-                self.on = False
-                pin = 0
-        else:
-            if self.temperature < self.setpoint - self.deadband/2:
-                #turn element on
-                self.on = True
-        if self.on:
+#         if self.on:
+#             if self.temperature > self.setpoint + self.deadband/2:
+#                 #turn element off
+#                 self.on = False
+#                 pin = 0
+#         else:
+#             if self.temperature < self.setpoint - self.deadband/2:
+#                 #turn element on
+#                 self.on = True
+#         if self.on:
+#             input = 1
+#         else:
+#             input = 0
+        if pin > 0:
             input = 1
         else:
             input = 0
+        
         self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
-        return self.on
+        return self.temperature
     
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
-        print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
+        #print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
         return power*duration*period.expectedenergycost    
         
     def printInfo(self,depth):

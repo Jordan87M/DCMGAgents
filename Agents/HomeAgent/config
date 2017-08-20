@@ -9,7 +9,7 @@
 	"windowlength" : 6,
 	"demandCurve":[[1.0, 0],[1.0, 1],[0, 1],[0, 3]],
 	"resources": [{"type":"solar","owner":"Crunderson", "name":"Apollo", "location": "DC.BRANCH1.BUS1.LOAD1", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}],
-	"appliances": [{"type": "heater","owner":"Crunderson","name":"Mendeleev","specificheatcapacity":4.184,"mass":10,"thermalresistance":5,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10,"inittemp":41},
-					{"type": "refrigerator","owner":"Crunderson","name":"Krylov","volume":0.1,"thermalresistance":15,"minsetpoint":0,"nominalpower":0.6,"deadband":0.4,"deltat":10,"relativeefficiency":0.5,"inittemp":3}]
+	"appliances": [{"type": "heater","owner":"Crunderson","name":"Mendeleev","specificheatcapacity":4.184,"mass":10,"thermalresistance":5,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10,"inittemp":41,"initsetpoint":40},
+					{"type": "refrigerator","owner":"Crunderson","name":"Krylov","volume":0.08,"thermalresistance":12,"minsetpoint":0,"nominalpower":0.6,"deadband":0.4,"deltat":10,"relativeefficiency":0.5,"inittemp":3,"initsetpoint":4}]
 }
 	

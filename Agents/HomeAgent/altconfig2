@@ -9,6 +9,6 @@
 	"windowlength": 6,
 	"demandCurve":[[3.0, 0],[3.0, 1],[0, 1],[0, 3]],
 	"resources": [{"type":"solar","owner":"Robeski","location": "DC.BRANCH1.BUS2.LOAD1", "name":"Helios", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}],
-	"appliances": [{"type":"refrigerator","owner":"Robeski","name":"Koralev","volume":0.1,"thermalresistance":15,"minsetpoint":0,"nominalpower":0.6,"deadband":0.4,"deltat":10,"relativeefficiency":0.5,"inittemp":3}]
+	"appliances": [{"type":"refrigerator","owner":"Robeski","name":"Koralev","volume":0.07,"thermalresistance":11,"minsetpoint":0,"nominalpower":0.6,"deadband":0.4,"deltat":10,"relativeefficiency":0.5,"inittemp":3,"initsetpoint":4}]
 }
 	
