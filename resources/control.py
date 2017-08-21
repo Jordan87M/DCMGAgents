@@ -3,6 +3,7 @@ from DCMGClasses.resources import misc
 from datetime import datetime, timedelta
 
 import random
+from twisted.application.service import Service
 
 #this class represents the set of planning periods within the time horizon of the home agent.
 #agents won't consider what will happen after the last planning period in the current window
@@ -93,6 +94,10 @@ class Period(object):
         
         #initialize the plan for this period
         self.plan = Plan(self,self.planner)
+        
+        #initialize bid manager object for this period
+        self.supplybidmanager = BidManager(self)
+        self.demandbidmanager = BidManager(self)
         
         #links to previous and subsequent periods
         self.previousperiod = None
@@ -202,36 +207,124 @@ class Plan(object):
         if self.optimalcontrol:
             self.optimalcontrol.printInfo(depth + 1)
         
-            
-class Forecast(object):
-    def __init__(self,data,period):
-        self.data = data
-        self.creationperiod = period
+        
+class BidManager(object):
+    def __init__(self,period):
+        self.period = period
+        
+        #preliminary bids that are created in response to solicitations
+        self.initializedbids = []
+        
+        #bids that have been submitted to a utility
+        self.pendingbids = []
+        
+        #bids that have been accepted by a utility
+        self.acceptedbids = []
+        
+        #bids that have been rejected by a utility
+        self.rejectedbids = []
+        
+    def initBid(self,newbid):
+        self.initializedbids.append(newbid)
+        
+    def findBid(self,uid,list):
+        for bid in list:
+            if bid.uid == uid:
+                return bid
+        return None
+    
+    def findAccepted(self,uid):
+        return self.findBid(uid,self.acceptedbids)
+    
+    def findPending(self,uid):
+        return self.findBid(uid,self.pendingbids)
+    
+        
+        
+    def getTotalAccepted(self):
+        total = 0
+        for bid in self.acceptedbids:
+            total += bid.amount
+        return total
+        
+    #
+    def setBid(self,bid,amount,rate,name,service = None):
+        bid.rate = rate
+        bid.amount = amount
+        if service:
+            bid.service = service
+        
+        self.moveInitToPending(bid)
+        
+        return bid.makedict()
+    
+    def bidAccepted(self,bid,**biddict):
+        #may need to revise amount and rate
+        self.rate = biddict["rate"]
+        self.amount = biddict["amount"]
+        self.movePendingToAccepted(bid)
+        
+    def move(self,bid,fromlist,tolist):
+        if bid in fromlist:
+            if bid not in tolist:
+                tolist.append(bid)
+                fromlist.remove(bid)
+                return 0
+            else:
+                return -1
+        else:
+            return -2
+        
+    def moveInitToPending(self,bid):
+        return self.move(bid,self.initializedbids,self.pendingbids)
+    
+    def movePendingToAccepted(self,bid):
+        bid.accepted = True
+        return self.move(bid,self.pendingbids,self.acceptedbids)
+    
+    def movePendingToRejected(self,bid):
+        bid.accepted = False
+        return self.move(bid,self.pendingbids,self.rejectedbids)
+        
+    
+        
             
 #financial stuff
 class BidBase(object):
-    def __init__(self,amount,rate,counterparty,period,uid = None):
-        self.amount = amount
-        self.rate = rate
-        self.counterparty = counterparty
-        self.period = period
+    def __init__(self,**biddict):
+        self.amount = biddict["amount"]
+        self.rate = biddict["rate"]
+        self.counterparty = biddict["counterparty"]
+        self.periodNumber = biddict["periodnumber"]
+        self.side = biddict["side"]
                 
         self.accepted = False
         self.modified = False
         
-        #if we are creating this bid to correspond to a preexisting bid, we can specify the uid
-        #otherwise, generate an id randomly
-        if uid is None:
-            self.uid = random.getrandbits(32)
-        else:
-            self.uid = uid
+        #generate an id randomly
+        self.uid = random.getrandbits(32)
+        
     
+    def makedict(self):
+        outdict = {}
+        outdict["amount"] = self.amount
+        outdict["rate"] = self.rate
+        outdict["counterparty"] = self.counterparty
+        outdict["period"] = self.periodNumber
+        outdict["uid"] = self.uid
 
 class SupplyBid(BidBase):
-    def __init__(self,resourceName,service,amount,rate,counterparty,period,uid = None):
-        super(SupplyBid,self).__init__(amount,rate,counterparty,period,uid)
-        self.service = service
-        self.resourceName = resourceName
+    def __init__(self,**biddict):
+        super(SupplyBid,self).__init__(**biddict)
+        self.service = biddict["service"]
+        self.resourceName = biddict["resourcename"]
+        
+    def makedict(self):
+        outdict = super(SupplyBid,self).makedict()
+        outdict["service"] = self.service
+        outdict["resourcename"] = self.resourceName
+        
+        return outdict
         
     def printInfo(self, depth = 0, verbosity = 1):
         spaces = '  '
@@ -245,9 +338,15 @@ class SupplyBid(BidBase):
         print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
         
 class DemandBid(BidBase):
-    def __init__(self,amount,rate,counterparty,period,uid = None):
-        super(DemandBid,self).__init__(amount,rate,counterparty,period,uid)
+    def __init__(self,**biddict):
+        super(DemandBid,self).__init__(**biddict)
         #more stuff here later?
+        
+    def makedict(self):
+        outdict = super(DemandBid,self).makedict()
+        #probably more stuff here later...
+        
+        return outdict
         
     def printInfo(self, depth = 0):
         spaces = "    "
@@ -258,7 +357,11 @@ class DemandBid(BidBase):
         print(spaces*depth + "COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
         print(spaces*depth + "STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
         print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
-    
+
+class Forecast(object):
+    def __init__(self,data,period):
+        self.data = data
+        self.creationperiod = period    
 
 #determine daily rate based on capital cost and rate of return        
 def dailyratecalc(capitalCost,discountRate,term):
@@ -283,4 +386,8 @@ def acceptbidmod(bid,modamount):
 def rejectbid(bid):
     bid.accepted = False
     bid.modified = False
+    
+    
+
+            
     

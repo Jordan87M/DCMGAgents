@@ -1126,7 +1126,7 @@ class UtilityAgent(Agent):
                 amount = mesdict.get("amount",None)
                 period = mesdict.get("period",None)
                 uid = mesdict.get("uid",None)
-                resourceName = mesdict.get("resource",None)
+                resourceName = mesdict.get("resourcename",None)
                 
                 if side == "supply":
                     service = mesdict.get("service",None)
