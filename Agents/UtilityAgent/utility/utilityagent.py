@@ -374,7 +374,7 @@ class UtilityAgent(Agent):
                 mesdict["message_subject"] = "bid_solicitation"
                 mesdict["side"] = "demand"
                 mesdict["message_target"] = cust.name
-                mesdict["period"] = self.NextPeriod.periodNumber
+                mesdict["period_number"] = self.NextPeriod.periodNumber
                 mesdict["solicitation_id"] = self.uid
                 self.uid += 1
                 
@@ -1122,11 +1122,10 @@ class UtilityAgent(Agent):
             if messageSubject == "bid_response":
                 side = mesdict.get("side",None)
                 rate =  mesdict.get("rate",None)
-                duration = mesdict.get("duration",None)
                 amount = mesdict.get("amount",None)
                 period = mesdict.get("period",None)
                 uid = mesdict.get("uid",None)
-                resourceName = mesdict.get("resourcename",None)
+                resourceName = mesdict.get("resource_name",None)
                 
                 if side == "supply":
                     service = mesdict.get("service",None)

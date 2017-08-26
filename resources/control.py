@@ -96,8 +96,8 @@ class Period(object):
         self.plan = Plan(self,self.planner)
         
         #initialize bid manager object for this period
-        self.supplybidmanager = BidManager(self)
-        self.demandbidmanager = BidManager(self)
+        self.supplybidmanagers = BidManager(self)
+        self.demandbidmanagers = BidManager(self)
         
         #links to previous and subsequent periods
         self.previousperiod = None
@@ -212,6 +212,10 @@ class BidManager(object):
     def __init__(self,period):
         self.period = period
         
+        self.recDemandSolicitation = False
+        self.recReserveSolicitation = False
+        self.recPowerSolicitation = False
+        
         #preliminary bids that are created in response to solicitations
         self.initializedbids = []
         
@@ -233,13 +237,40 @@ class BidManager(object):
                 return bid
         return None
     
+    def procSolicitation(self,**soldict):
+        if soldict.get("message_subject",None) == "bid_solicitation":
+            if soldict.get("side",None) == "supply":
+                if soldict.get("service",None) == "power":
+                    self.recPowerSolicitation = True
+                elif soldict.get("service",None) == "reserve":
+                    self.recReserveSolicitation = True
+                else:
+                    print("error processing solicitation: unrecognized service name")
+            elif soldict.get("side",None) == "demand":
+                self.recDemandSolicitation = True
+            else:
+                print("error processing solicitation: bad solicitation message")
+        elif soldict.get("message_subject",None) == "bid_solicitation_cancellation":
+            if soldict.get("side",None) == "supply":
+                if soldict.get("service",None) == "power":
+                    self.recPowerSolicitation = False
+                elif soldict.get("service",None) == "reserve":
+                    self.recReserveSolicitation = False
+                else:
+                    print("error processing solicitation cancellation: unrecognized service name")
+            elif soldict.get("side",None) == "demand":
+                self.recDemandSolicitation = False
+            else:
+                print("error processing solicitation cancellation: bad solicitation message")
+        else:
+            print("error processing solicitation cancellation: not a solicitation")
+        
     def findAccepted(self,uid):
         return self.findBid(uid,self.acceptedbids)
     
     def findPending(self,uid):
         return self.findBid(uid,self.pendingbids)
     
-        
         
     def getTotalAccepted(self):
         total = 0
@@ -248,11 +279,13 @@ class BidManager(object):
         return total
         
     #
-    def setBid(self,bid,amount,rate,name,service = None):
+    def setBid(self,bid,amount,rate,name = None,service = None):
         bid.rate = rate
         bid.amount = amount
         if service:
             bid.service = service
+        if name:
+            bid.resourceName = name
         
         self.moveInitToPending(bid)
         
@@ -263,6 +296,10 @@ class BidManager(object):
         self.rate = biddict["rate"]
         self.amount = biddict["amount"]
         self.movePendingToAccepted(bid)
+        
+    def bidRejected(self,bid):
+        self.movePendingToRejected(bid)
+        
         
     def move(self,bid,fromlist,tolist):
         if bid in fromlist:
@@ -292,8 +329,8 @@ class BidManager(object):
 #financial stuff
 class BidBase(object):
     def __init__(self,**biddict):
-        self.amount = biddict["amount"]
-        self.rate = biddict["rate"]
+        self.amount = biddict.get("amount",None)
+        self.rate = biddict.get("rate",None)
         self.counterparty = biddict["counterparty"]
         self.periodNumber = biddict["periodnumber"]
         self.side = biddict["side"]
@@ -301,8 +338,9 @@ class BidBase(object):
         self.accepted = False
         self.modified = False
         
-        #generate an id randomly
-        self.uid = random.getrandbits(32)
+        #generate an id randomly if one is not specified
+        if not biddict["uid"]:
+            self.uid = random.getrandbits(32)
         
     
     def makedict(self):
@@ -310,19 +348,20 @@ class BidBase(object):
         outdict["amount"] = self.amount
         outdict["rate"] = self.rate
         outdict["counterparty"] = self.counterparty
-        outdict["period"] = self.periodNumber
+        outdict["period_number"] = self.periodNumber
         outdict["uid"] = self.uid
 
 class SupplyBid(BidBase):
     def __init__(self,**biddict):
         super(SupplyBid,self).__init__(**biddict)
-        self.service = biddict["service"]
-        self.resourceName = biddict["resourcename"]
+        self.service = biddict.get("service",None)
+        self.resourceName = biddict.get("resource_name",None)
         
     def makedict(self):
         outdict = super(SupplyBid,self).makedict()
         outdict["service"] = self.service
-        outdict["resourcename"] = self.resourceName
+        outdict["resource_name"] = self.resourceName
+        outdict["side"] = "supply"
         
         return outdict
         
@@ -345,6 +384,7 @@ class DemandBid(BidBase):
     def makedict(self):
         outdict = super(DemandBid,self).makedict()
         #probably more stuff here later...
+        outdict["side"] = "demand"
         
         return outdict
         

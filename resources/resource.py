@@ -22,6 +22,7 @@ class Resource(object):
         self.tempgridpoints = []
         self.actionpoints = []
         
+        
     def addCurrentStateToGrid(self):
         #obtain current state
         currentstate = self.getState()
@@ -183,7 +184,7 @@ class LeadAcidBattery(Storage):
         
         self.isintermittent = False
         self.issource = True
-        self.issink = False
+        self.issink = True
         
         
     def applySimulatedInput(self,state,input,duration):
