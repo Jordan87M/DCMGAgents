@@ -106,8 +106,30 @@ class Source(Resource):
         voltage = self.DischargeChannel.getRegV()
         return current*voltage
     
-    def connectSource(self,mode,setpoint):
-        self.connected = self.DischargeChannel.connect(mode,setpoint)
+    def setDisposition(self,setpoint = None, offset = None):
+        if setpoint != 0:
+            if self.connected:
+                if setpoint:
+                    if offset:
+                        self.DischargeChannel.changeReserve(setpoint,offset)
+                    else:
+                        self.DischargeChannel.changeSetpoint(setpoint)
+                else:
+                    #don't need to do anything, already connected
+                    pass
+            else:
+                self.connectSource(setpoint,offset)
+        else:
+            self.disconnectSource()
+                
+    def connectSource(self,setpoint = None, offset= None):
+        if setpoint:
+            if offset:
+                self.connected = self.DischargeChannel.connectWithSet(setpoint,offset)
+            else:
+                self.connected = self.DischargeChannel.connectWithset(setpoint)
+        else:
+            self.connected = self.DischargeChannel.connect()
         
     def connectSourceSoft(self,mode,setpoint):
         self.connected = self.DischargeChannel.connectSoft(mode,setpoint)
@@ -134,6 +156,9 @@ class Storage(Source):
         self.chargePower = maxChargePower
         self.capacity = capacity
         self.chargeChannel = chargeChannel
+        
+        self.isCharging = False
+        self.isDischarging = False
         
         
         self.SOC = 0
@@ -165,6 +190,50 @@ class Storage(Source):
             return power/self.maxChargePower
         else:
             return power/self.maxDischargePower
+        
+    def setDisposition(self,setpoint = None, offset = None):
+        #indicates discharging
+        if setpoint > 0:
+            if self.isCharging:
+                self.ChargeChannel.disconnect()
+                self.isCharging = False
+            if self.isDischarging:
+                if setpoint:
+                    if offset:
+                        self.DischargeChannel.changeReserve(setpoint,offset)
+                    else:
+                        self.DischargeChannel.changeSetpoint(setpoint)
+                else:
+                    #don't need to do anything, already connected
+                    pass
+            else:
+                self.connectSource(setpoint,offset)
+                self.isDischarging = True
+        #indicates charging
+        elif setpoint < 0:
+            if self.isDischarging:
+                self.DischargeChannel.disconnect()
+                self.isDischarging = False
+            if self.isCharging:
+                if setpoint:
+                    if offset:
+                        self.ChargeChannel.changeReserve(setpoint,offset)
+                    else:
+                        self.ChargeChannel.changeSetpoint(setpoint)
+                else:
+                    #don't need to do anything, already charging
+                    pass
+            else:
+                self.connectSource(setpoint,offset)
+                self.isCharging = True
+        #indicates disconnection    
+        else:
+            if self.isCharging:
+                self.ChargeChannel.disconnect()
+                self.isCharging = False
+            elif self.isDischarging:
+                self.DischargeChannel.disconnect()
+                self.isDischarging = False
     
                 
 class LeadAcidBattery(Storage):
@@ -221,8 +290,6 @@ class LeadAcidBattery(Storage):
         soc = interpolation.lininterp(self.SOCtable,voltage)
         return soc
     
-    def charge(self,setpoint):
-        self.chargeChannel.connect("BattCharge",setpoint)
 
 class Generator(Source):
     def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,fuelCost,**kwargs):
@@ -353,7 +420,7 @@ class Channel():
     #when the current drops to zero, disconnect the source    
     def waitForSettle(self):
         current = tagClient.readTag([self.regItag])
-        if abs(current) < .005:
+        if abs(current) < .01:
             self.connected = self.disconnect()
         else:
             now = datetime.now()

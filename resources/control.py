@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import random
 from twisted.application.service import Service
+from setuptools.command.build_ext import if_dl
 
 #this class represents the set of planning periods within the time horizon of the home agent.
 #agents won't consider what will happen after the last planning period in the current window
@@ -96,8 +97,11 @@ class Period(object):
         self.plan = Plan(self,self.planner)
         
         #initialize bid manager object for this period
-        self.supplybidmanagers = BidManager(self)
-        self.demandbidmanagers = BidManager(self)
+        self.supplybidmanager = BidManager(self)
+        self.demandbidmanager = BidManager(self)
+        
+        #initialize resource disposition for this period
+        self.disposition = Disposition(self)
         
         #links to previous and subsequent periods
         self.previousperiod = None
@@ -207,6 +211,33 @@ class Plan(object):
         if self.optimalcontrol:
             self.optimalcontrol.printInfo(depth + 1)
         
+class Disposition(object):
+    def __init__(self,period):
+        self.period = period
+        self.components = {}
+        
+        self.closeRelay = True
+        
+        
+    def printInfo(self,depth = 1):
+        tab = "    "
+        print(depth*tab + "ASSET DISPOSITION FOR PERIOD {per}".format(per = period.periodNumber))
+        for compkey in self.components:
+            self.components[compkey].printInfo(depth + 1)
+            
+            
+class DeviceDisposition(object):
+    def __init__(self,name,value,mode,param = None):
+        self.name = name
+        self.value = value
+        self.mode = mode
+        
+        if param:
+            self.param = param
+        
+    def printInfo(self,depth = 0):
+        tab = "    "
+        print(depth*tab + "DISPOSITION FOR DEVICE {dev}: {val} as {mod}".format(dev = self.name, val = self.value, mod = self.mode))
         
 class BidManager(object):
     def __init__(self,period):
@@ -291,14 +322,27 @@ class BidManager(object):
         
         return bid.makedict()
     
+    def updateBid(self,bid,**biddict):
+        if biddict.get("rate",None):
+            bid.rate = biddict["rate"]
+            
+        if biddict.get("amount",None):
+            bid.amount = biddict["rate"]
+    
     def bidAccepted(self,bid,**biddict):
         #may need to revise amount and rate
         self.rate = biddict["rate"]
         self.amount = biddict["amount"]
         self.movePendingToAccepted(bid)
         
+        if self.resourceName:
+            self.period.disposition[self.resourceName] = self.amount
+        else:
+            pass
+        
     def bidRejected(self,bid):
         self.movePendingToRejected(bid)
+        
         
         
     def move(self,bid,fromlist,tolist):
@@ -332,14 +376,14 @@ class BidBase(object):
         self.amount = biddict.get("amount",None)
         self.rate = biddict.get("rate",None)
         self.counterparty = biddict["counterparty"]
-        self.periodNumber = biddict["periodnumber"]
+        self.periodNumber = biddict["period_number"]
         self.side = biddict["side"]
                 
         self.accepted = False
         self.modified = False
         
         #generate an id randomly if one is not specified
-        if not biddict["uid"]:
+        if not biddict.get("uid",None):
             self.uid = random.getrandbits(32)
         
     
@@ -380,6 +424,8 @@ class DemandBid(BidBase):
     def __init__(self,**biddict):
         super(DemandBid,self).__init__(**biddict)
         #more stuff here later?
+        if biddict.get("resource_name",None):
+            self.resourceName = biddict["resource_name"]
         
     def makedict(self):
         outdict = super(DemandBid,self).makedict()

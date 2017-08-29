@@ -40,10 +40,12 @@ class HomeAgent(Agent):
         self.FREGpart = bool(self.config["FREGpart"])
         self.DRpart = bool(self.config["DRpart"])
         
+        #asset lists
         self.Resources = []
         self.Appliances = []
         self.Devices = []
         
+        #name of utility enrolled with
         self.utilityName = None
         
         self.currentSpot = None
@@ -303,8 +305,8 @@ class HomeAgent(Agent):
             if messageSubject == 'bid_solicitation':
                 service = mesdict.get("service",None)
                 side = mesdict.get("side",None)
-                periodNumber = mesdict.get("periodnumber",None)
-                period = self.PlanningWindow.lookupByName(periodNumber)
+                periodNumber = mesdict.get("period_number",None)
+                period = self.PlanningWindow.getPeriodByNumber(periodNumber)
                 #replace counterparty with message sender
                 mesdict["counterparty"] = messageSender
                 
@@ -326,7 +328,7 @@ class HomeAgent(Agent):
                                     
                                     newbid = control.SupplyBid(**mesdict)
                                     period.supplybidmanager.initBid(newbid)
-                                    period.supplybidmanager.setBid(newbid,amount,rate,service)
+                                    period.supplybidmanager.setBid(newbid,amount,rate,"power")
                                     biddict = newbid.makedict()
                                     
                                     biddict["message_target"] = messageSender
@@ -349,8 +351,9 @@ class HomeAgent(Agent):
                 side = mesdict.get("side",None)
                 amount = mesdict.get("amount",None)
                 rate = mesdict.get("rate",None)
-                periodNumber = mesdict.get("periodnumber",None)
+                periodNumber = mesdict.get("period_number",None)
                 uid = mesdict.get("uid",None)
+                name = mesdict.get("resource_name",None)
                 
                 period = self.PlanningWindow.getPeriodByNumber(periodNumber)
                 
@@ -358,19 +361,33 @@ class HomeAgent(Agent):
                 #service also may have been changed from power to regulation
                 if side == "supply":
                     bid = period.supplybidmanager.findPending(uid)
-                    period.supplybidmanager.updateBid(bid,**mesdict)
+                    period.supplybidmanager.bidAccepted(bid,**mesdict)
+                    if name:
+                        res = listparse.lookUpByName(name,self.Resources)
+                        if service == "power":
+                            period.disposition.components[name] = DeviceDisposition(name,amount,"power")
+                        elif service == "reserve":
+                            period.disposition.components[name] = DeviceDisposition(name,amount,"reserve",.2)
                     
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("\n-->HOMEOWNER {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
+                        print("-->HOMEOWNER {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
                         bid.printInfo()
                         
                 elif side == "demand":
                     bid = period.demandbidmanager.findPending(uid)
-                    period.demandbidmanager.updateBid(bid,**mesdict)
+                    period.demandbidmanager.bidAccepted(bid,**mesdict)
+                    
+                    if name:
+                        period.disposition.components[name] = DeviceDisposition(name,amount)
+                    else:
+                        period.disposition.closeRelay = True
                     
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("\n-->HOMEOWNER {me} ACK DEMAND BID ACCEPTANCE for {id}".format(me = self.name, id = uid))
+                        print("-->HOMEOWNER {me} ACK DEMAND BID ACCEPTANCE for {id}".format(me = self.name, id = uid))
                         bid.printInfo()
+                        
+                if settings.DEBUGGING_LEVEL >= 2:
+                    period.disposition.printInfo(0)
         
             elif messageSubject == "bid_rejection":
                 if side == "supply":
@@ -381,7 +398,7 @@ class HomeAgent(Agent):
                     period.demandbidmanager.bidRejected(bid)
                 
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("\n-->HOMEOWNER {me} ACK BID REJECTION FOR {id}".format(me = self.name, id = bid.uid))
+                        print("-->HOMEOWNER {me} ACK BID REJECTION FOR {id}".format(me = self.name, id = bid.uid))
                         bid.printInfo()
                         
             #subject used for handling general announcements            
@@ -458,7 +475,7 @@ class HomeAgent(Agent):
     
     def bidSolicitationResponse(self,period):
         
-        comps = period.optimalcontrol.components
+        comps = period.plan.optimalcontrol.components
         rate = period.offerprice
         
         for res in self.Resources:
@@ -641,40 +658,42 @@ class HomeAgent(Agent):
         print("initial cost: {cos}".format(cos = rec.pathcost))
         
         itr = 0
-        while rec.pathcost > 0:
-            lower -= pstep
+        if rec.pathcost > 0:
+            while rec.pathcost > 0:
+                lower -= pstep
+                
+                rec = self.getOptimalCost(lower,True)
+                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
+                
+                itr += 1
+                if itr > maxitr:
+                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
+                    break
+        elif rec.pathcost < 0:
+            while rec.pathcost < 0:
+                lower += pstep
+                #temporary debugging
+                
+                rec = self.getOptimalCost(lower,True)
+                
+                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
+                
+                itr += 1
+                if itr > maxitr:
+                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = price, cos = rec.pathcost))
+                    break
+        else:
+            #got it right the first time
+            return price
+        
+        if itr > maxitr:
+            print("HOMEOWNER {me}: couldn't bracket zero crossing".format(self.name))
+            return 0
             
-            rec = self.getOptimalCost(lower,True)
-            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
-            
-            itr += 1
-            if itr > maxitr:
-                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
-                break
-            
-        itr = 0
-        while rec.pathcost < 0:
-            lower += pstep
-            #temporary debugging
-            
-            rec = self.getOptimalCost(lower,True)
-            
-            print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
-            
-            itr += 1
-            if itr > maxitr:
-                print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = price, cos = rec.pathcost))
-                break
             
         upper = price
         print("bracketed price - upper: {upp}, lower: {low}".format(upp = upper, low = lower))
         
-        if upper == lower:
-            #if the two bids are the same, then we haven't managed to see a zero crossing
-            #that might be because our current state is good and we don't need to use any power
-            
-            #the best action is to do nothing
-            return rec
             
         itr = 0
         while abs(rec.pathcost) > threshold:
@@ -699,12 +718,12 @@ class HomeAgent(Agent):
             if (upper - lower) > .01:
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("HOMEOWNER {me} has narrowed the price window without reducing cost sufficiently. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
-                return rec
+                return (upper + lower)/2
             
             if itr > maxitr:
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("HOMEOWNER {me} took too many iterations to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
-                return None
+                return (upper + lower)/2
         
         price = (upper + lower)/2
         if settings.DEBUGGING_LEVEL >= 2:
@@ -1151,15 +1170,18 @@ class HomeAgent(Agent):
         self.NextPeriod = self.PlanningWindow.periods[0]
         
         #call enact plan
-        self.enactPlan()
+        self.enactPlan(self.CurrentPeriod)
         
         #run new price forecast
         self.priceForecast()
         
         #find offer price
-        NextPeriod.offerprice = self.determineOffer(True)
+        self.NextPeriod.offerprice = self.determineOffer(True)
         if settings.DEBUGGING_LEVEL >= 2:
-            print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = recaction.pathcost))
+            print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
+        
+        
+        #self.planningRemakeWindow(self.NextPeriod)
         
         #now that we have the offer price we can respond with bids
         self.bidSolicitationResponse(self.NextPeriod)
@@ -1168,64 +1190,37 @@ class HomeAgent(Agent):
             print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
             self.CurrentPeriod.printInfo()
         
-        
-        
         #provisionally schedule next period pending any revisions from utility
         #if the next period's start time changes, this event must be cancelled
         self.advanceEvent = self.core.schedule(self.CurrentPeriod.endTime,self.advancePeriod)
 
     
     '''responsible for enacting the plan which has been defined for a planning period'''
-    def enactPlan(self):
-        #involvedResources will help figure out which resources must be disconnected
-        involvedResources = []
-        #change setpoints
-        if self.CurrentPeriod.plan:
-            if settings.DEBUGGING_LEVEL >= 2:
-                print("RESIDENCE {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
-                
-            for bid in self.CurrentPeriod.plan.ownBids:
-                res = listparse.lookUpByName(bid.resourceName,self.Resources)
-                involvedResources.append(res)
-                #if the resource is already connected, change the setpoint
-                if res.connected == True:
-                    if settings.DEBUGGING_LEVEL >= 2:
-                        print(" Resource {rname} is already connected".format(rname = res.name))
-                    if bid.service == "power":
-                        #res.DischargeChannel.ramp(bid.amount)
-                        res.DischargeChannel.changeSetpoint(bid.amount)
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("Power resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
-                    elif bid.service == "reserve":
-                        #res.DischargeChannel.ramp(.1)
-                        res.DischargeChannel.changeReserve(bid.amount,-.2)
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("Reserve resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
-                #if the resource isn't connected, connect it and ramp up power
+    def enactPlan(self,period):
+        comps = period.disposition.components
+        
+        #operate main relay
+        if period.disposition.closeRelay:
+            self.connectLoad()
+        else:
+            self.disconnectLoad()
+        
+        #update resource dispositions
+        for res in self.Resources:
+            #is the resource in this period's disposition?
+            if res.name in comps:
+                devdisp = comps[res.name]
+                if mode == "power":
+                    res.setDisposition(devdisp.value)
+                elif mode == "reserve":
+                    res.setDisposition(devdisp.value,devdisp.param)
                 else:
-                    if bid.service == "power":
-                        #res.connectSourceSoft("Preg",bid.amount)
-                        res.DischargeChannel.connectWithSet(bid.amount,0 )
-                        if settings.DEBUGGING_LEVEL >= 2:
-                                print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
-                    elif bid.service == "reserve":
-                        #res.connectSourceSoft("Preg",.1)
-                        res.DischargeChannel.connectWithSet(bid.amount, -.2)
-                        if settings.DEBUGGING_LEVEL >= 2:
-                                print("Committed resource {rname} as a reserve with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
-            #ramp down and disconnect resources that aren't being used anymore
-            for res in self.Resources:
-                if res not in involvedResources:
-                    if res.connected == True:
-                        #res.disconnectSourceSoft()
-                        res.DischargeChannel.disconnect()
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
-                            
-            if self.CurrentPeriod.plan.plannedConsumption:
-                self.changeConsumption(1)
+                    pass
+            #if not, we should make sure the device is disconnected
             else:
-                self.changeConsumption(0)
+                res.setDisposition(0)
+        
+        
     
     def disconnectLoad(self):
         #we can disconnect load at will

@@ -341,7 +341,7 @@ class UtilityAgent(Agent):
         mesdict = {"message_sender" : self.name,
                    "message_subject" : "rate_announcement",
                    "message_target" : recipient.name,
-                   "period" : period.periodNumber,
+                   "period_number" : period.periodNumber,
                    "rate" : rate
                    }
         message = json.dumps(mesdict)
@@ -393,7 +393,7 @@ class UtilityAgent(Agent):
                     mesdict["side"] = "supply"
                     mesdict["service"] = "power"
                     mesdict["message_target"] = cust.name
-                    mesdict["period"] = self.NextPeriod.periodNumber
+                    mesdict["period_number"] = self.NextPeriod.periodNumber
                     mesdict["solicitation_id"] = self.uid
                     self.uid += 1
                     
@@ -424,12 +424,15 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             if type(res) is resource.SolarPanel:
                 amount = res.maxDischargePower*self.perceivedInsol/100
-                rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
+                #rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                rate = 0
+                #newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
+                newbid = control.SupplyBId({"resource_name": res.name, "side":"supply", "service":"power", "amount":amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.LeadAcidBattery:
                 amount = 10
                 rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
+                #newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
+                newbid = control.SupplyBId({"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})                
             else:
                 print("trying to plan for an unrecognized resource type")
             
@@ -966,7 +969,7 @@ class UtilityAgent(Agent):
             mesdict["side"] = "unspecified"
             
         mesdict["rate"] = rate        
-        mesdict["period"] = bid.period
+        mesdict["period_number"] = bid.period
         mesdict["uid"] = bid.uid
         
         if settings.DEBUGGING_LEVEL >= 2:
@@ -990,7 +993,7 @@ class UtilityAgent(Agent):
             mesdict["side"] = "demand"
         else:
             mesdict["side"] = "unspecified"
-        mesdict["period"] = bid.period
+        mesdict["period_number"] = bid.period
         mesdict["uid"] = bid.uid
         
         if settings.DEBUGGING_LEVEL >= 2:
@@ -1123,19 +1126,20 @@ class UtilityAgent(Agent):
                 side = mesdict.get("side",None)
                 rate =  mesdict.get("rate",None)
                 amount = mesdict.get("amount",None)
-                period = mesdict.get("period",None)
+                period = mesdict.get("period_number",None)
                 uid = mesdict.get("uid",None)
                 resourceName = mesdict.get("resource_name",None)
                 
                 if side == "supply":
                     service = mesdict.get("service",None)
-                    newbid = control.SupplyBid(resourceName,service,amount,rate,messageSender,period,uid)
+                    #newbid = control.SupplyBid(resourceName,service,amount,rate,messageSender,period,uid)
+                    newbid = control.SupplyBid(**mesdict)
                     if service == "power":
                         self.supplyBidList.append(newbid)
                     elif service == "reserve":                  
                         self.reserveBidList.append(newbid)
                 elif side == "demand":
-                    newbid = control.DemandBid(amount,rate,messageSender,period,uid)
+                    newbid = control.DemandBid(**mesdict)
                     self.demandBidList.append(newbid)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
@@ -1147,7 +1151,7 @@ class UtilityAgent(Agent):
 #                 side = mesdict.get("side",None)
 #                 amount = mesdict.get("amount",None)
 #                 rate = mesdict.get("rate",None)
-#                 period = mesdict.get("period",None)
+#                 period = mesdict.get("period_number",None)
 #                 uid = mesdict.get("uid",None)
 #                 
 #                 if side == "supply":
