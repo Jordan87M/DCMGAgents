@@ -427,12 +427,12 @@ class UtilityAgent(Agent):
                 #rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
                 rate = 0
                 #newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
-                newbid = control.SupplyBId({"resource_name": res.name, "side":"supply", "service":"power", "amount":amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
+                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"power", "amount":amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.LeadAcidBattery:
                 amount = 10
                 rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
                 #newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
-                newbid = control.SupplyBId({"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})                
+                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})                
             else:
                 print("trying to plan for an unrecognized resource type")
             
@@ -969,7 +969,7 @@ class UtilityAgent(Agent):
             mesdict["side"] = "unspecified"
             
         mesdict["rate"] = rate        
-        mesdict["period_number"] = bid.period
+        mesdict["period_number"] = bid.periodNumber
         mesdict["uid"] = bid.uid
         
         if settings.DEBUGGING_LEVEL >= 2:
@@ -993,7 +993,7 @@ class UtilityAgent(Agent):
             mesdict["side"] = "demand"
         else:
             mesdict["side"] = "unspecified"
-        mesdict["period_number"] = bid.period
+        mesdict["period_number"] = bid.periodNumber
         mesdict["uid"] = bid.uid
         
         if settings.DEBUGGING_LEVEL >= 2:

@@ -328,7 +328,7 @@ class HomeAgent(Agent):
                                     
                                     newbid = control.SupplyBid(**mesdict)
                                     period.supplybidmanager.initBid(newbid)
-                                    period.supplybidmanager.setBid(newbid,amount,rate,"power")
+                                    period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
                                     biddict = newbid.makedict()
                                     
                                     biddict["message_target"] = messageSender
@@ -342,7 +342,7 @@ class HomeAgent(Agent):
                                 
                                     if settings.DEBUGGING_LEVEL >= 2:
                                         print("HOME AGENT {me} submitted a bid:".format(me = self.name))
-                        
+                                        newbid.printInfo(0)
                         
                         
             #received when a homeowner's bid has been accepted    
@@ -479,47 +479,48 @@ class HomeAgent(Agent):
         rate = period.offerprice
         
         for res in self.Resources:
-            mesdict = {}
-            pu = comps[res.name]
-            amount = res.getPowerFromPU(pu)
-            
-            newbid = []
-            #if this is a storage device it might be used as supply, reserve, or demand
-            if res.issource:
-                #the device is supposed to be deployed as a source
-                if pu > 0:
-                    newbid = control.SupplyBid({"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
-                    period.supplybidmanager.initBid(newbid)
-                    period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
+            if comps.get(res.name,None):
+                mesdict = {}
+                pu = comps[res.name]
+                amount = res.getPowerFromPU(pu)
                 
-                #the device is supposed to be charged
-                elif pu < 0:
-                    newbid = control.DemandBid({"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
-                    period.demandbidmanager.initBid(newbid)
-                    period.demandbidmanager.setBid(newbid,amount,rate,res.name)
+                newbid = []
+                #if this is a storage device it might be used as supply, reserve, or demand
+                if res.issource:
+                    #the device is supposed to be deployed as a source
+                    if pu > 0:
+                        newbid = control.SupplyBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
+                        period.supplybidmanager.initBid(newbid)
+                        period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
                     
-                if res.issink:
-                    #the device is not being deployed and can be offered as reserve
-                    if pu == 0:
-                        #if the resource isn't too deeply discharged, submit reserve bid
-                        if res.soc > .25:
-                            newbid = control.SupplyBid({"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
-                            period.supplybidmanager.initBid(newbid)
-                            period.supplybidmanager.setBid(newbid,4,.5*rate,"power")
-            
-            if newbid:
-                if newbid.side == "supply":
-                    mesdict = period.supplybidmanager.makedict()
-                elif newbid.side == "demand":
-                    mesdict = period.demandbidmanager.makedict()
-                    
-                mesdict["message_sender"] = self.name
-                mesdict["message_target"] = self.utilityName
-                mesdict["message_subject"] = "bid_response"
-                mesdict["period_number"] = period.periodNumber
+                    #the device is supposed to be charged
+                    elif pu < 0:
+                        newbid = control.DemandBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
+                        period.demandbidmanager.initBid(newbid)
+                        period.demandbidmanager.setBid(newbid,amount,rate,res.name)
+                        
+                    if res.issink:
+                        #the device is not being deployed and can be offered as reserve
+                        if pu == 0:
+                            #if the resource isn't too deeply discharged, submit reserve bid
+                            if res.soc > .25:
+                                newbid = control.SupplyBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
+                                period.supplybidmanager.initBid(newbid)
+                                period.supplybidmanager.setBid(newbid,4,.5*rate,None,"power")
                 
-                mess = json.dumps(mesdict)
-                self.vip.pubsub.publish("pubsub","marketfeed",{},mess)
+                if newbid:
+                    if newbid.side == "supply":
+                        mesdict = period.supplybidmanager.makedict()
+                    elif newbid.side == "demand":
+                        mesdict = period.demandbidmanager.makedict()
+                        
+                    mesdict["message_sender"] = self.name
+                    mesdict["message_target"] = self.utilityName
+                    mesdict["message_subject"] = "bid_response"
+                    mesdict["period_number"] = period.periodNumber
+                    
+                    mess = json.dumps(mesdict)
+                    self.vip.pubsub.publish("pubsub","marketfeed",{},mess)
                         
         #now take care of demand from smart appliances
         #since our actual loads are binary, any demand will require the load to be
@@ -527,14 +528,14 @@ class HomeAgent(Agent):
         #by an agent
         mesdict = {}
         anydemand = False
-        comps = period.optimalcontrol.components
+        comps = period.plan.optimalcontrol.components
         for devkey in comps:
-            dev = listparse.lookupByName(devkey,self.Devices)
+            dev = listparse.lookUpByName(devkey,self.Devices)
             if comps[devkey] > 0:
                 anydemand = True
         
         if anydemand:
-            newbid = control.DemandBid({"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
+            newbid = control.DemandBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
             period.demandbidmanager.initBid(newbid)
             period.demandbidmanager.setBid(newbid,self.refload,rate)
             
@@ -649,57 +650,63 @@ class HomeAgent(Agent):
         maxstep = 5
         maxitr = 4
         initprice = 0
-        price = initprice
-        lower = price
+        bound = initprice
         pstep = 1
         
         
-        rec = self.getOptimalCost(price,True)
+        rec = self.getOptimalForPrice(bound,True)
         print("initial cost: {cos}".format(cos = rec.pathcost))
         
         itr = 0
         if rec.pathcost > 0:
             while rec.pathcost > 0:
-                lower -= pstep
+                bound -= pstep
                 
-                rec = self.getOptimalCost(lower,True)
-                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
+                rec = self.getOptimalForPrice(bound,True)
+                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
                 itr += 1
                 if itr > maxitr:
-                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
+                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                     break
         elif rec.pathcost < 0:
             while rec.pathcost < 0:
-                lower += pstep
+                bound += pstep
                 #temporary debugging
                 
-                rec = self.getOptimalCost(lower,True)
+                rec = self.getOptimalForPrice(bound,True)
                 
-                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = lower, cos = rec.pathcost))
+                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
                 itr += 1
                 if itr > maxitr:
-                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = price, cos = rec.pathcost))
+                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                     break
         else:
             #got it right the first time
-            return price
+            return bound, rec
         
         if itr > maxitr:
             print("HOMEOWNER {me}: couldn't bracket zero crossing".format(self.name))
-            return 0
+            return 0, rec
             
-            
-        upper = price
+        if bound < initprice:
+            lower = bound
+            upper = initprice
+        elif bound > initprice:
+            lower = initprice
+            upper = bound
+        else:
+            return 
+        
         print("bracketed price - upper: {upp}, lower: {low}".format(upp = upper, low = lower))
         
             
         itr = 0
         while abs(rec.pathcost) > threshold:
-            mid = (upper + lower)/2
+            mid = (upper + lower)*.5
             
-            rec = self.getOptimalCost(mid)
+            rec = self.getOptimalForPrice(mid)
             
             print("new cost {cos} for price {mid}".format(cos = rec.pathcost, mid = mid))
             
@@ -715,23 +722,23 @@ class HomeAgent(Agent):
             #temporary debugging
             print("new range {low} - {upp}".format(low = lower, upp = upper))
             
-            if (upper - lower) > .01:
+            if abs(upper - lower) < .01:
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("HOMEOWNER {me} has narrowed the price window without reducing cost sufficiently. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
-                return (upper + lower)/2
+                return (upper + lower)*.5, rec
             
             if itr > maxitr:
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("HOMEOWNER {me} took too many iterations to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
-                return (upper + lower)/2
+                return (upper + lower)*.5, rec
         
-        price = (upper + lower)/2
+        price = (upper + lower)*.5
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} determined offer price: {bid}".format(me = self.name, bid = price))
         
-        return price
+        return price, rec
     
-    def getOptimalCost(self,price,debug = False):
+    def getOptimalForPrice(self,price,debug = False):
         
         if debug:
             print("HOMEOWNER {me} starting new iteration".format(me = self.name))
@@ -1176,10 +1183,10 @@ class HomeAgent(Agent):
         self.priceForecast()
         
         #find offer price
-        self.NextPeriod.offerprice = self.determineOffer(True)
+        self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
-        
+            self.NextPeriod.plan.optimalcontrol.printInfo(0)
         
         #self.planningRemakeWindow(self.NextPeriod)
         

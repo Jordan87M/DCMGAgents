@@ -383,7 +383,9 @@ class BidBase(object):
         self.modified = False
         
         #generate an id randomly if one is not specified
-        if not biddict.get("uid",None):
+        if biddict.get("uid",None):
+            self.uid = biddict["uid"]
+        else:
             self.uid = random.getrandbits(32)
         
     
@@ -394,6 +396,8 @@ class BidBase(object):
         outdict["counterparty"] = self.counterparty
         outdict["period_number"] = self.periodNumber
         outdict["uid"] = self.uid
+        
+        return outdict
 
 class SupplyBid(BidBase):
     def __init__(self,**biddict):
@@ -403,8 +407,10 @@ class SupplyBid(BidBase):
         
     def makedict(self):
         outdict = super(SupplyBid,self).makedict()
-        outdict["service"] = self.service
-        outdict["resource_name"] = self.resourceName
+        if self.service:
+            outdict["service"] = self.service
+        if self.resourceName:
+            outdict["resource_name"] = self.resourceName
         outdict["side"] = "supply"
         
         return outdict
@@ -415,7 +421,7 @@ class SupplyBid(BidBase):
         print(spaces*depth + "SUPPLY BID INFORMATION for BID {id}".format(id = self.uid))
         print(spaces*depth + "SERVICE: {service} FROM: {res}".format(service = self.service, res = self.resourceName))
         print(spaces*depth + "AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
-        print(spaces*depth + "FOR PERIOD: {per}".format(per = self.period))
+        print(spaces*depth + "FOR PERIOD: {per}".format(per = self.periodNumber))
         print(spaces*depth + "COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
         print(spaces*depth + "STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
         print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    
