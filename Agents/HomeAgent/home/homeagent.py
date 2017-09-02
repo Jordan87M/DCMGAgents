@@ -32,7 +32,6 @@ class HomeAgent(Agent):
         self.location = self.config["location"]
         self.resources = self.config["resources"]
         self.appliances = self.config["appliances"]
-        self.demandCurve = self.config["demandCurve"]
         self.refload = float(self.config["refload"])
         self.winlength = self.config["windowlength"]
         self.perceivedInsol = 10
@@ -73,13 +72,15 @@ class HomeAgent(Agent):
         for app in self.appliances:
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
-                newapp.associatedbehavior = human.EnergyBehavior("heater",newapp,human.QuadraticCostFn(.05,-1.5,38))
             elif app["type"] == "refrigerator":
                 newapp = appliances.Refrigerator(**app)
-                newapp.associatedbehavior = human.EnergyBehavior("fridge",newapp,human.PiecewiseConstant([10,-0.1,-0.5,-0.1,10],[0,2,4,6]))
+            elif app["type"] == "light":
+                newapp = appliances.Light(**app)
             else:
                 pass
             self.Appliances.append(newapp)
+            self.addCostFn(newapp,app)
+            
             print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
             newapp.printInfo(1)
             
@@ -142,6 +143,31 @@ class HomeAgent(Agent):
         else:
             for app in self.Appliances:            
                 app.simulationStep(app.nominalpower,settings.SIMSTEP_INTERVAL)
+                
+    def addCostFn(self,appobj,appdict):
+        fn = appdict["costfn"]
+        paramdict = appdict["cfnparams"]
+        type = appdict["type"]
+        
+        if fn == "quad":
+            newfn = human.QuadraticCostFn(**paramdict)
+        elif fn == "quadcap":
+            newfn = human.QuadraticWCapCostFn(**paramdict)
+        elif fn == "quadmono":
+            newfn = human.QuadraticOneSideCostFn(**paramdict)
+        elif fn == "quadmonocap":
+            newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
+        elif fn == "const":
+            newfn = human.ConstantCostFn(**paramdict)
+        elif fn == "piecewise":
+            newfn = human.PiecewiseConstant(**paramdict)
+        elif fn == "interpolate":
+            newfn = human.Interpolated(**paramdict)
+        else:
+            print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
+            
+        behavior = human.EnergyBehavior(type,appobj,newfn)
+        appobj.associatedbehavior =  behavior
         
     def costFn(self,period,statecomps):
         #the costFn() method is implemented at the level of the User class
@@ -279,15 +305,7 @@ class HomeAgent(Agent):
                 elif messageType == "new_customer_confirm":
                     self.registered = True
                     
-    def priceChange(self,newPrice):
-        newdemand = interpolation.lininterp(self.demandCurve,newPrice)
-        if newdemand == 0:
-            self.disconnectLoad()
-        else:
-            if self.gridConnected:
-                pass
-            else:
-                self.connectLoad()
+    
         
     def followmarket(self, peer, sender, bus, topic, headers, message):
         mesdict = json.loads(message)
@@ -315,7 +333,7 @@ class HomeAgent(Agent):
                         period.demandbidmanager.procSolicitation(**mesdict)
                         
                         if settings.DEBUGGING_LEVEL >= 2:
-                            print("HOME AGENT {me} received a demand bid solicitation")
+                            print("HOME AGENT {me} received a demand bid solicitation".format(me = self.name))
                             
                     elif side == "supply":
                         period.supplybidmanager.procSolicitation(**mesdict)
@@ -535,9 +553,13 @@ class HomeAgent(Agent):
                 anydemand = True
         
         if anydemand:
+            if settings.DEBUGGING_LEVEL > 2:
+                print("HOMEOWNER AGENT {me} HAS DEMAND FOR period {per}".format(per = period.periodNumber))
+            
             newbid = control.DemandBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
             period.demandbidmanager.initBid(newbid)
             period.demandbidmanager.setBid(newbid,self.refload,rate)
+            mesdict = newbid.makedict()
             
             mesdict["message_sender"] = self.name
             mesdict["message_target"] = self.utilityName
@@ -546,7 +568,6 @@ class HomeAgent(Agent):
             
             mess = json.dumps(mesdict)
             self.vip.pubsub.publish("pubsub","marketfeed",{},mess)
-                    
         
         
              
@@ -646,7 +667,7 @@ class HomeAgent(Agent):
     
     #determine offer price by finding a price for which the cost function is 0          
     def determineOffer(self,debug = False):
-        threshold = 1
+        threshold = .5
         maxstep = 5
         maxitr = 4
         initprice = 0
@@ -749,7 +770,7 @@ class HomeAgent(Agent):
         snapstate = {}
         for dev in self.Devices:
             snapcomp = dev.addCurrentStateToGrid()
-            if snapcomp:
+            if snapcomp is not None:
                 snapstate[dev.name] = snapcomp
         
         if debug:
@@ -945,6 +966,7 @@ class HomeAgent(Agent):
         input.pathcost = pathcost + totaltrans
         
         if debug:
+            print(">>HOMEOWNER {me}: transition to state: {sta}".format(me = self.name, sta = comps))
             print(">>HOMEOWNER {me}: transition cost is {trans}, total path cost is {path}".format(me = self.name, trans = totaltrans, path = input.pathcost))
         
         return input.pathcost

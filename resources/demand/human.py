@@ -56,10 +56,12 @@ class EnergyBehavior(object):
         return self.utilityfn.eval(devstate)
             
 class QuadraticCostFn(object):
-    def __init__(self,a,b,c):
-        self.a = a
-        self.b = b
-        self.c = c
+    def __init__(self,**params):
+        self.a = params["a"]
+        self.b = params["b"]
+        self.c = params["c"]
+        
+        self.name = "quad"
     
     def eval(self,x):
         return self.b + self.a*(x-self.c)**2
@@ -69,9 +71,11 @@ class QuadraticCostFn(object):
         print(tab*depth + "COST FUNCTION = {b} + {a}*(x-{c})**2".format(a = self.a,b = self.b,c = self.c))
     
 class QuadraticWCapCostFn(QuadraticCostFn):
-    def __init__(self,a,b,c,cap):
-        super(QuadraticWCapCostFn,self).__init__(a,b,c)
-        self.cap = cap
+    def __init__(self,**params):
+        super(QuadraticWCapCostFn,self).__init__(**params)
+        self.cap = params["cap"]
+        
+        self.name = "quadcap"
         
     def eval(self,x):
         retval = super(QuadraticWCapCostFn,self).eval(x)
@@ -80,9 +84,11 @@ class QuadraticWCapCostFn(QuadraticCostFn):
         return retval
     
 class QuadraticOneSideCostFn(QuadraticCostFn):
-    def __init__(self,a,b,c,side):
-        super(QuadraticOneSideCostFn,self).__init__(a,b,c)
-        self.side = side
+    def __init__(self,**params):
+        super(QuadraticOneSideCostFn,self).__init__(**params)
+        self.side = params["side"]
+        
+        self.name = "quadmono"
         
     def eval(self,x):
         if side == "left":
@@ -97,9 +103,11 @@ class QuadraticOneSideCostFn(QuadraticCostFn):
                 return self.c
             
 class QuadraticOneSideWCapCostFn(QuadraticOneSideCostFn):
-    def __init__(self,a,b,c,side,cap):
-        super(QuadraticOneSideWCapCostFn,self).__init__(a,b,c,side)
-        self.cap = cap
+    def __init__(self,**params):
+        super(QuadraticOneSideWCapCostFn,self).__init__(**params)
+        self.cap = params["cap"]
+        
+        self.name = "quadmonocap"
         
     def eval(self,x):
         retval = super(QuadraticOneSideWCapCostFn,self).eval(x)
@@ -108,17 +116,21 @@ class QuadraticOneSideWCapCostFn(QuadraticOneSideCostFn):
         return retval
     
 class ConstantCostFn(object):
-    def __init__(self,c):
-        self.c = c
+    def __init__(self,**params):
+        self.c = params["c"]
+        
+        self.name = "const"
     
     def eval(self,x):
         return self.c
     
 class PiecewiseConstant(object):
-    def __init__(self,values,bounds):
-        self.values = values
-        self.bounds = bounds
+    def __init__(self,**params):
+        self.values = params["values"]
+        self.bounds = params["bounds"]
         self.bounds.sort()
+        
+        self.name = "piecewise"
         
     def eval(self,x):
         for index,bound in enumerate(self.bounds):
@@ -132,8 +144,10 @@ class PiecewiseConstant(object):
     
     
 class Interpolated(object):
-    def __init__(self,points):
-        self.points = points
+    def __init__(self,**params):
+        self.points = params["points"]
+        
+        self.name = "interpolate"
         
     def eval(self,x):
         right = None

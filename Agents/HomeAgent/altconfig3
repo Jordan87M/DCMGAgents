@@ -1,0 +1,13 @@
+{
+	"agentid": "home4",
+	"name": "Bronfman",
+	"location": "DC.BRANCH1.BUS1.LOAD3",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 0,
+	"refload" : 0.25,
+	"windowlength" : 6,
+	"resources": [],
+	"appliances": [{"type": "light", "owner": "Bronfman","name":"Mirach","nominalpower":0.25,"costfn":"piecewise","cfnparams":{"values":[0.15, -0.15],"bounds":[0.5]}}]
+}
+	

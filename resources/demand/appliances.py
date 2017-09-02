@@ -4,6 +4,7 @@ class Device(object):
     def __init__(self, **dev):
         self.name = dev["name"]
         self.owner = dev["owner"]
+        self.nominalpower = dev["nominalpower"]
         
         self.isintermittent = False
         self.issource = False
@@ -34,6 +35,7 @@ class Device(object):
     def revertStateGrid(self):
         for point in self.tempgridpoints:
             if point in self.gridpoints:
+                print("removing point {pt} from grid".format(pt = point))
                 self.gridpoints.remove(point)
             self.tempgridpoints.remove(point)
         
@@ -56,7 +58,6 @@ class HeatingElement(Device):
         self.thermR = dev["thermalresistance"]
         self.maxSetpoint = dev["maxsetpoint"]
         self.deadband = dev["deadband"]
-        self.nominalpower = dev["nominalpower"]
         
         self.tamb = 25
         self.setpoint = dev["initsetpoint"]
@@ -102,34 +103,13 @@ class HeatingElement(Device):
         return state
         
     def simulationStep(self,pin,duration):
-#         et = 0
-#         defstep = 1
-#         if self.elementOn:
-#             if self.temperature > self.setpoint + self.deadband/2:
-#                 #turn element off
-#                 self.elementOn = False
-#                 pin = 0
-#         else:
-#             if self.temperature < self.setpoint - self.deadband/2:
-#                 #turn element on
-#                 self.elementOn = True
-#         while et < duration:
-#             if (duration - et) >= defstep:
-#                 step = defstep
-#             else:
-#                 step = (duration - et)
-#             et += step
-#             self.temperature = ((pin-(self.temperature - self.tamb)/self.thermR)/(self.mass*self.shc))*duration + self.temperature
-        
-        self.printInfo()
-            
         if pin > 0:
             input = 1
         else:
             input = 0
         
         self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
-        
+        self.printInfo()
         return self.temperature
     
     def inputCostFn(self,puaction,period,state,duration):
@@ -157,7 +137,6 @@ class HeatPump(Device):
         self.thermR = dev["thermalresistance"]
         self.maxSetpoint = dev["minsetpoint"]
         self.deadband = dev["deadband"]
-        self.nominalpower = dev["nominalpower"]
         self.carnotrelativeefficiency = dev["relativeefficiency"]
         
         self.tamb = 25
@@ -210,19 +189,6 @@ class HeatPump(Device):
         return state
         
     def simulationStep(self,pin,duration):
-#         if self.on:
-#             if self.temperature > self.setpoint + self.deadband/2:
-#                 #turn element off
-#                 self.on = False
-#                 pin = 0
-#         else:
-#             if self.temperature < self.setpoint - self.deadband/2:
-#                 #turn element on
-#                 self.on = True
-#         if self.on:
-#             input = 1
-#         else:
-#             input = 0
         if pin > 0:
             input = 1
         else:
@@ -261,6 +227,57 @@ class Refrigerator(HeatPump):
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
         print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
         print(tab*depth + "STATE: {state}".format(state = self.on))
+        if self.associatedbehavior:
+            print(tab*depth + "BEHAVIOR:")
+            self.associatedbehavior.printInfo(depth + 1)
+        print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+        
+        
+class NoDynamics(Device):
+    def __init__(self,**dev):
+        super(NoDynamics,self).__init__(**dev)
+        self.gridpoints = [0, 1]
+        self.actionpoints = [0, 1]
+        
+        self.on = False
+    
+    def getState(self):
+        if self.on:
+            return 1
+        else:
+            return 0
+    
+    #nothing happens
+    def applySimulatedInput(self,state,input,duration,pin = "default"):
+        return state
+    
+    def simulationStep(self,pin,duration):
+        if pin > 0:
+            self.on = True
+        return self.on
+    
+    def inputCostFn(self,puaction,period,state,duration):
+        power = self.getPowerFromPU(puaction)
+        #print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
+        return power*duration*period.expectedenergycost 
+    
+    def getPowerFromPU(self,pu):
+        return pu*self.nominalpower
+    
+    def getPUFromPower(self,power):
+        return power/self.nominalpower
+    
+        
+class Light(NoDynamics):
+    def __init__(self,**dev):
+        super(Light,self).__init__(**dev)        
+        
+    def printInfo(self,depth = 0):
+        tab = "    "
+        print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+        print(tab*depth + "DEVICE SUMMARY FOR LIGHT: {me}".format(me = self.name))
+        print(tab*depth + "OWNER: {own}".format(own = self.owner))
+        print(tab*depth + "ON: {state}".format(state = self.on))
         if self.associatedbehavior:
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
