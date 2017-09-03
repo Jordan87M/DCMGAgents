@@ -151,6 +151,8 @@ class Plan(object):
         self.admissiblecontrols = None
         self.optimalcontrol = None
         
+        self.planningcomplete = False
+        
     def makeGrid(self,period,gridstates,costfunc):
         self.stategrid = optimization.StateGrid(period,gridstates,costfunc)
         
@@ -430,8 +432,7 @@ class DemandBid(BidBase):
     def __init__(self,**biddict):
         super(DemandBid,self).__init__(**biddict)
         #more stuff here later?
-        if biddict.get("resource_name",None):
-            self.resourceName = biddict["resource_name"]
+        self.resourceName = biddict.get("resource_name",None)
         
     def makedict(self):
         outdict = super(DemandBid,self).makedict()
@@ -444,8 +445,10 @@ class DemandBid(BidBase):
         spaces = "    "
         print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
         print(spaces*depth + "DEMAND BID INFORMATION for BID {id}".format(id = self.uid))
+        if self.resourceName:
+            print(spaces*depth + "FROM: {res}".format(res = self.resourceName))
         print(spaces*depth + "AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
-        print(spaces*depth + "FOR PERIOD: {per}".format(per = self.period))
+        print(spaces*depth + "FOR PERIOD: {per}".format(per = self.periodNumber))
         print(spaces*depth + "COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
         print(spaces*depth + "STATUS:\n   ACCEPTED: {acc}    MODIFIED: {mod}".format(acc = self.accepted, mod = self.modified))
         print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")    

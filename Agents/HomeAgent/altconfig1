@@ -8,7 +8,7 @@
 	"refload" : 0.1,
 	"windowlength": 6,
 	"resources": [{"type":"solar","owner":"Ganderley", "location": "DC.BRANCH1.BUS2.LOAD1", "name":"Ra", "capCost": 100, "maxDischargePower":10,"dischargeChannel":3,"Voc":21,"Vmpp":18}],
-	"appliances": [{"type": "heater","owner":"Ganderley","name":"Kolmogorov","specificheatcapacity":4.184,"mass":1.5,"thermalresistance":10.5,"maxsetpoint":40,"nominalpower":1.2,"deadband":0.1,"deltat":10,"inittemp":29,"initsetpoint":41, "costfn":"quad", "cfnparams":{"a":0.2,"b":-5,"c":36}},
+	"appliances": [{"type": "heater","owner":"Ganderley","name":"Kolmogorov","specificheatcapacity":4.184,"mass":1.5,"thermalresistance":10,"maxsetpoint":40,"nominalpower":1.2,"deadband":0.1,"deltat":10,"inittemp":29,"initsetpoint":41, "costfn":"quad", "cfnparams":{"a":0.2,"b":-5,"c":36}},
 				   {"type": "light", "owner": "Ganderley","name":"Alpheratz","nominalpower":0.1,"costfn":"piecewise","cfnparams":{"values":[0.5, -0.5],"bounds":[0.5]}}]
 }
 	

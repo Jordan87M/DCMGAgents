@@ -195,6 +195,7 @@ class HeatPump(Device):
             input = 0
         
         self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
+        self.printInfo(0)
         return self.temperature
     
     def inputCostFn(self,puaction,period,state,duration):
@@ -254,6 +255,8 @@ class NoDynamics(Device):
     def simulationStep(self,pin,duration):
         if pin > 0:
             self.on = True
+            
+        self.printInfo(0)
         return self.on
     
     def inputCostFn(self,puaction,period,state,duration):

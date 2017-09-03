@@ -328,13 +328,13 @@ class HomeAgent(Agent):
                 #replace counterparty with message sender
                 mesdict["counterparty"] = messageSender
                 
-                if self.Resources:
+                if self.Devices:
                     if side == "demand":
                         period.demandbidmanager.procSolicitation(**mesdict)
                         
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("HOME AGENT {me} received a demand bid solicitation".format(me = self.name))
-                            
+                         
                     elif side == "supply":
                         period.supplybidmanager.procSolicitation(**mesdict)
                         for res in self.Resources:
@@ -361,6 +361,11 @@ class HomeAgent(Agent):
                                     if settings.DEBUGGING_LEVEL >= 2:
                                         print("HOME AGENT {me} submitted a bid:".format(me = self.name))
                                         newbid.printInfo(0)
+                #if we were just waiting for a solicitation, submit bids now
+                if period.plan.planningcomplete and period.demandbidmanager.recDemandSolicitation and period.supplybidmanager.recPowerSolicitation:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("HOMEOWNER {me} JUST WAITING FOR SOLICITATION, SUBMITTING BIDS NOW")
+                    self.bidSolicitationResponse(period)  
                         
                         
             #received when a homeowner's bid has been accepted    
@@ -527,10 +532,14 @@ class HomeAgent(Agent):
                                 period.supplybidmanager.setBid(newbid,4,.5*rate,None,"power")
                 
                 if newbid:
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("HOMEOWNER AGENT {me} SUBMITTING BID".format(me = self.name))
+                        newbid.printInfo(0)
+                    
                     if newbid.side == "supply":
-                        mesdict = period.supplybidmanager.makedict()
+                        mesdict = newbid.makedict()
                     elif newbid.side == "demand":
-                        mesdict = period.demandbidmanager.makedict()
+                        mesdict = newbid.makedict()
                         
                     mesdict["message_sender"] = self.name
                     mesdict["message_target"] = self.utilityName
@@ -548,13 +557,13 @@ class HomeAgent(Agent):
         anydemand = False
         comps = period.plan.optimalcontrol.components
         for devkey in comps:
-            dev = listparse.lookUpByName(devkey,self.Devices)
+            dev = listparse.lookUpByName(devkey,self.Appliances)
             if comps[devkey] > 0:
                 anydemand = True
         
         if anydemand:
-            if settings.DEBUGGING_LEVEL > 2:
-                print("HOMEOWNER AGENT {me} HAS DEMAND FOR period {per}".format(per = period.periodNumber))
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER AGENT {me} HAS DEMAND FOR period {per}".format(me = self.name, per = period.periodNumber))
             
             newbid = control.DemandBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
             period.demandbidmanager.initBid(newbid)
@@ -566,9 +575,15 @@ class HomeAgent(Agent):
             mesdict["message_subject"] = "bid_response"
             mesdict["period_number"] = period.periodNumber
             
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER AGENT {me} SUBMITTING BID".format(me = self.name))
+                newbid.printInfo(0)
+            
             mess = json.dumps(mesdict)
             self.vip.pubsub.publish("pubsub","marketfeed",{},mess)
-        
+        else:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER AGENT {me} HAS NO DEMAND FOR period {per}".format(me =self.name, per = period.periodNumber))
         
              
     
@@ -708,7 +723,7 @@ class HomeAgent(Agent):
             return bound, rec
         
         if itr > maxitr:
-            print("HOMEOWNER {me}: couldn't bracket zero crossing".format(self.name))
+            print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
             return 0, rec
             
         if bound < initprice:
@@ -1209,12 +1224,21 @@ class HomeAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
             self.NextPeriod.plan.optimalcontrol.printInfo(0)
+        self.NextPeriod.plan.planningcomplete == True
+        
         
         #self.planningRemakeWindow(self.NextPeriod)
         
-        #now that we have the offer price we can respond with bids
-        self.bidSolicitationResponse(self.NextPeriod)
-                
+        #now that we have the offer price we can respond with bids, but wait until the utility has solicited them
+        if self.NextPeriod.supplybidmanager.recPowerSolicitation and self.NextPeriod.demandbidmanager.recDemandSolicitation:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER {me} ALREADY RECEIVED SOLICITATION, GENERATING BIDS NOW".format(me = self.name))
+            self.bidSolicitationResponse(self.NextPeriod)
+        else:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER {me} WAITING FOR SOLICITATION".format(me = self.name))
+            
+            
         if settings.DEBUGGING_LEVEL >= 1:
             print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
             self.CurrentPeriod.printInfo()
