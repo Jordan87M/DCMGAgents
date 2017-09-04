@@ -3,6 +3,7 @@ from DCMGClasses.resources import misc
 from datetime import datetime, timedelta
 
 import random
+import json
 from twisted.application.service import Service
 from setuptools.command.build_ext import if_dl
 
@@ -252,6 +253,9 @@ class BidManager(object):
         #preliminary bids that are created in response to solicitations
         self.initializedbids = []
         
+        #bids that have been defined and ready to be sent
+        self.readybids = []
+        
         #bids that have been submitted to a utility
         self.pendingbids = []
         
@@ -263,6 +267,30 @@ class BidManager(object):
         
     def initBid(self,newbid):
         self.initializedbids.append(newbid)
+        
+    def setBid(self,bid,amount,rate,name = None,service = None):
+        bid.rate = rate
+        bid.amount = amount
+        if service:
+            bid.service = service
+        if name:
+            bid.resourceName = name
+        
+        return bid.makedict()
+    
+    def readyBid(self,bid,**mesdict):
+        outdict = bid.makedict()
+        for key in mesdict:
+            outdict[key] = mesdict[key]
+        
+        self.bidstring = json.dumps(outdict)
+        print(self.bidstring)
+        self.moveInitToReady(bid)
+    
+    def sendBid(self,bid):
+        self.moveReadyToPending(bid)
+        print(bid.bidstring)
+        return bid.bidstring
         
     def findBid(self,uid,list):
         for bid in list:
@@ -310,19 +338,7 @@ class BidManager(object):
         for bid in self.acceptedbids:
             total += bid.amount
         return total
-        
-    #
-    def setBid(self,bid,amount,rate,name = None,service = None):
-        bid.rate = rate
-        bid.amount = amount
-        if service:
-            bid.service = service
-        if name:
-            bid.resourceName = name
-        
-        self.moveInitToPending(bid)
-        
-        return bid.makedict()
+     
     
     def updateBid(self,bid,**biddict):
         if biddict.get("rate",None):
@@ -345,8 +361,6 @@ class BidManager(object):
     def bidRejected(self,bid):
         self.movePendingToRejected(bid)
         
-        
-        
     def move(self,bid,fromlist,tolist):
         if bid in fromlist:
             if bid not in tolist:
@@ -358,8 +372,11 @@ class BidManager(object):
         else:
             return -2
         
-    def moveInitToPending(self,bid):
-        return self.move(bid,self.initializedbids,self.pendingbids)
+    def moveInitToReady(self,bid):
+        return self.move(bid,self.initializedbids,self.readybids)
+    
+    def moveReadyToPending(self,bid):
+        return self.move(bid,self.readybids,self.pendingbids)
     
     def movePendingToAccepted(self,bid):
         bid.accepted = True
@@ -369,8 +386,24 @@ class BidManager(object):
         bid.accepted = False
         return self.move(bid,self.pendingbids,self.rejectedbids)
         
-    
-        
+    def printInfo(self,depth = 0):
+        tab = "    "
+        print("BID MANAGER for period {per}".format(per = period.periodNumber))
+        print("INITIALIZED BIDS:")
+        for bid in self.initializedbids:
+            bid.printInfo(depth + 1)
+        print("READY BIDS:")
+        for bid in self.readybids:
+            bid.printInfo(depth +1)
+        print("PENDING BIDS:")
+        for bid in self.pendingbids:
+            bid.printInfo(depth + 1)
+        print("ACCEPTED BIDS:")
+        for bid in self.acceptedbids:
+            bid.printInfo(depth + 1)
+        print("REJECTED BIDS:")
+        for bid in self.rejectedbids:
+            bid.printInfo(depth + 1)
             
 #financial stuff
 class BidBase(object):
@@ -383,6 +416,8 @@ class BidBase(object):
                 
         self.accepted = False
         self.modified = False
+        
+        self.bidstring = None
         
         #generate an id randomly if one is not specified
         if biddict.get("uid",None):

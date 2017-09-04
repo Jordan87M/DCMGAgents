@@ -1145,7 +1145,7 @@ class UtilityAgent(Agent):
                 if settings.DEBUGGING_LEVEL >= 1:
                     #print(message)
                     print("UTILITY {me} RECEIVED A {side} BID#{id} FROM {them}".format(me = self.name, side = side,id = uid, them = messageSender ))
-                    if settings.DEBUGGING_LEVEL >= 3:
+                    if settings.DEBUGGING_LEVEL >= 2:
                         newbid.printInfo(0)
 #             elif messageSubject == "bid_acceptance":
 #                 side = mesdict.get("side",None)
