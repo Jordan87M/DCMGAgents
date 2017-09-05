@@ -224,7 +224,7 @@ class Disposition(object):
         
     def printInfo(self,depth = 1):
         tab = "    "
-        print(depth*tab + "ASSET DISPOSITION FOR PERIOD {per}".format(per = period.periodNumber))
+        print(depth*tab + "ASSET DISPOSITION FOR PERIOD {per}".format(per = self.period.periodNumber))
         for compkey in self.components:
             self.components[compkey].printInfo(depth + 1)
             
@@ -283,8 +283,8 @@ class BidManager(object):
         for key in mesdict:
             outdict[key] = mesdict[key]
         
-        self.bidstring = json.dumps(outdict)
-        print(self.bidstring)
+        bid.bidstring = json.dumps(outdict)
+        print(bid.bidstring)
         self.moveInitToReady(bid)
     
     def sendBid(self,bid):
@@ -293,9 +293,12 @@ class BidManager(object):
         return bid.bidstring
         
     def findBid(self,uid,list):
+        print(list)
         for bid in list:
+            print(bid.uid)
             if bid.uid == uid:
                 return bid
+        print("couldn't match id: {id}".format(id = uid))
         return None
     
     def procSolicitation(self,**soldict):
@@ -329,6 +332,9 @@ class BidManager(object):
     def findAccepted(self,uid):
         return self.findBid(uid,self.acceptedbids)
     
+    def findReady(self,uid):
+        return self.findBid(uid,self.readybids)
+    
     def findPending(self,uid):
         return self.findBid(uid,self.pendingbids)
     
@@ -349,14 +355,16 @@ class BidManager(object):
     
     def bidAccepted(self,bid,**biddict):
         #may need to revise amount and rate
-        self.rate = biddict["rate"]
-        self.amount = biddict["amount"]
+        bid.rate = biddict["rate"]
+        bid.amount = biddict["amount"]
+        mode = biddict.get("service",None)
         self.movePendingToAccepted(bid)
         
-        if self.resourceName:
-            self.period.disposition[self.resourceName] = self.amount
+        if bid.resourceName:
+            self.period.disposition.components[bid.resourceName] = DeviceDisposition(bid.resourceName,bid.amount,mode)
         else:
-            pass
+            if bid.side == "demand":
+                self.period.disposition.closeRelay = True
         
     def bidRejected(self,bid):
         self.movePendingToRejected(bid)
@@ -388,7 +396,7 @@ class BidManager(object):
         
     def printInfo(self,depth = 0):
         tab = "    "
-        print("BID MANAGER for period {per}".format(per = period.periodNumber))
+        print("BID MANAGER for period {per}".format(per = self.period.periodNumber))
         print("INITIALIZED BIDS:")
         for bid in self.initializedbids:
             bid.printInfo(depth + 1)

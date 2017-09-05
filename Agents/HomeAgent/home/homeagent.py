@@ -356,16 +356,16 @@ class HomeAgent(Agent):
                                 newbid = control.SupplyBid(**mesdict)
                                 period.supplybidmanager.initBid(newbid)
                                 period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
-                                biddict = newbid.makedict()
+                                biddict = {}
                                 
                                 biddict["message_target"] = messageSender
                                 biddict["message_sender"] = self.name
                                 biddict["message_subject"] = "bid_response"
                                 
+                                period.supplybidmanager.readyBid(newbid, **biddict)
+                                
                                 #and send to utility for consideration
-                                mess = json.dumps(biddict)
-
-                                self.vip.pubsub.publish(peer = "pubsub",topic = "energymarket",headers = {}, message = mess)
+                                self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
                         
                         if period.plan.planningcomplete:
                             if period.supplybidmanager.readybids:
@@ -416,11 +416,20 @@ class HomeAgent(Agent):
                     period.disposition.printInfo(0)
         
             elif messageSubject == "bid_rejection":
+                side = mesdict.get("side",None)
+                amount = mesdict.get("amount",None)
+                rate = mesdict.get("rate",None)
+                periodNumber = mesdict.get("period_number",None)
+                uid = mesdict.get("uid",None)
+                name = mesdict.get("resource_name",None)
+                
+                period = self.PlanningWindow.getPeriodByNumber(periodNumber)
+                
                 if side == "supply":
-                    bid = period.supplybidmanager.findpending(uid)
+                    bid = period.supplybidmanager.findPending(uid)
                     period.supplybidmanager.bidRejected(bid)
                 elif side == "demand":
-                    bid = period.demandbidmanager.findpending(uid)
+                    bid = period.demandbidmanager.findPending(uid)
                     period.demandbidmanager.bidRejected(bid)
                 
                     if settings.DEBUGGING_LEVEL >= 2:
@@ -586,7 +595,7 @@ class HomeAgent(Agent):
                 print("SUBMITTING BID")
                 bid.printInfo(0)
             self.vip.pubsub.publish("pubsub","energymarket",{},bidmanager.sendBid(bid))
-               
+            bidmanager.printInfo()
     
     def homefeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -691,7 +700,7 @@ class HomeAgent(Agent):
         pstep = 1
         
         
-        rec = self.getOptimalForPrice(bound,True)
+        rec = self.getOptimalForPrice(bound,False)
         print("initial cost: {cos}".format(cos = rec.pathcost))
         
         itr = 0
@@ -699,7 +708,7 @@ class HomeAgent(Agent):
             while rec.pathcost > 0:
                 bound -= pstep
                 
-                rec = self.getOptimalForPrice(bound,True)
+                rec = self.getOptimalForPrice(bound,False)
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
                 itr += 1
@@ -711,7 +720,7 @@ class HomeAgent(Agent):
                 bound += pstep
                 #temporary debugging
                 
-                rec = self.getOptimalForPrice(bound,True)
+                rec = self.getOptimalForPrice(bound,False)
                 
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
@@ -800,7 +809,7 @@ class HomeAgent(Agent):
                 print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = selperiod.periodNumber))
                 
             #remake grid points
-            self.makeDPGrid(selperiod,True)
+            self.makeDPGrid(selperiod,debug)
             #remake new inputs
             if not selperiod.plan.stategrid.grid:
                 print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = selperiod.periodNumber))
@@ -818,7 +827,7 @@ class HomeAgent(Agent):
                     #find the best input for this state
                     currentbest = float('inf')
                     for input in selperiod.plan.admissiblecontrols:
-                        self.findInputCost(state,input,selperiod,settings.ST_PLAN_INTERVAL,True)
+                        self.findInputCost(state,input,selperiod,settings.ST_PLAN_INTERVAL,debug)
                         if input.pathcost < currentbest:
                             if debug:
                                 print(">NEW BEST OPTION! {newcost} < {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
@@ -916,7 +925,7 @@ class HomeAgent(Agent):
             print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = period.periodNumber))
             
         #remake grid points
-        self.makeDPGrid(period,True)
+        self.makeDPGrid(period,False)
         #remake new inputs
         if not period.plan.stategrid.grid:
             print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = period.periodNumber))
@@ -934,7 +943,7 @@ class HomeAgent(Agent):
                 #find the best input for this state
                 currentbest = float('inf')
                 for input in period.plan.admissiblecontrols:
-                    self.findInputCost(state,input,period,settings.ST_PLAN_INTERVAL,True)
+                    self.findInputCost(state,input,period,settings.ST_PLAN_INTERVAL,debug)
                     if input.pathcost < currentbest:
                         if debug:
                             print(">NEW BEST OPTION! {newcost} < {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
@@ -1267,9 +1276,9 @@ class HomeAgent(Agent):
             #is the resource in this period's disposition?
             if res.name in comps:
                 devdisp = comps[res.name]
-                if mode == "power":
+                if devdisp.mode == "power":
                     res.setDisposition(devdisp.value)
-                elif mode == "reserve":
+                elif devdisp.mode == "reserve":
                     res.setDisposition(devdisp.value,devdisp.param)
                 else:
                     pass

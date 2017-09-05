@@ -988,7 +988,7 @@ class UtilityAgent(Agent):
         mesdict["rate"] = rate        
         if bid.__class__.__name__ == "SupplyBid":
             mesdict["side"] = "supply"
-            mesdict["service"] = "service"
+            mesdict["service"] = bid.service
         elif bid.__class__.__name__ == "DemandBid":
             mesdict["side"] = "demand"
         else:
@@ -1114,6 +1114,7 @@ class UtilityAgent(Agent):
             print("{mat}".format(mat = self.connMatrix))
         
     def marketfeed(self, peer, sender, bus, topic, headers, message):
+        print("TEMP DEBUG - UTILITY: {mes}".format(mes = message))
         mesdict = json.loads(message)
         messageSubject = mesdict.get("message_subject",None)
         messageTarget = mesdict.get("message_target",None)
@@ -1129,6 +1130,9 @@ class UtilityAgent(Agent):
                 period = mesdict.get("period_number",None)
                 uid = mesdict.get("uid",None)
                 resourceName = mesdict.get("resource_name",None)
+                
+                #switch counterparty
+                mesdict["counterparty"] = messageSender
                 
                 if side == "supply":
                     service = mesdict.get("service",None)
