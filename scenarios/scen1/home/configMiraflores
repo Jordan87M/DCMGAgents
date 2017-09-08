@@ -1,0 +1,13 @@
+{
+	"agentid": "home5",
+	"name": "Miraflores",
+	"location": "DC.BRANCH2.BUS1.LOAD1",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 0,
+	"refload" : 0.1,
+	"windowlength" : 6,
+	"resources": [],
+	"appliances": [{"type": "light", "owner": "Miraflores","name":"Vega","nominalpower":0.1,"costfn":"piecewise","cfnparams":{"values":[0.5, -0.5],"bounds":[0.5]}}]
+}
+	

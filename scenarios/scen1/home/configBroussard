@@ -1,0 +1,12 @@
+{
+	"agentid": "home6",
+	"name": "Broussard",
+	"location": "DC.BRANCH2.BUS2.LOAD1",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 0,
+	"refload" : 0.1,
+	"windowlength" : 6,
+	"resources": [{"type": "lead_acid_battery", "owner": "Broussard", "name":"Demeter", "location": "DC.BRANCH2.BUS2", "capCost": 200, "maxDischargePower": 4, "maxChargePower": 4, "capacity": 7, "chargeChannel": 5, "dischargeChannel": 6}],
+	"appliances": [{"type": "light", "owner": "Broussard","name":"Deneb","nominalpower":0.1,"costfn":"piecewise","cfnparams":{"values":[0.4, -0.4],"bounds":[0.5]}}]
+}

@@ -1,0 +1,12 @@
+{
+	"agentid": "home8",
+	"name": "Mtumbo",
+	"location": "DC.BRANCH2.BUS1.LOAD3",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 0,
+	"refload" : 0.1,
+	"windowlength" : 4,
+	"resources": [],
+	"appliances": [{"type": "light", "owner": "Mtumbo","name":"Arcturus","nominalpower":0.1,"costfn":"piecewise","cfnparams":{"values":[0.45, -0.45],"bounds":[0.5]}}]
+}

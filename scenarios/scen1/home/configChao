@@ -1,0 +1,13 @@
+{
+	"agentid": "home7",
+	"name": "Chao",
+	"location": "DC.BRANCH2.BUS1.LOAD2",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 0,
+	"refload" : 0.1,
+	"windowlength" : 6,
+	"resources": [],
+	"appliances": [{"type": "light", "owner": "Chao","name":"Capella","nominalpower":0.1,"costfn":"piecewise","cfnparams":{"values":[0.6, -0.6],"bounds":[0.5]}}]
+}
+	

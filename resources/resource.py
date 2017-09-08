@@ -127,7 +127,7 @@ class Source(Resource):
             if offset:
                 self.connected = self.DischargeChannel.connectWithSet(setpoint,offset)
             else:
-                self.connected = self.DischargeChannel.connectWithset(setpoint)
+                self.connected = self.DischargeChannel.connectWithSet(setpoint)
         else:
             self.connected = self.DischargeChannel.connect()
         
