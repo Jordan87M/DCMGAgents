@@ -136,7 +136,7 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             for node in self.nodes:
                 if res.location == node.name:
-                    node.addResource(res,res.DischargeChannel.regItag)
+                    node.addResource(res)
             
         
         self.perceivedInsol = 75 #as a percentage of nominal

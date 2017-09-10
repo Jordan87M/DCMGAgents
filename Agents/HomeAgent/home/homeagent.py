@@ -132,6 +132,7 @@ class HomeAgent(Agent):
     @Core.periodic(settings.SIMSTEP_INTERVAL)
     def simStep(self):
         totalavail = self.measurePower()
+        print("TOTAL POWER AVAILABLE TO HOMEOWNER {me}: {pow}".format(me = self.name, pow = totalavail))
         unconstrained = 0
         for app in self.Appliances:
             unconstrained += app.nominalpower
@@ -706,7 +707,7 @@ class HomeAgent(Agent):
         itr = 0
         if rec.pathcost > 0:
             while rec.pathcost > 0:
-                bound -= pstep
+                bound -= pstep*(itr+1)
                 
                 rec = self.getOptimalForPrice(bound,False)
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
@@ -717,7 +718,7 @@ class HomeAgent(Agent):
                     break
         elif rec.pathcost < 0:
             while rec.pathcost < 0:
-                bound += pstep
+                bound += pstep*(itr+1)
                 #temporary debugging
                 
                 rec = self.getOptimalForPrice(bound,False)
@@ -857,7 +858,7 @@ class HomeAgent(Agent):
         #get beginning of path from current state
         curstate = window.periods[0].plan.stategrid.match(snapstate)
         if curstate:
-            print("this is the current state: {sta}".format(sta = curstate.components))                
+            #print("this is the current state: {sta}".format(sta = curstate.components))                
             recaction = curstate.optimalinput
         else:
             if debug:

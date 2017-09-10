@@ -1,24 +1,24 @@
 config 1
 
 BR1B1L1 -- Crunderson
-BR1B1L2 -- 
+BR1B1L2 -- Farouq
 BR1B1L3 -- Bronfman
 BR1B2L1 -- Ganderley
 BR1B2L2 -- Robeski
-BR1B2L3 -- 
+BR1B2L3 -- Motohashi
 BR2B1L1 -- Miraflores
 BR2B1L2 -- Chao
 BR2B1L3 -- Mtumbo
 BR2B2L1 -- Broussard
-BR2B2L2 -- 
-BR2B2L3 -- 
+BR2B2L2 -- Figueroa
+BR2B2L3 -- Chatterjee
 
 SRC1 -- Enercon-
 SRC2 -- Enercon-Phaeton
 SRC3 -- Ganderley-Ra
 SRC4 -- Robeski-Helios
-SRC5 -- Broussard-
-SRC6 -- Broussard-
+SRC5 -- Broussard-Demeter
+SRC6 -- Broussard-Demeter
 
 Star names used:
 Zubenelgenubi

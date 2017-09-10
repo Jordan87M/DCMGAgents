@@ -7,11 +7,12 @@ from volttron.platform.vip.agent import Core
 from datetime import datetime, timedelta
 
 class Resource(object):
-    def __init__(self,owner,location,name,capCost,**kwargs):
-        self.owner = owner
-        self.location = location
-        self.capCost = capCost
-        self.name = name
+    def __init__(self,**res):
+        self.owner = res["owner"]
+        self.location = res["location"]
+        self.capCost = res["capCost"]
+        self.name = res["name"]
+        
         self.tagCache = {}
         
         self.isintermittent = False
@@ -34,7 +35,7 @@ class Resource(object):
                 self.gridpoints.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
-                print("not already in state. added : {pts}".format(pts = self.gridpoints))
+                #print("not already in state. added : {pts}".format(pts = self.gridpoints))
         return currentstate
                 
     def revertStateGrid(self):
@@ -53,16 +54,16 @@ class Resource(object):
         print(spaces*depth + "**RESOURCE: {name} owned by {owner}\n        TYPE:{type}\n        LOCATION:{loc}".format(name = self.name, owner = self.owner, type = self.__class__.__name__, loc = self.location))
 
 class Source(Resource):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs):
-        super(Source,self).__init__(owner,location,name,capCost)
-        self.maxDischargePower = maxDischargePower
-        self.dischargeChannel = dischargeChannel
+    def __init__(self,**res):
+        super(Source,self).__init__(**res)
+        self.maxDischargePower = res["maxDischargePower"]
+        self.dischargeChannel = res["dischargeChannel"]
         
         self.availDischargePower = 0
         
         self.connected = False
         
-        self.DischargeChannel = Channel(dischargeChannel)
+        self.DischargeChannel = Channel(self.dischargeChannel)
         
         #should only be nonzero if the resource is enrolled in frequency regulation
         self.FREG_power = 0
@@ -151,11 +152,11 @@ class Source(Resource):
 
 class Storage(Source):
     
-    def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
-        super(Storage,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
-        self.chargePower = maxChargePower
-        self.capacity = capacity
-        self.chargeChannel = chargeChannel
+    def __init__(self,**res):
+        super(Storage,self).__init__(**res)
+        self.chargePower = res["maxChargePower"]
+        self.capacity = res["capacity"]
+        self.chargeChannel = res["chargeChannel"]
         
         self.isCharging = False
         self.isDischarging = False
@@ -164,7 +165,7 @@ class Storage(Source):
         self.SOC = 0
         self.energy = 0
         
-        self.ChargeChannel = Channel(chargeChannel)
+        self.ChargeChannel = Channel(self.chargeChannel)
         
         self.isintermittent = False
         self.issource = True
@@ -238,15 +239,15 @@ class Storage(Source):
                 
 class LeadAcidBattery(Storage):
     SOCtable = [(0, 11.8),(.25, 12.0),(.5, 12.2),(.75, 12.4),(1, 12.7)]
-    def __init__(self,owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs):
-        super(LeadAcidBattery,self).__init__(owner,location,name,capCost,maxDischargePower,maxChargePower,capacity,chargeChannel,dischargeChannel,**kwargs)
+    def __init__(self,**res):
+        super(LeadAcidBattery,self).__init__(**res)
         self.SOC = self.getSOCfromOCV()
         self.preferredSOC = .6
         
         self.cyclelife = 1000
         self.amortizationPeriod = 10
         
-        self.FREG_power = .2*maxChargePower
+        self.FREG_power = .2*self.chargePower
         
         self.gridpoints = [0,20,40,60,80,100]
         self.actionpoints = [-1, -.5, -.25, -.05, 0, .05, .25, .5, 1]
@@ -269,7 +270,7 @@ class LeadAcidBattery(Storage):
         
     def costFn(self,period,soc):
         #the first term penalizes being too empty to discharge or too full to charge
-        target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)^2
+        target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
         #the second term accounts for the value of the stored energy
         energy = soc*self.capacity*period.expectedenergycost
         
@@ -284,17 +285,16 @@ class LeadAcidBattery(Storage):
         print("getSOC() method of LeadAcidBattery is unimplemented!")
     
     def getSOCfromOCV(self):
-        #get battery voltage from PLC
-        tagname = "SOURCE_{num}_REG_VOLTAGE".format(num = self.DischargeChannel.channelNumber)
-        voltage = getTagValue(tagName)
+        #get battery voltage
+        voltage = self.DischargeChannel.getUnregV()
         soc = interpolation.lininterp(self.SOCtable,voltage)
         return soc
     
 
 class Generator(Source):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,fuelCost,**kwargs):
-        super(Generator,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
-        self.fuelCost = fuelCost
+    def __init__(self,**res):
+        super(Generator,self).__init__(**res)
+        self.fuelCost = res["fuelCost"]
         
         self.actionpoints = [0, .1, .25, .5, 1]
         
@@ -311,12 +311,11 @@ class Generator(Source):
         return 0
         
 class SolarPanel(Source):
-    def __init__(self,owner,location,name,capCost,maxDischargePower,dischargeChannel,Voc,Vmpp,**kwargs):
-        super(SolarPanel,self).__init__(owner,location,name,capCost,maxDischargePower,dischargeChannel,**kwargs)
-        self.Voc = Voc
-        self.Vmpp = Vmpp
+    def __init__(self,**res):
+        super(SolarPanel,self).__init__(**res)
+        self.Voc = res["Voc"]
+        self.Vmpp = res["Vmpp"]
         
-        self.amortizationPeriod = 10
         
         self.actionpoints = []
         self.gridpoints = []
@@ -344,6 +343,19 @@ class SolarPanel(Source):
     
     def applySimulatedInput(self,state,input,duration):
         return 0
+    
+class WindTurbine(Source):
+    def __init__(self,**res):
+        super(WindTurbine,self).__init__(**res)
+        self.blades = res["blades"]
+        self.coeff = res["coeff"]
+        self.diameter = res["diameter"]
+        
+    def getState(self):
+        return None
+    
+    def powerAvailable(self,windvelocity):
+        pass
     
 class Channel():
     def __init__(self,channelNumber):
@@ -381,26 +393,22 @@ class Channel():
     def getRegV(self):
         tagName = self.regVTag     
         #call to CIP wrapper
-        #value = getTagValue(tagName)
-        value = tagClient([tagName])
+        value = tagClient.readTags([tagName])
         return value   
         
     def getUnregV(self):
         tagName = self.unregVTag
-        #value = wrapper.getTagValue(tagName)
-        value = tagClient([tagName])
+        value = tagClient.readTags([tagName])
         return value
     
     def getRegI(self):
         tagName = self.regItag
-        #value = getTagValue(tagName)
-        value = tagClient([tagName])
+        value = tagClient.readTags([tagName])
         return value
     
     def getUnregI(self):
         tagName = self.unregItag
-        #value = getTagValue(tagName)
-        value = tagClient([tagName])
+        value = tagClient.readTags([tagName])
         return value
     
     '''low level method. only opens the relay'''

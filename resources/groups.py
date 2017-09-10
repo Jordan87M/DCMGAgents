@@ -234,9 +234,9 @@ class Node(BaseNode):
     def addResource(self,res):   
         self.resources.append(res)
         if hasattr(res,"DischargeChannel"):
-            self.addEdge(BaseNode(res.name + "OutNode"),"from",res.DischargeChannel.regItag,Relay(res.DischargeChannel.relayTag,"source"))
+            self.addEdge(BaseNode(res.name + "OutNode"),"from",res.DischargeChannel.regItag,[Relay(res.DischargeChannel.relayTag,"source")])
         if hasattr(res,"ChargeChannel"):
-            self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,Relay(res.ChargeChannel.relayTag,"source"))
+            self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,[Relay(res.ChargeChannel.relayTag,"source")])
     
     def isolateNode(self):
         for edge in self.edges:

@@ -19,23 +19,23 @@ class Device(object):
     def addCurrentStateToGrid(self):
         #obtain current state
         currentstate = self.getState()
-        print("DEVICE {me} adding state {cur} to grid".format(me = self.name, cur = currentstate))
+        #print("DEVICE {me} adding state {cur} to grid".format(me = self.name, cur = currentstate))
         #if the device has a state
         if currentstate:
             #and it isn't already in the list of grids
-            print("has a state")
+            #print("has a state")
             if currentstate not in self.gridpoints:
                 #add the current point to the grid
                 self.gridpoints.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
-                print("not already in state. added : {pts}".format(pts = self.gridpoints))
+                #print("not already in state. added : {pts}".format(pts = self.gridpoints))
         return currentstate
                 
     def revertStateGrid(self):
         for point in self.tempgridpoints:
             if point in self.gridpoints:
-                print("removing point {pt} from grid".format(pt = point))
+                #print("removing point {pt} from grid".format(pt = point))
                 self.gridpoints.remove(point)
             self.tempgridpoints.remove(point)
         
@@ -103,10 +103,12 @@ class HeatingElement(Device):
         return state
         
     def simulationStep(self,pin,duration):
-        if pin > 0:
+        if pin > 0.0005:
             input = 1
+            self.elementOn = True
         else:
             input = 0
+            self.elementOn = False
         
         self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
         self.printInfo()
@@ -189,10 +191,12 @@ class HeatPump(Device):
         return state
         
     def simulationStep(self,pin,duration):
-        if pin > 0:
+        if pin > 0.0005:
             input = 1
+            self.on = True
         else:
             input = 0
+            self.on = False
         
         self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
         self.printInfo(0)
@@ -248,14 +252,16 @@ class NoDynamics(Device):
         else:
             return 0
     
-    #nothing happens
+    #the state becomes whatever the input tells it to be
     def applySimulatedInput(self,state,input,duration,pin = "default"):
-        return state
+        return input
     
     def simulationStep(self,pin,duration):
         if pin > 0:
             self.on = True
-            
+        else:
+            self.on = False
+        print("power in: {pow}".format(pow = pin))
         self.printInfo(0)
         return self.on
     

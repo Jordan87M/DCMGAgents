@@ -284,18 +284,18 @@ class BidManager(object):
             outdict[key] = mesdict[key]
         
         bid.bidstring = json.dumps(outdict)
-        print(bid.bidstring)
+        #print(bid.bidstring)
         self.moveInitToReady(bid)
     
     def sendBid(self,bid):
         self.moveReadyToPending(bid)
-        print(bid.bidstring)
+        #print(bid.bidstring)
         return bid.bidstring
         
     def findBid(self,uid,list):
-        print(list)
+        #print(list)
         for bid in list:
-            print(bid.uid)
+            #print(bid.uid)
             if bid.uid == uid:
                 return bid
         print("couldn't match id: {id}".format(id = uid))

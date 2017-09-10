@@ -75,8 +75,8 @@ def makeopdict(listdict):
         dimensions.append(len(listdict[key]))
         keys.append(key)
 
-    print(keys)
-    print(dimensions)
+    #print(keys)
+    #print(dimensions)
     while position <= length:
         outmember = {}
         for i in range(length):
