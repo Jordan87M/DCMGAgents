@@ -424,15 +424,16 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             if type(res) is resource.SolarPanel:
                 amount = res.maxDischargePower*self.perceivedInsol/100
-                #rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
                 rate = 0
-                #newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
                 newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"power", "amount":amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.LeadAcidBattery:
                 amount = 10
                 rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
-                #newbid = control.SupplyBid(res.name,"power",amount, rate, self.name, self.NextPeriod.periodNumber)
-                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})                
+                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
+            elif type(res) is resource.Generator:
+                amount = res.maxDischargePower*.8
+                rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2) + amount*settings.ST_PLAN_INTERVAL*res.fuelCost
+                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"either", "amount": amount, "rate":rate, "counterparty":self.name, "period_number": self.NextPeriod.periodNumber})
             else:
                 print("trying to plan for an unrecognized resource type")
             

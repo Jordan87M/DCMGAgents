@@ -73,7 +73,7 @@ class Source(Resource):
         self.issink = False
     
     def statebehaviorcheck(self,state,input):
-        pass
+        return True
     
     def getPowerFromPU(self,pu):
         return pu*self.maxDischargePower
@@ -154,7 +154,7 @@ class Storage(Source):
     
     def __init__(self,**res):
         super(Storage,self).__init__(**res)
-        self.chargePower = res["maxChargePower"]
+        self.maxChargePower = res["maxChargePower"]
         self.capacity = res["capacity"]
         self.chargeChannel = res["chargeChannel"]
         
@@ -247,7 +247,7 @@ class LeadAcidBattery(Storage):
         self.cyclelife = 1000
         self.amortizationPeriod = 10
         
-        self.FREG_power = .2*self.chargePower
+        self.FREG_power = .2*self.maxChargePower
         
         self.gridpoints = [0,20,40,60,80,100]
         self.actionpoints = [-1, -.5, -.25, -.05, 0, .05, .25, .5, 1]
@@ -258,7 +258,7 @@ class LeadAcidBattery(Storage):
         
         
     def applySimulatedInput(self,state,input,duration):
-        power = getPowerFromPU(input)
+        power = self.getPowerFromPU(input)
         soc = input
         
         if power > 0:   #if discharging
@@ -290,11 +290,21 @@ class LeadAcidBattery(Storage):
         soc = interpolation.lininterp(self.SOCtable,voltage)
         return soc
     
+    def statebehaviorcheck(self,state,input):
+        if state < .02 and input > 0:
+            print("battery is too depleted to discharge")
+            return False
+        elif state > .98 and input < 0:
+            print("battery is too full to charge")
+            return False
+        else:
+            return True
 
 class Generator(Source):
     def __init__(self,**res):
         super(Generator,self).__init__(**res)
-        self.fuelCost = res["fuelCost"]
+        self.fuelCost = res["fuel_cost"]
+        self.amortizationPeriod = res["amortization_period"]
         
         self.actionpoints = [0, .1, .25, .5, 1]
         
@@ -305,7 +315,8 @@ class Generator(Source):
         return 0
     
     def inputCostFn(self,input,period,state,duration):
-        return self.getPowerFromPU(input)*duration*self.fuelCost
+        cost = control.ratecalc(self.capCost,.05,self.amortizationPeriod,.2) + self.getPowerFromPU(input)*duration*self.fuelCost
+        return cost
     
     def applySimulatedInput(self,state,input,duration):
         return 0
@@ -605,6 +616,8 @@ def makeResource(strlist,classlist,debug = False):
                 res = SolarPanel(**item)
             elif resType == "lead_acid_battery":
                 res = LeadAcidBattery(**item)
+            elif resType == "generator":
+                res = Generator(**item)
             else:
                 pass
             classlist.append(res)
