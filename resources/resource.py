@@ -81,7 +81,7 @@ class Source(Resource):
     def getPUFromPower(self,power):
         return power/self.maxDischargePower
         
-    def getInputUnregVoltage(self):
+    def getOutputUnregVoltage(self):
         voltage = self.DischargeChannel.getUnregV()
         return voltage
     
@@ -89,7 +89,7 @@ class Source(Resource):
         voltage = self.DischargeChannel.getRegV()
         return voltage
         
-    def getInputUnregCurrent(self):
+    def getOutputUnregCurrent(self):
         current = self.DischargeChannel.getUnregI()
         return current
         
@@ -97,7 +97,7 @@ class Source(Resource):
         current = self.DischargeChannel.getRegI()
         return current
     
-    def getOutputUnegPower(self):
+    def getOutputUnregPower(self):
         current = self.DischargeChannel.getUnregI()
         voltage = self.DischargeChannel.getUnregV()
         return current*voltage
@@ -170,6 +170,32 @@ class Storage(Source):
         self.isintermittent = False
         self.issource = True
         self.issink = True
+        
+    def getInputUnregVoltage(self):
+        voltage = self.ChargeChannel.getUnregV()
+        return voltage
+    
+    def getInputRegVoltage(self):
+        voltage = self.ChargeChannel.getRegV()
+        return voltage
+        
+    def getInputUnregCurrent(self):
+        current = self.ChargeChannel.getUnregI()
+        return current
+        
+    def getInputRegCurrent(self):
+        current = self.ChargeChannel.getRegI()
+        return current
+    
+    def getInputUnregPower(self):
+        current = self.ChargeChannel.getUnregI()
+        voltage = self.ChargeChannel.getUnregV()
+        return current*voltage
+    
+    def getInputRegPower(self):
+        current = self.ChargeChannel.getRegI()
+        voltage = self.ChargeChannel.getRegV()
+        return current*voltage
         
     def getState(self):
         return self.SOC

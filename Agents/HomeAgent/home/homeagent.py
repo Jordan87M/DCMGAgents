@@ -106,10 +106,13 @@ class HomeAgent(Agent):
         #this value doesn't matter
         end = start + timedelta(seconds = settings.ST_PLAN_INTERVAL)
         
-        self.PlanningWindow = control.Window(self.name,self.winlength,1,start,settings.ST_PLAN_INTERVAL)
+        self.PlanningWindow = control.Window(self.name,self.winlength,1,end,settings.ST_PLAN_INTERVAL)
         self.CurrentPeriod = control.Period(0,start,end)
         self.NextPeriod = self.PlanningWindow.periods[0]
         self.CurrentPeriod.nextperiod = self.NextPeriod
+        
+        
+        self.PlanningWindow.printInfo(0)
         
         #core.schedule event object for the function call to begin next period
         self.advanceEvent = None
@@ -131,7 +134,7 @@ class HomeAgent(Agent):
         
     @Core.periodic(settings.SIMSTEP_INTERVAL)
     def simStep(self):
-        totalavail = self.measurePower()
+        totalavail = self.measureNetPower()
         print("TOTAL POWER AVAILABLE TO HOMEOWNER {me}: {pow}".format(me = self.name, pow = totalavail))
         unconstrained = 0
         for app in self.Appliances:
@@ -347,27 +350,28 @@ class HomeAgent(Agent):
                             
                     elif side == "supply":
                         period.supplybidmanager.procSolicitation(**mesdict)
-                        for res in self.Resources:
-                            #we can tender a solar panel bid immediately
-                            if type(res) is resource.SolarPanel or type(res) is resource.WindTurbine:
-                                mesdict["resource_name"] = res.name
-                                amount = res.maxDischargePower*self.perceivedInsol/100
-                                rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                                
-                                newbid = control.SupplyBid(**mesdict)
-                                period.supplybidmanager.initBid(newbid)
-                                period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
-                                biddict = {}
-                                
-                                biddict["message_target"] = messageSender
-                                biddict["message_sender"] = self.name
-                                biddict["message_subject"] = "bid_response"
-                                
-                                period.supplybidmanager.readyBid(newbid, **biddict)
-                                
-                                #and send to utility for consideration
-                                self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
-                        
+                        if service == "power":
+                            for res in self.Resources:
+                                #we can tender a solar panel bid immediately
+                                if type(res) is resource.SolarPanel or type(res) is resource.WindTurbine:
+                                    mesdict["resource_name"] = res.name
+                                    amount = res.maxDischargePower*self.perceivedInsol/100
+                                    rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                                    
+                                    newbid = control.SupplyBid(**mesdict)
+                                    period.supplybidmanager.initBid(newbid)
+                                    period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
+                                    biddict = {}
+                                    
+                                    biddict["message_target"] = messageSender
+                                    biddict["message_sender"] = self.name
+                                    biddict["message_subject"] = "bid_response"
+                                    
+                                    period.supplybidmanager.readyBid(newbid, **biddict)
+                                    
+                                    #and send to utility for consideration
+                                    self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
+                            
                         if period.plan.planningcomplete:
                             if period.supplybidmanager.readybids:
                                 self.submitBids(period.supplybidmanager)
@@ -477,7 +481,7 @@ class HomeAgent(Agent):
                             #now update all subsequent periods accordingly
                             self.PlanningWindow.rescheduleSubsequent(pnum+1,enddtime)
                             if settings.DEBUGGING_LEVEL >= 2:
-                                print("HOMEOWNER {me} revised start time for PERIOD {per} from {old} to {new}".format(me = self.name, per = pnum, old = oldtime.isoformat(), new = enddtime.isoformat()))
+                                print("HOMEOWNER {me} revised end time for PERIOD {per} from {old} to {new}".format(me = self.name, per = pnum, old = oldtime.isoformat(), new = enddtime.isoformat()))
                     
                 elif messageSubject == "period_duration_announcement":
                     newduration = mesdict.get("duration",None)
@@ -1224,6 +1228,10 @@ class HomeAgent(Agent):
         self.PlanningWindow.shiftWindow()
         self.NextPeriod = self.PlanningWindow.periods[0]
         
+        if settings.DEBUGGING_LEVEL >= 1:
+            print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
+            self.CurrentPeriod.printInfo()
+        
         #call enact plan
         self.enactPlan(self.CurrentPeriod)
         
@@ -1252,10 +1260,8 @@ class HomeAgent(Agent):
             if settings.DEBUGGING_LEVEL >= 2:
                 print("HOMEOWNER {me} WAITING FOR SOLICITATION".format(me = self.name))
             
-            
-        if settings.DEBUGGING_LEVEL >= 1:
-            print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
-            self.CurrentPeriod.printInfo()
+        
+        self.printInfo(0)
         
         #provisionally schedule next period pending any revisions from utility
         #if the next period's start time changes, this event must be cancelled
@@ -1269,6 +1275,8 @@ class HomeAgent(Agent):
         #operate main relay
         if period.disposition.closeRelay:
             self.connectLoad()
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER {me} connecting load in period {per}".format(me = self.name, per = period.periodNumber))
         else:
             self.disconnectLoad()
         
@@ -1287,21 +1295,23 @@ class HomeAgent(Agent):
             else:
                 res.setDisposition(0)
         
-        
     
     def disconnectLoad(self):
         #we can disconnect load at will
         tagClient.writeTags([self.relayTag],[False])
         
-    
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("HOMEOWNER {me} DISCONNECTING FROM GRID".format(me = self.name))
+        
+        
     def connectLoad(self):
         #if we are not already connected, we need permission from the utility
         mesdict = {"message_subject" : "request_connection",
                    "message_sender" : self.name,
-                   "message_target" : "ENERCON"
+                   "message_target" : self.utilityName
                    }
         if settings.DEBUGGING_LEVEL >= 2:
-            print("Homeowner {me} asking utility {them} for connection".format(me = self.name, them = mesdict["message_target"]))
+            print("Homeowner {me} asking utility {them} for connection in PERIOD {per}".format(me = self.name, them = mesdict["message_target"], per = self.CurrentPeriod.periodNumber))
         
         mess = json.dumps(mesdict)
         self.vip.pubsub.publish(peer = "pubsub",topic = "customerservice",headers = {}, message = mess)
@@ -1318,6 +1328,17 @@ class HomeAgent(Agent):
     
     def measurePower(self):
         return self.measureVoltage()*self.measureCurrent()
+    
+    def measureNetPower(self):
+        net = self.measurePower()
+        for res in self.Resources:
+            #if resources are colocated, we have to account for their power contribution/consumption
+            if res.location == self.location:
+                if res.issource:
+                    net += res.getOutputRegPower()
+                if res.issink:
+                    net -= res.getInputUnregPower()
+        return net
         
     def printInfo(self,depth):
         print("\n________________________________________________________________")

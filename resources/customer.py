@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from DCMGClasses.CIP import tagClient
+from __builtin__ import False
 
 class CustomerProfile(object):
     def __init__(self,name,location,resources,priorityscore,**kwargs):
@@ -70,6 +71,7 @@ class CustomerProfile(object):
         power = tagvals[self.currentTag]*tagvals[self.voltageTag]
         self.tagCache[self.powerTag] = (power, datetime.now())
         return power
+            
     
     '''calls measureCurrent only if cached value isn't fresh'''    
     def getCurrent(self,threshold = 5.1):
@@ -140,7 +142,7 @@ class Account(object):
             action = "credited"
         else:
             action = "debited"
-        print("The account of {holder} has been {action} {amount} units".format(holder = self.holder, action = action, amount = amount))
+        print("The account of {holder} has been {action} {amt} units".format(holder = self.holder, action = action, amt = abs(amount)))
         
         
 class ResourceProfile(object):
@@ -150,8 +152,25 @@ class ResourceProfile(object):
         self.location = res["location"]
         self.name = res["name"]
         
+        self.dischargeChannelNumber = res["dischargeChannel"]
+        
         self.state = None
         self.setpoint = None
+        
+        self.dischargeVoltageTag = "SOURCE_{d}_RegVoltage".format(d = self.dischargeChannelNumber)
+        self.dischargeCurrentTag =  "SOURCE_{d}_RegCurrent".format(d = self.dischargeChannelNumber)
+        
+        
+        
+    def getDischargeCurrent(self):
+        return tagclient.readTags([self.dischargeCurrentTag])
+    
+    def getDischargeVoltage(self):
+        return tagclient.readTags([self.dischargeVoltageTag])
+        
+    def getDischargePower(self):
+        power = self.getCurrent()*self.getVoltage()
+        return power
             
     def setOwner(self,newOwner):
         self.owner = newOwner
@@ -165,12 +184,30 @@ class SourceProfile(ResourceProfile):
     def __init__(self,**res):
         super(SourceProfile,self).__init__(**res)
         self.maxDischargePower = res["maxDischargePower"]
-        
+       
+    def getChargePower(self):
+        return 0
+    
 class StorageProfile(SourceProfile):
     def __init__(self,**res):
         super(StorageProfile,self).__init__(**res)
         self.maxChargePower = res["maxChargePower"]
         self.capacity = res["capacity"]
+        
+        self.chargeChannelNumber = res["chargeChannel"]
+        
+        self.chargeVoltageTag = "SOURCE_{d}_UnregVoltage".format(d = self.chargeChannelNumber)
+        self.chargeCurrentTag = "SOURCE_{d}_UnregCurrent".format(d = self.chargeChannelNumber)
+        
+
+    def getChargeCurrent(self):
+        return tagClient.readTags([self.chargeCurrentTag])
+    
+    def getChargeVoltage(self):
+        return tagClient.readTags([self.chargeVoltageTag])
+        
+    def getChargePower(self):
+        return self.getChargeCurrent() * self.getChargeVoltage()
 
 class SolarProfile(SourceProfile):
     def __init__(self,**res):
@@ -179,5 +216,9 @@ class SolarProfile(SourceProfile):
 class LeadAcidBatteryProfile(StorageProfile):
     def __init__(self,**res):
         super(LeadAcidBatteryProfile,self).__init__(**res)
+        
+class GeneratorProfile(SourceProfile):
+    def __init__(self,**res):
+        super(GeneratorProfile,self).__init__(**res)
         
         

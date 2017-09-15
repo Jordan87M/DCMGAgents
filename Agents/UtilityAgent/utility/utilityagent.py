@@ -154,6 +154,9 @@ class UtilityAgent(Agent):
         
         self.bidstate = BidState()
         
+        self.CurrentPeriod.printInfo(0)
+        self.NextPeriod.printInfo(0)
+        
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -240,6 +243,8 @@ class UtilityAgent(Agent):
                                     newres = customer.SolarProfile(**resource)
                                 elif resType == "lead_acid_battery":
                                     newres = customer.LeadAcidBatteryProfile(**resource)
+                                elif resType == "generator":
+                                    newres = customer.GeneratorProfile(**resource)
                                 else:
                                     print("unsupported resource type")
                                 node.addResource(newres)
@@ -275,10 +280,10 @@ class UtilityAgent(Agent):
                 if cust.permission:
                     cust.connectCustomer()     
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("{me} granting {their} request for connection".format(me = self.name, their = messageSender))
+                        print("{me} GRANTING CONNECTION REQUEST. {their} MAY CONNECT IN PERIOD {per}".format(me = self.name, their = messageSender, per = self.CurrentPeriod.periodNumber))
                 else:
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("{me} denying {their} request for connection".format(me = self.name, their = messageSender))
+                        print("{me} DENYING CONNECTION REQUEST. {their} HAS NO PERMISSION TO CONNECT IN PERIOD {per}".format(me = self.name, their = messageSender, per = self.CurrentPeriod.periodNumber))
             else:
                 pass
     
@@ -309,11 +314,23 @@ class UtilityAgent(Agent):
             for cust in group.customers:
                 power = cust.measurePower()
                 energy = power*settings.ACCOUNTING_INTERVAL
-                #credit transfer for period     
                 balanceAdjustment = -energy*group.rate*cust.rateAdjustment
-                
-               
                 cust.customerAccount.adjustBalance(balanceAdjustment)
+            
+            for res in group.resources:
+                cust = listparse.lookUpByName(res.owner,self.customers)
+                #cust will be None if the resource belongs to the utility
+                if cust:
+                    if res.location != cust.location:
+                        print("resource {res} not co-located with {cust}".format(res = res.name, cust = cust.name))
+                        #if resources are not colocated, we need to account for them separately
+                        power = cust.getDischargePower() - cust.getChargePower()
+                        energy = power*settings.ACCOUNTING_INTERVAL
+                        balanceAdjustment = -energy*group.rate*cust.rateAdjustment
+                        cust.customerAccount.adjustBalance(balanceAdjustment)
+                    else:
+                        print("TEMP DEBUG: resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
+            
     
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
