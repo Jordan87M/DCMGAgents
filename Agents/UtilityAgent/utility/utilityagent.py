@@ -54,8 +54,8 @@ class UtilityAgent(Agent):
                           "BRANCH_1_BUS_2_DISTAL_User",
                           "BRANCH_2_BUS_1_DISTAL_User",
                           "BRANCH_2_BUS_2_DISTAL_User",
-                          "INTERCONNECT_1_User",
-                          "INTERCONNECT_2_User"]
+                          "CROSSTIE_1_User",
+                          "CROSSTIE_1_User"]
     
     
     def __init__(self,config_path,**kwargs):
@@ -85,8 +85,8 @@ class UtilityAgent(Agent):
                        groups.Relay("BRANCH_1_BUS_2_DISTAL_User","infrastructure"),
                        groups.Relay("BRANCH_2_BUS_1_DISTAL_User","infrastructure"),
                        groups.Relay("BRANCH_2_BUS_2_DISTAL_User","infrastructure"),
-                       groups.Relay("INTERCONNECT_1_User","infrastructure"),
-                       groups.Relay("INTERCONNECT_2_User","infrastructure")
+                       groups.Relay("CROSSTIE_1_User","infrastructure"),
+                       groups.Relay("CROSSTIE_1_User","infrastructure")
                        ]
         #create infrastructure nodes
         self.nodes = [groups.Node("DC.MAIN.MAIN"),
@@ -114,11 +114,11 @@ class UtilityAgent(Agent):
         self.nodes[1].addEdge(self.nodes[5], "to", None, [self.relays[4]])
         
         self.nodes[5].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[1]])
-        self.nodes[5].addEdge(self.nodes[7], "to", "INTERCONNECT_1_Current", [self.relays[8]])
+        self.nodes[5].addEdge(self.nodes[7], "to", "CROSSTIE_1_Current", [self.relays[8]])
         
         self.nodes[2].addEdge(self.nodes[6], "to", None, [self.relays[5]])
         
-        self.nodes[6].addEdge(self.nodes[8], "to", "INTERCONNECT_2_Current", [self.relays[9]])
+        self.nodes[6].addEdge(self.nodes[8], "to", "CROSSTIE_2_Current", [self.relays[9]])
         
         self.nodes[3].addEdge(self.nodes[7], "to", None, [self.relays[2]])
         
@@ -316,6 +316,8 @@ class UtilityAgent(Agent):
                 energy = power*settings.ACCOUNTING_INTERVAL
                 balanceAdjustment = -energy*group.rate*cust.rateAdjustment
                 cust.customerAccount.adjustBalance(balanceAdjustment)
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("The account of {holder} has been adjusted by {amt} units for net home consumption".format(holder = cust.name, amt = balanceAdjustment))
             
             for res in group.resources:
                 cust = listparse.lookUpByName(res.owner,self.customers)
@@ -330,7 +332,8 @@ class UtilityAgent(Agent):
                         cust.customerAccount.adjustBalance(balanceAdjustment)
                     else:
                         print("TEMP DEBUG: resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
-            
+                else:
+                    print("TEMP-DEBUG: can't find owner {own} for {res}".format(own = res.owner, res = res.name))
     
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
@@ -372,6 +375,8 @@ class UtilityAgent(Agent):
         self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
+        
+        self.announceTopology()
         
         #first we have to find out how much it will cost to get power
         #from various sources, both those owned by the utility and by 
@@ -444,8 +449,8 @@ class UtilityAgent(Agent):
                 rate = 0
                 newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"power", "amount":amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.LeadAcidBattery:
-                amount = 10
-                rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),self.capCost/self.cyclelife) + self.avgEnergyCost*amount
+                amount = res.maxDischargePower
+                rate = max(control.ratecalc(res.capCost,.05,res.amortizationPeriod,.05),res.capCost/res.cyclelife) + .2*amount
                 newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.Generator:
                 amount = res.maxDischargePower*.8
@@ -570,6 +575,8 @@ class UtilityAgent(Agent):
                                 print("{qr} remaining in demand bid".format(qr = qrem))
                             partialdemand = True
                             partialsupply = False
+                            self.supplyBidList[supplyindex].accepted = True
+                            self.demandBidList[demandindex].accepted = True
                             supplyindex += 1
                         elif self.demandBidList[demandindex].amount < self.supplyBidList[supplyindex].amount:
                             qrem = self.supplyBidList[supplyindex].amount - self.demandBidList[demandindex].amount
@@ -577,6 +584,8 @@ class UtilityAgent(Agent):
                                 print("{qr} remaining in supply bid".format(qr = qrem))
                             partialdemand = False
                             partialsupply = True
+                            self.supplyBidList[supplyindex].accepted = True
+                            self.demandBidList[demandindex].accepted = True
                             demandindex += 1
                         else:
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -584,10 +593,11 @@ class UtilityAgent(Agent):
                             qrem = 0
                             partialsupply = False
                             partialdeand = False
+                            self.supplyBidList[supplyindex].accepted = True
+                            self.demandBidList[demandindex].accepted = True
                             supplyindex += 1
                             demandindex += 1
-                        self.supplyBidList[supplyindex].accepted = True
-                        self.demandBidList[supplyindex].accepted = True
+                        
                 else:
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("PAST EQ PRICE! demand rate {dr} < supply rate {sr}".format(dr = self.demandBidList[demandindex].rate, sr = self.supplyBidList[supplyindex].rate))
@@ -1102,6 +1112,27 @@ class UtilityAgent(Agent):
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
         return subs
+    
+    def announceTopology(self):
+        ngroups = len(self.groupList)
+        groups = []
+        for group in self.groupList:
+            membership = []
+            for node in group.nodes:
+                membership.append(node.name)
+            groups.append(membership)
+                
+        for group in self.groupList:
+            for cust in group.customers:
+                mesdict = {}
+                mesdict["message_sender"] = self.name
+                mesdict["message_target"] = cust.name
+                mesdict["message_subject"] = "group_announcement"
+                mesdict["your_group"] = group.name
+                mesdict["group_membership"] = groups
+                
+                mess = json.dumps(mesdict)
+                self.vip.pubsub.publish(peer = "pubsub", topic = "customerservice", headers = {}, message = mess)
     
     '''builds the connectivity matrix for the grid's infrastructure'''
     def rebuildConnMatrix(self):

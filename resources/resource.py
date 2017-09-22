@@ -366,9 +366,9 @@ class SolarPanel(Source):
     def getState(self):
         return None
         
-    #calculates available power from irradiance in W/m^2
+    #calculates available power from irradiance
     def powerAvailable(self,irradiance):
-        power = self.maxDischargePower*irradiance/1120
+        power = self.maxDischargePower*irradiance
         return
     
     #the marginal cost of running a solar panel is 0    
@@ -482,9 +482,10 @@ class Channel():
     the resource. includes an optional voltage offset argument to be used with reserves'''    
     def connectWithSet(self,setpoint,voffset = 0):
         self.setpoint = setpoint
+        droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
         #set up parameters for droop control
-        tags = [self.noLoadVoltageTag, self.pSetpointTag, self.droopCoeffTag, self.droopSelectTag]
-        values = [self.noLoadVoltage + voffset, setpoint, self.setpoint/(self.noLoadVoltage - self.refVoltage), True]
+        tags = [self.noLoadVoltageTag, self.droopCoeffTag, self.droopSelectTag]
+        values = [self.noLoadVoltage + voffset, self.setpoint/(self.noLoadVoltage - self.refVoltage), True]
         tagClient.writeTags(tags,values)
         #close relay and connect source
         self.connected = self.connect()

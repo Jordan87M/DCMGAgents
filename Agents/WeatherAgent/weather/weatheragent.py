@@ -3,12 +3,13 @@ from datetime import datetime
 import logging
 import sys
 import json
+import random
 
 from volttron.platform.vip.agent import Agent, Core, PubSub, compat, RPC
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
-from DCMGClasses.CIP import wrapper
+from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
 
 from . import settings
@@ -27,6 +28,8 @@ class WeatherAgent(Agent):
         
         self.temperature = 25
         
+        self.solarTag = "SolarSetpoint1Alias"
+        
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
         _log.info(self.config["message"])
@@ -43,56 +46,71 @@ class WeatherAgent(Agent):
     def getTemperature(self):
         return self.temperature
         
+    def getIrradiance(self):
+        irradiance = .1 * tagClient.readTags([self.solarTag])
+        irradiance += random.normalvariate(0,.1)
+        return irradiance
+    
+    def getWind(self):
+        return 0
+    
+    def getTemp(self):
+        return self.temperature
+        
     def reportRequest(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
         messageSubject = mesdict.get("message_subject",None)
         messageTarget = mesdict.get("message_target",None)
         messageSender = mesdict.get("message_sender",None)
-        messageTypes = mesdict.get("message_type",None)
+        messageType = mesdict.get("message_type",None)
         if listparse.isRecipient(messageTarget,self.name):
-            print("WEATHER SERVICE {name} has received a request for weather info: {type} {sub}".format(type = messageType, sub = messageSubject))
+            print("WEATHER SERVICE {me} has received a request for weather info: {type} {sub}".format(me = self.name, type = messageType, sub = messageSubject))
             resd = {}
-            restypes = []
+            responses = {}
             resd["message_subject"] = messageSubject
             resd["message_target"] = messageSender
             resd["message_sender"] = self.name
             if messageSubject == "nowcast":
-                for comp in messageTypes:
+                resd["message_type"] = "nowcast_response"
+                for comp in mesdict["requested_data"]:
                     if comp == "solar_irradiance":
                         #temporary, should eventually ask sg plc
-                        restypes.append((comp,80))
+                        #restypes.append((comp,80))
+                        responses["solar_irradiance"] = self.getIrradiance()
                     elif comp == "wind_speed":
-                        restypes.append((comp,0))
+                        #restypes.append((comp,0))
+                        responses["wind_speed"] = self.getWind()
                     elif comp == "temperature":
                         #temporary, should eventually ask sg plc
-                        restypes.append((comp,25))
+                        #restypes.append((comp,25))
+                        responses["temperature"] = self.getTemp()
                     else:
                         print("Weatheragent {me} received nowcast request for unrecognized datum".format(me = self.name))
                         
-                resd["message_type"] = restypes
+                resd["responses"] = responses
             elif messageSubject == "forecast":
-                for comp in messageTypes:
+                resd["message_type"] = "forecast_response"
+                for comp in mesdict["requested_data"]:
                     if comp == "solar_irradiance":
-                        #temporary, should eventually ask sg plc
-                        restypes.append((comp,82))
+                        responses["solar_irradiance"] = self.getIrradiance()
                     elif comp == "wind_speed":
-                        restypes.append((comp,0))
+                        responses["wind_speed"] = 0
                     elif comp == "temperature":
                         #temporary, should eventually ask sg plc
-                        restypes.append((comp,25))
+                        responses["wind_speed"] = 25
                     else:
                         print("Weatheragent {me} received forecast request for unrecognized datum".format(me = self.name))
                         
-                resd["message_type"] = restypes
+                resd["responses"] = responses
                 resd["forecast_period"] = mesdict.get("forecast_period")
             else:
                 print("Weatheragent {me} encountered unsupported request")
         
-        response = json.dumps(resd)    
-        if settings.DEBUGGING_LEVEL > 1:
-            print("WEATHER AGENT {name} sending a report: {message}".format(name = self.name, message = response))
-        self.vip.pubsub.publish(peer="pubsub", topic = "weatherservice", headers = {}, message = response)
-                
+            response = json.dumps(resd)    
+            if settings.DEBUGGING_LEVEL > 1:
+                print("WEATHER AGENT {name} sending a report: {message}".format(name = self.name, message = response))
+            self.vip.pubsub.publish(peer="pubsub", topic = "weatherservice", headers = {}, message = response)
+                    
     
 def main(argv = sys.argv):
     '''main method called by the eggsecutable'''

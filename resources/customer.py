@@ -138,11 +138,6 @@ class Account(object):
         
     def adjustBalance(self,amount):
         self.accountBalance += amount
-        if amount > 0:
-            action = "credited"
-        else:
-            action = "debited"
-        print("The account of {holder} has been {action} {amt} units".format(holder = self.holder, action = action, amt = abs(amount)))
         
         
 class ResourceProfile(object):

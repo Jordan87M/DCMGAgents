@@ -34,7 +34,6 @@ class HomeAgent(Agent):
         self.appliances = self.config["appliances"]
         self.refload = float(self.config["refload"])
         self.winlength = self.config["windowlength"]
-        self.perceivedInsol = 10
         #the following variables 
         self.FREGpart = bool(self.config["FREGpart"])
         self.DRpart = bool(self.config["DRpart"])
@@ -97,6 +96,8 @@ class HomeAgent(Agent):
         self.marginalutility = .2
         self.avgEnergyCost = 1
         
+        self.mygroup = None
+        
 
         #bid responses awaiting acknowledgement
         self.outstandingSupplyBids = []
@@ -131,6 +132,10 @@ class HomeAgent(Agent):
         self.vip.pubsub.subscribe("pubsub","FREG",callback = self.FREGfeed)
         
         self.printInfo(1)
+        
+        for period in self.PlanningWindow.periods:
+            self.requestForecast(period)
+        
         
     @Core.periodic(settings.SIMSTEP_INTERVAL)
     def simStep(self):
@@ -308,7 +313,12 @@ class HomeAgent(Agent):
                             print("\nHOME {me} ignoring enrollment request, already enrolled".format(me = self.name))
                 elif messageType == "new_customer_confirm":
                     self.registered = True
-                    
+            elif messageSubject == "group_announcement":
+                groups = mesdict.get("group_membership",None)
+                self.mygroup = mesdict.get("your_group",None)
+                
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("HOMEOWNER {me} is a member of group {grp}".format(me = self.name, grp = self.mygroup))
     
         
     def followmarket(self, peer, sender, bus, topic, headers, message):
@@ -353,25 +363,28 @@ class HomeAgent(Agent):
                         if service == "power":
                             for res in self.Resources:
                                 #we can tender a solar panel bid immediately
-                                if type(res) is resource.SolarPanel or type(res) is resource.WindTurbine:
+                                if type(res) is resource.SolarPanel:
                                     mesdict["resource_name"] = res.name
-                                    amount = res.maxDischargePower*self.perceivedInsol/100
-                                    rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                                    
-                                    newbid = control.SupplyBid(**mesdict)
-                                    period.supplybidmanager.initBid(newbid)
-                                    period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
-                                    biddict = {}
-                                    
-                                    biddict["message_target"] = messageSender
-                                    biddict["message_sender"] = self.name
-                                    biddict["message_subject"] = "bid_response"
-                                    
-                                    period.supplybidmanager.readyBid(newbid, **biddict)
-                                    
-                                    #and send to utility for consideration
-                                    self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
-                            
+                                    amount = self.checkForecastAvailablePower(res,period)
+                                    if amount:
+                                        rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+                                        
+                                        newbid = control.SupplyBid(**mesdict)
+                                        period.supplybidmanager.initBid(newbid)
+                                        period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
+                                        biddict = {}
+                                        
+                                        biddict["message_target"] = messageSender
+                                        biddict["message_sender"] = self.name
+                                        biddict["message_subject"] = "bid_response"
+                                        
+                                        period.supplybidmanager.readyBid(newbid, **biddict)
+                                        
+                                        #and send to utility for consideration
+                                        self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
+                                    else:
+                                        print("HOMEOWNER {me} has no info on irradiance for period {per}".format(me = self.name, per = period))
+                                
                         if period.plan.planningcomplete:
                             if period.supplybidmanager.readybids:
                                 self.submitBids(period.supplybidmanager)
@@ -612,33 +625,26 @@ class HomeAgent(Agent):
                 
     def weatherfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
-        messageSubject = mesdict.get('message_subject',None)
-        messageTarget = mesdict.get('message_target',None)
-        messageSender = mesdict.get('message_sender',None)
-        messageTypes = mesdict.get("message_type",None)
+        messageSubject = mesdict['message_subject']
+        messageTarget = mesdict['message_target']
+        messageSender = mesdict['message_sender']
+        messageType = mesdict['message_type']
         
         if listparse.isRecipient(messageTarget,self.name):    
             foredict = {}
             if messageSubject == "nowcast":
-                for msg in messageTypes:
-                    if msg[0] == "solar_irradiance":
-                        foredict[msg[0]] = msg[1]
-                    elif msg[0] == "wind_speed":
-                        foredict[msg[0]] = msg[1]
-                    elif msg[0] == "temperature":
-                        foredict[msg[0]] = msg[1]
-                self.CurrentPeriod.add(Forecast(foredict,self.CurrentPeriod))
+                if messageType == "nowcast_response":
+                    responses = mesdict.get("responses",None)
+                    if responses:
+                        self.CurrentPeriod.addForecast(control.Forecast(responses,self.CurrentPeriod))
             elif messageSubject == "forecast":
-                periodnumber = mesdict.get("forecast_period")
-                for msg in messageTypes:
-                    if msg[0] == "solar_irradiance":
-                        foredict[msg[0]] = msg[1]
-                    elif msg[0] == "wind_speed":
-                        foredict[msg[0]] = msg[1]
-                    elif msg[0] == "temperature":
-                        foredict[msg[0]] = msg[1]
-                period = self.PlanningWindow.getPeriodByNumber(periodnumber)
-                period.addForecast(Forecast(foredict,period))
+                if messageType == "forecast_response":
+                    periodnumber = mesdict.get("forecast_period")
+                    responses = mesdict.get("responses",None)
+                    if responses:
+                        period = self.PlanningWindow.getPeriodByNumber(periodnumber)
+                        period.addForecast(control.Forecast(responses,period))
+                        print("HOMEOWNER {me} received forecast for period {per}".format(me = self.name, per = period.periodNumber))
                 
     def DRfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -1163,8 +1169,11 @@ class HomeAgent(Agent):
     
     def checkForecastAvailablePower(self,device,period):
         irradiance = self.checkForecast(device,period)
-        power = device.powerAvailable(irradiance)
-        return power
+        if irradiance:
+            power = device.powerAvailable(irradiance)
+            return power
+        else:
+            return None
     
     def checkForecast(self,device,period):
         if period.forecast:
@@ -1184,7 +1193,9 @@ class HomeAgent(Agent):
     def getLocallyAvailablePower(self,period):
         total = 0
         for res in self.Resources:
-            total += self.forecastAvailPower(period,res)
+            pow = self.checkForecastAvailablePower(res,period)
+            if pow:
+                total += pow 
             
         return total
     
@@ -1193,8 +1204,8 @@ class HomeAgent(Agent):
         mesdict["message_sender"] = self.name
         mesdict["message_target"] = "Goddard"
         mesdict["message_subject"] = "forecast"
-        mesdict["message_type"] = ["solar_irradiance", "wind_speed", "temperature"]
-        mesdict["forecast_time"] = period.startTime.strptime(startTime,"%Y-%m-%dT%H:%M:%S.%f")
+        mesdict["message_type"] = "forecast_request"
+        mesdict["requested_data"] = ["solar_irradiance", "wind_speed", "temperature"]
         mesdict["forecast_period"] = period.periodNumber
         
         mes = json.dumps(mesdict)
@@ -1228,12 +1239,17 @@ class HomeAgent(Agent):
         self.PlanningWindow.shiftWindow()
         self.NextPeriod = self.PlanningWindow.periods[0]
         
+        #request forecast
+        for period in self.PlanningWindow.periods:
+            self.requestForecast(period)
+        
         if settings.DEBUGGING_LEVEL >= 1:
             print("\nHOMEOWNER AGENT {me} moving into new period:".format(me = self.name))
             self.CurrentPeriod.printInfo()
         
         #call enact plan
         self.enactPlan(self.CurrentPeriod)
+        
         
         #run new price forecast
         self.priceForecast()
@@ -1262,6 +1278,9 @@ class HomeAgent(Agent):
             
         
         self.printInfo(0)
+        
+        
+        
         
         #provisionally schedule next period pending any revisions from utility
         #if the next period's start time changes, this event must be cancelled

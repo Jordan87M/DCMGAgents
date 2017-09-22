@@ -105,6 +105,7 @@ class Zone(object):
         
         if len(inftags) > 0:
             infcurrents = tagClient.readTags(inftags)
+            print("inftags: {inf}".format(inf = inftags))
         
         total = 0        
         for edge in self.interzonaledges:
@@ -158,7 +159,6 @@ class BaseNode(object):
         self.zone = None
         self.group = None
         
-        
         self.faults = []
         
         #connections to other nodes
@@ -167,7 +167,6 @@ class BaseNode(object):
         self.terminatingedges = []
         
     def addEdge(self,otherNode,dir,currentTag,relays):
-        
         if dir == "to":
             newedge = DirEdge(self,otherNode,currentTag,relays)
             self.originatingedges.append(newedge)
