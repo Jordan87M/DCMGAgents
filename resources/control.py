@@ -89,7 +89,7 @@ class Period(object):
         
         self.pendingdrevents = []
         self.accepteddrevents = []
-        self.forecast = []
+        self.forecast = None
         
         self.expectedenergycost = 0
         self.offerprice = None
@@ -122,7 +122,7 @@ class Period(object):
         self.pendingdrevents.remove(event)
     
     def addForecast(self,forecast):
-        self.forecast.append(forecast)
+        self.forecast = forecast
         
     def printInfo(self, depth = 0):
         tab = "    "
@@ -219,7 +219,7 @@ class Disposition(object):
         self.period = period
         self.components = {}
         
-        self.closeRelay = True
+        self.closeRelay = False
         
         
     def printInfo(self,depth = 1):
@@ -268,13 +268,15 @@ class BidManager(object):
     def initBid(self,newbid):
         self.initializedbids.append(newbid)
         
-    def setBid(self,bid,amount,rate,name = None,service = None):
+    def setBid(self,bid,amount,rate,name = None,service = None, auxilliaryService = None):
         bid.rate = rate
         bid.amount = amount
         if service:
             bid.service = service
         if name:
             bid.resourceName = name
+        if auxilliaryService:
+            bid.auxilliaryService = auxilliaryService
         
         return bid.makedict()
     
@@ -448,6 +450,7 @@ class SupplyBid(BidBase):
     def __init__(self,**biddict):
         super(SupplyBid,self).__init__(**biddict)
         self.service = biddict.get("service",None)
+        self.auxilliaryService = biddict.get("auxilliary_service",None)
         self.resourceName = biddict.get("resource_name",None)
         
     def makedict(self):
@@ -456,6 +459,9 @@ class SupplyBid(BidBase):
             outdict["service"] = self.service
         if self.resourceName:
             outdict["resource_name"] = self.resourceName
+        if self.auxilliaryService:
+            outdict["auxilliary_service"] = self.auxilliaryService
+            
         outdict["side"] = "supply"
         
         return outdict

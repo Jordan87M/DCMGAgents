@@ -98,10 +98,6 @@ class HomeAgent(Agent):
         
         self.mygroup = None
         
-
-        #bid responses awaiting acknowledgement
-        self.outstandingSupplyBids = []
-        self.outstandingDemandBids = []
         
         start = datetime.now()
         #this value doesn't matter
@@ -369,6 +365,7 @@ class HomeAgent(Agent):
                                     if amount:
                                         rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
                                         
+                                        mesdict["auxilliary_service"] = "reserve"
                                         newbid = control.SupplyBid(**mesdict)
                                         period.supplybidmanager.initBid(newbid)
                                         period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
@@ -543,7 +540,7 @@ class HomeAgent(Agent):
                     if pu > 0:
                         newbid = control.SupplyBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
                         period.supplybidmanager.initBid(newbid)
-                        period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
+                        period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power","reserve")
                         bidmanager = period.supplybidmanager
                     #the device is supposed to be charged
                     elif pu < 0:
@@ -660,17 +657,19 @@ class HomeAgent(Agent):
                 response["message_subject"] = "DR_event"
                 response["message_target"] = messageSender
                 response["event_id"] = eventID
+                
+                print("HOMEOWNER {me} received DR event announcement".format(me = self.name))
                 if self.DR_participant == True:
                     if eventType == 'normal':
-                        self.changeConsumption(1)
+                        pass
                     elif eventType == 'grid_emergency':
-                        self.changeConsumption(0)
+                        pass
                     elif eventType == 'shed':
-                        self.changeConsumption(0)
+                        pass
                     elif eventType == 'critical_peak':
-                        self.changeConsumption(0)
+                        pass
                     elif eventType == 'load_up':
-                        self.changeConsumption(1)
+                        pass
                     else:
                         print('got a weird demand response eventType')
                     
@@ -1226,14 +1225,7 @@ class HomeAgent(Agent):
         bidcomponents.append(bid)
         return bidcomponents
 
-    def changeConsumption(self, level):
-        if level == 0:
-            self.disconnectLoad()
-        elif level == 1:
-            self.connectLoad()
-        else:
-            pass
-        
+            
     def advancePeriod(self):
         self.CurrentPeriod = self.PlanningWindow.periods[0]
         self.PlanningWindow.shiftWindow()
@@ -1249,8 +1241,7 @@ class HomeAgent(Agent):
         
         #call enact plan
         self.enactPlan(self.CurrentPeriod)
-        
-        
+                
         #run new price forecast
         self.priceForecast()
         

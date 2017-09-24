@@ -158,13 +158,13 @@ class ResourceProfile(object):
         
         
     def getDischargeCurrent(self):
-        return tagclient.readTags([self.dischargeCurrentTag])
+        return tagClient.readTags([self.dischargeCurrentTag])
     
     def getDischargeVoltage(self):
-        return tagclient.readTags([self.dischargeVoltageTag])
+        return tagClient.readTags([self.dischargeVoltageTag])
         
     def getDischargePower(self):
-        power = self.getCurrent()*self.getVoltage()
+        power = self.getDischargeCurrent()*self.getDischargeVoltage()
         return power
             
     def setOwner(self,newOwner):
