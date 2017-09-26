@@ -173,6 +173,9 @@ class UtilityAgent(Agent):
         self.printInfo(2)
         #self.discoverCustomers()
         
+        #solicit bids for next period, this function schedules a delayed function call to process
+        #the bids it has solicited
+        self.solicitBids()
         
         #schedule planning period advancement
         self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
@@ -371,7 +374,7 @@ class UtilityAgent(Agent):
     #solicit bids for the next period
     def solicitBids(self):
         if settings.DEBUGGING_LEVEL >=2 :
-            print("\nUTILITY {me} IS ASKING FOR BIDS FOR SHORT TERM PLANNING INTERVAL {int}".format(me = self.name, int = self.NextPeriod.periodNumber))
+            print("\nUTILITY {me} IS ASKING FOR BIDS FOR PERIOD {per}".format(me = self.name, per = self.NextPeriod.periodNumber))
         subs = self.getTopology()
         self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
@@ -441,7 +444,7 @@ class UtilityAgent(Agent):
         
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("\nUTILITY {me} IS FORMING A NEW SHORT TERM PLAN".format(me = self.name))
+            print("\nUTILITY {me} IS FORMING A NEW SHORT TERM PLAN FOR PERIOD {per}".format(me = self.name,per = self.NextPeriod.periodNumber))
         
         #tender bids for the utility's own resources
         for res in self.Resources:
@@ -468,7 +471,7 @@ class UtilityAgent(Agent):
         for group in self.groupList:
             maxLoad = self.getMaxGroupLoad(group)
             if settings.DEBUGGING_LEVEL >= 2:
-                print("\n\nPLANNING for GROUP {group}: worst case load is {max}".format(group = group.name, max = maxLoad))
+                print("\n\nPLANNING for GROUP {group} for PERIOD {per}: worst case load is {max}".format(group = group.name, per = self.NextPeriod.periodNumber, max = maxLoad))
                 print(">>here are the supply bids:")
                 for bid in self.supplyBidList:                    
                     bid.printInfo(0)

@@ -22,7 +22,13 @@ class Resource(object):
         self.gridpoints = []
         self.tempgridpoints = []
         self.actionpoints = []
+        self.snapstate = []
         
+    def getGridpoints(self):
+        return self.gridpoints
+    
+    def getActionpoints(self):
+        return self.actionpoints
         
     def addCurrentStateToGrid(self):
         #obtain current state
@@ -30,9 +36,9 @@ class Resource(object):
         #if the device has a state
         if currentstate:
             #and it isn't already in the list of grids
-            if currentstate not in self.gridpoints:
+            if currentstate not in self.gridpoints and currentstate not in self.snapstate:
                 #add the current point to the grid
-                self.gridpoints.append(currentstate)
+                self.snapstate.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
                 #print("not already in state. added : {pts}".format(pts = self.gridpoints))
@@ -40,8 +46,8 @@ class Resource(object):
                 
     def revertStateGrid(self):
         for point in self.tempgridpoints:
-            if point in self.gridpoints:
-                self.gridpoints.remove(point)
+            if point in self.snapstate:
+                self.snapstate.remove(point)
             self.tempgridpoints.remove(point)
         
         
@@ -275,24 +281,13 @@ class LeadAcidBattery(Storage):
         
         self.FREG_power = .2*self.maxChargePower
         
-        self.gridpoints = [0,20,40,60,80,100]
-        self.actionpoints = [-1, -.5, -.25, -.05, 0, .05, .25, .5, 1]
+        self.gridpoints = [0.0, 0.2, 0.4, 0.6, 0.8, 1]
+        self.actionpoints = [-1, -0.25, 0, 0.25, 1]
         
         self.isintermittent = False
         self.issource = True
         self.issink = True
         
-        
-    def applySimulatedInput(self,state,input,duration):
-        power = self.getPowerFromPU(input)
-        soc = input
-        
-        if power > 0:   #if discharging
-            soc = soc + power*duration*.8
-        else:           #if charging
-            soc = soc - power*duration/.8
-        
-        return soc
         
     def costFn(self,period,soc):
         #the first term penalizes being too empty to discharge or too full to charge
@@ -305,15 +300,61 @@ class LeadAcidBattery(Storage):
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
         return power*duration*period.expectedenergycost
-            
-    def getSOC(self):
-        #get SOC from PLC
-        print("getSOC() method of LeadAcidBattery is unimplemented!")
-    
+
     def getSOCfromOCV(self):
         #get battery voltage
         voltage = self.DischargeChannel.getUnregV()
         soc = interpolation.lininterp(self.SOCtable,voltage)
+        return soc
+    
+    def getActionpoints(self,mode = "hifi"):
+        if mode == "hifi":
+            return self.actionpoints
+        if mode == "lofi":
+            ap = [-1, 0, 1]
+            return ap
+    
+    def getGridpoints(self,mode = "hifi"):
+        if mode == "hifi":
+            grid = self.gridpoints[:]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "lofi":
+            grid = [0.0, 0.5, 1.0]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "dyn":
+            dynamicgrid = []
+            dynamicgrid.extend(self.snapstate)
+            initstate = self.getState()            
+            newstate = self.applySimulatedInput(initstate,1,30)
+            if newstate <= 1 and newstate >= 0: 
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,1,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(initstate,-1,30)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,-1,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+        
+            print("generated gridpoints dynamically for {dev}: {grd}".format(dev = self.name, grd = dynamicgrid))
+            return dynamicgrid
+        
+            
+    def applySimulatedInput(self,state,input,duration):
+        power = self.getPowerFromPU(input)
+        soc = state
+        
+        if power > 0:   #if discharging
+            delta = ((power/(0.8*12))*(duration/3600))/self.capacity
+            soc = soc - delta
+        else:           #if charging
+            delta = ((power*0.8/12)*(duration/3600))/self.capacity
+            soc = soc + delta
+        
         return soc
     
     def statebehaviorcheck(self,state,input):

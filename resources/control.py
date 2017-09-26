@@ -70,6 +70,7 @@ class Window(object):
         for period in self.periods:
             if period.periodNumber == number:
                 return period
+        print("can't find period number {num}".format(num = number))
         return None
                 
     def printInfo(self,depth):

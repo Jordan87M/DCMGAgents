@@ -12,9 +12,16 @@ class Device(object):
         
         self.associatedbehavior = None
         
+        self.snapstate = []
         self.gridpoints = []
         self.actionpoints = []
         self.tempgridpoints = []
+        
+    def stateEngToPU(self,eng):
+        return eng/self.statebase
+    
+    def statePUToEng(self,pu):
+        return pu*self.statebase
         
     def addCurrentStateToGrid(self):
         #obtain current state
@@ -24,9 +31,9 @@ class Device(object):
         if currentstate:
             #and it isn't already in the list of grids
             #print("has a state")
-            if currentstate not in self.gridpoints:
-                #add the current point to the grid
-                self.gridpoints.append(currentstate)
+            if currentstate not in self.gridpoints and currentstate not in self.snapstate:
+                #record the added state
+                self.snapstate.append(currentstate)
                 if currentstate not in self.tempgridpoints:
                     self.tempgridpoints.append(currentstate)
                 #print("not already in state. added : {pts}".format(pts = self.gridpoints))
@@ -34,9 +41,9 @@ class Device(object):
                 
     def revertStateGrid(self):
         for point in self.tempgridpoints:
-            if point in self.gridpoints:
+            if point in self.snapstate:
                 #print("removing point {pt} from grid".format(pt = point))
-                self.gridpoints.remove(point)
+                self.snapstate.remove(point)
             self.tempgridpoints.remove(point)
         
     def getState(self):
@@ -60,16 +67,17 @@ class HeatingElement(Device):
         self.deadband = dev["deadband"]
         
         self.tamb = 25
+        self.statebase = 50.0
         self.setpoint = dev["initsetpoint"]
         
-        self.gridpoints = [25,30,35,40,45]
+        self.gridpoints = [0.5, 0.6, 0.7, 0.8, 0.9]
         self.actionpoints = [0,1]
         
         self.elementOn = False
         self.temperature = dev["inittemp"]
         
     def getState(self):
-        return self.temperature
+        return self.stateEngToPU(self.temperature)
     
     def getPowerFromPU(self,pu):
         return pu*self.nominalpower
@@ -83,8 +91,41 @@ class HeatingElement(Device):
             
         self.setpoint = new
         
+    def getActionpoints(self,mode = "hifi"):
+        return self.actionpoints
+        
+    def getGridpoints(self,mode = "hifi"):
+        if mode == "hifi":
+            grid = self.gridpoints[:]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "lofi":
+            grid = [ 0.5, 0.75, 0.9]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "dyn":
+            dynamicgrid = []
+            dynamicgrid.extend(self.snapstate)
+            initstate = self.getState()            
+            newstate = self.applySimulatedInput(initstate,1,30)
+            if newstate <= 1 and newstate >= 0: 
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,1,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(initstate,0,30)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,0,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+        
+            print("generated gridpoints dynamically for {dev}: {grd}".format(dev = self.name, grd = dynamicgrid))
+            return dynamicgrid
+        
     #Euler's method, use only for relatively short time periods
     def applySimulatedInput(self,state,input,duration,pin = "default"):
+        state = self.statePUToEng(state)
         if pin == "default":
             pin = self.nominalpower
             
@@ -100,7 +141,8 @@ class HeatingElement(Device):
             et += step
             state = (((pin*input)-((state - self.tamb)/self.thermR))/(self.mass*self.shc))*step + state
             #print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
-        return state
+            
+        return self.stateEngToPU(state)
         
     def simulationStep(self,pin,duration):
         if pin > 0.0005:
@@ -142,16 +184,17 @@ class HeatPump(Device):
         self.carnotrelativeefficiency = dev["relativeefficiency"]
         
         self.tamb = 25
+        self.tbase = 40
         self.setpoint = dev["initsetpoint"]
         
-        self.gridpoints = [15,20,25,30,35,40]
+        self.gridpoints = [0.375, 0.5, 0.625, 0.75, 0.875, 1]
         self.actionpoints = [0,1]
         
         self.on = False
         self.temperature = dev["inittemp"]
         
     def getState(self):
-        return self.temperature
+        return self.stateEngToPU(self.temperature)
     
     def getPowerFromPU(self,pu):
         return pu*self.nominalpower
@@ -165,8 +208,41 @@ class HeatPump(Device):
             
         self.setpoint = new
         
+    def getActionpoints(self,mode = "lofi"):
+        return self.actionpoints
+    
+    def getGridpoints(self,mode = "hifi"):
+        if mode == "hifi":
+            grid = self.gridpoints[:]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "lofi":
+            grid = [ 0.5, 0.75, 0.9]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "dyn":
+            dynamicgrid = []
+            dynamicgrid.extend(self.snapstate)
+            initstate = self.getState()            
+            newstate = self.applySimulatedInput(initstate,1,30)
+            if newstate <= 1 and newstate >= 0: 
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,1,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(initstate,0,30)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,0,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+        
+            print("generated gridpoints dynamically for {dev}: {grd}".format(dev = self.name, grd = dynamicgrid))
+            return dynamicgrid    
+        
     #Euler's method, use only for relatively short time periods
     def applySimulatedInput(self,state,input,duration,pin = "default"):
+        state = self.statePUToEng(state)
         if pin == "default":
             pin = self.nominalpower
         et = 0
@@ -188,7 +264,7 @@ class HeatPump(Device):
             peff = pin*efficiency
             state = ((-peff*input-((state - self.tamb)/self.thermR))/(self.heatcap))*step + state            
             #print("another step: after {et} seconds out of {dur} newstate is {ns}".format(et = et, dur = duration, ns = state))
-        return state
+        return self.stateEngToPU(state)
         
     def simulationStep(self,pin,duration):
         if pin > 0.0005:
@@ -222,9 +298,42 @@ class HeatPump(Device):
 class Refrigerator(HeatPump):
     def __init__(self,**dev):
         super(Refrigerator,self).__init__(**dev)
-        self.gridpoints = [0,2,4,6,8]
+        self.gridpoints = [0.0, 0.2, 0.4, 0.6, 0.8]
+        self.statebase = 10.0
         
+    def getActionpoints(self,mode = "hifi"):
+        return self.actionpoints    
+    
+    def getGridpoints(self,mode = "hifi"):
+        if mode == "hifi":
+            grid = self.gridpoints[:]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "lofi":
+            grid = [ 0.0, 0.4, 0.8]
+            grid.extend(self.snapstate)
+            return grid
+        elif mode == "dyn":
+            dynamicgrid = []
+            dynamicgrid.extend(self.snapstate)
+            initstate = self.getState()            
+            newstate = self.applySimulatedInput(initstate,1,30)
+            if newstate <= 1 and newstate >= 0: 
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,1,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(initstate,0,30)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
+            newstate = self.applySimulatedInput(newstate,0,60)
+            if newstate <= 1 and newstate >= 0:
+                dynamicgrid.append(newstate)
         
+            print("generated gridpoints dynamically for {dev}: {grd}".format(dev = self.name, grd = dynamicgrid))
+            return dynamicgrid
+        
+            
     def printInfo(self,depth):
         tab = "    "
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
@@ -251,6 +360,12 @@ class NoDynamics(Device):
             return 1
         else:
             return 0
+        
+    def getActionpoints(self,mode = "hifi"):
+        return self.actionpoints
+    
+    def getGridpoints(self,mode = "hifi"):
+        return self.gridpoints
     
     #the state becomes whatever the input tells it to be
     def applySimulatedInput(self,state,input,duration,pin = "default"):

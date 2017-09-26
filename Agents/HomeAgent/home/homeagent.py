@@ -5,6 +5,7 @@ import sys
 import json
 import random
 import copy
+import time
 
 from volttron.platform.vip.agent import Agent, Core, PubSub, compat, RPC
 from volttron.platform.agent import utils
@@ -67,7 +68,7 @@ class HomeAgent(Agent):
         
         
         #create resource objects for resources
-        resource.makeResource(self.resources,self.Resources,True)
+        resource.makeResource(self.resources,self.Resources,False)
         for app in self.appliances:
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
@@ -118,19 +119,42 @@ class HomeAgent(Agent):
     def setup(self,sender,**kwargs):
         _log.info(self.config['message'])
         self._agent_id = self.config['agentid']
-        
-        print('!!!Hello!!! Agent for the {name} home at {loc} starting up'.format(name = self.name, loc = self.location))
-        
+                
         self.vip.pubsub.subscribe('pubsub','energymarket', callback = self.followmarket)
         self.vip.pubsub.subscribe('pubsub','demandresponse',callback = self.DRfeed)
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
         self.vip.pubsub.subscribe("pubsub","FREG",callback = self.FREGfeed)
         
-        self.printInfo(1)
-        
         for period in self.PlanningWindow.periods:
             self.requestForecast(period)
+        
+        #sleep to give weather agent a chance to respond before proceeding    
+        time.sleep(1)    
+        
+        print('!!!Hello!!! Agent for the {name} home at {loc} beginning preparations for PERIOD 1'.format(name = self.name, loc = self.location))
+        
+        #find offer price
+        self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
+            self.NextPeriod.plan.optimalcontrol.printInfo(0)
+        self.NextPeriod.plan.planningcomplete = True
+        
+        self.bidSolicitationResponse(self.NextPeriod)
+                
+        #now that we have the offer price we can respond with bids, but wait until the utility has solicited them
+        if self.NextPeriod.supplybidmanager.recPowerSolicitation and self.NextPeriod.demandbidmanager.recDemandSolicitation:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER {me} ALREADY RECEIVED SOLICITATION, SUBMITTING BIDS NOW".format(me = self.name))
+            self.submitBids(self.NextPeriod.demandbidmanager)
+            self.submitBids(self.NextPeriod.supplybidmanager)
+            
+        else:
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER {me} WAITING FOR SOLICITATION".format(me = self.name))
+            
+        self.printInfo(0)
         
         
     @Core.periodic(settings.SIMSTEP_INTERVAL)
@@ -640,9 +664,15 @@ class HomeAgent(Agent):
                     responses = mesdict.get("responses",None)
                     if responses:
                         period = self.PlanningWindow.getPeriodByNumber(periodnumber)
-                        period.addForecast(control.Forecast(responses,period))
-                        print("HOMEOWNER {me} received forecast for period {per}".format(me = self.name, per = period.periodNumber))
-                
+                        if period:
+                            period.addForecast(control.Forecast(responses,period))
+                            print("HOMEOWNER {me} received forecast for period {per}".format(me = self.name, per = period.periodNumber))
+                        else:
+                            if periodnumber == self.CurrentPeriod.periodNumber:
+                                self.CurrentPeriod.addForecast(control.Forecast(responses,period))
+                            else:
+                                print("HOMEOWNER {me} doesn't know what to do with forecast for period {per}".format(per = periodnumber))
+                            
     def DRfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
         messageSubject = mesdict.get('message_subject',None)
@@ -703,46 +733,49 @@ class HomeAgent(Agent):
     #determine offer price by finding a price for which the cost function is 0          
     def determineOffer(self,debug = False):
         threshold = .5
-        maxstep = 5
+        maxstep = 2
         maxitr = 4
         initprice = 0
         bound = initprice
         pstep = 1
         
+        subdebug = False
         
-        rec = self.getOptimalForPrice(bound,False)
-        print("initial cost: {cos}".format(cos = rec.pathcost))
+        start = time.time()
+        rec = self.getOptimalForPrice(bound,subdebug)
+        oneround = time.time() - start
+        print("took {sec} seconds to find initial cost: {cos}".format(sec = oneround, cos = rec.pathcost))
         
         itr = 0
         if rec.pathcost > 0:
             while rec.pathcost > 0:
                 bound -= pstep*(itr+1)
                 
-                rec = self.getOptimalForPrice(bound,False)
+                rec = self.getOptimalForPrice(bound,subdebug)
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
                 itr += 1
-                if itr > maxitr:
-                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
+                if itr > maxstep:
+                    print("maxstep exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                     break
         elif rec.pathcost < 0:
             while rec.pathcost < 0:
                 bound += pstep*(itr+1)
                 #temporary debugging
                 
-                rec = self.getOptimalForPrice(bound,False)
+                rec = self.getOptimalForPrice(bound,subdebug)
                 
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
                 itr += 1
-                if itr > maxitr:
-                    print("maxitr exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
+                if itr > maxstep:
+                    print("maxstep exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                     break
         else:
             #got it right the first time
             return bound, rec
         
-        if itr > maxitr:
+        if itr > maxstep:
             print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
             return 0, rec
             
@@ -785,12 +818,14 @@ class HomeAgent(Agent):
             
             if itr > maxitr:
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print("HOMEOWNER {me} took too many iterations to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name,lower = lower, upper = upper, cost = rec.pathcost))
+                    elapsed = time.time() - start
+                    print("HOMEOWNER {me} took too many iterations ({sec} seconds) to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name, sec = elapsed, lower = lower, upper = upper, cost = rec.pathcost))
                 return (upper + lower)*.5, rec
         
         price = (upper + lower)*.5
+        elapsed = time.time() - start
         if settings.DEBUGGING_LEVEL >= 2:
-            print("HOMEOWNER {me} determined offer price: {bid}".format(me = self.name, bid = price))
+            print("HOMEOWNER {me} determined offer price: {bid} (took {et} seconds)".format(me = self.name, bid = price, et = elapsed))
         
         return price, rec
     
@@ -861,17 +896,14 @@ class HomeAgent(Agent):
             
         for dev in self.Devices:
             dev.revertStateGrid()
-           
-        
-            
+               
         #get beginning of path from current state
         curstate = window.periods[0].plan.stategrid.match(snapstate)
         if curstate:
-            #print("this is the current state: {sta}".format(sta = curstate.components))                
             recaction = curstate.optimalinput
         else:
             if debug:
-                print("no state match found")
+                print("no state match found for {snap}".format(snap = snapstate))
             recaction = None
             
         if recaction:
@@ -1027,7 +1059,11 @@ class HomeAgent(Agent):
         
         for dev in self.Devices:
             if dev.gridpoints:
-                inputdict[dev.name] = dev.gridpoints
+                #inputdict[dev.name] = dev.gridpoints
+                if len(self.Devices) >= 3:
+                    inputdict[dev.name] = dev.getGridpoints("lofi")
+                else:
+                    inputdict[dev.name] = dev.getGridpoints()
             
         devstates = combin.makeopdict(inputdict)
         
@@ -1043,7 +1079,10 @@ class HomeAgent(Agent):
         
         for dev in self.Devices:
             if dev.actionpoints:
-                inputdict[dev.name] = dev.actionpoints
+                if len(self.Devices) >= 3:
+                    inputdict[dev.name] = dev.getActionpoints("lofi")
+                else:
+                    inputdict[dev.name] = dev.getActionpoints()
             
         devactions = combin.makeopdict(inputdict)
         
@@ -1210,8 +1249,7 @@ class HomeAgent(Agent):
         mes = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","weatherservice",{},mes)
 
-        
-        
+                
     def generateDemandBids(self,periodNumber):
         ''''a load agent that can vary its consumption might want to split up its
         total consumption into components at different rates'''
@@ -1253,9 +1291,7 @@ class HomeAgent(Agent):
         self.NextPeriod.plan.planningcomplete = True
         
         self.bidSolicitationResponse(self.NextPeriod)
-        
-        #self.planningRemakeWindow(self.NextPeriod)
-        
+                
         #now that we have the offer price we can respond with bids, but wait until the utility has solicited them
         if self.NextPeriod.supplybidmanager.recPowerSolicitation and self.NextPeriod.demandbidmanager.recDemandSolicitation:
             if settings.DEBUGGING_LEVEL >= 2:
