@@ -357,14 +357,20 @@ class LeadAcidBattery(Storage):
         
         return soc
     
+    #state:
+    #input: InputSignal class
     def statebehaviorcheck(self,state,input):
-        if state < .02 and input > 0:
-            print("battery is too depleted to discharge")
+        input = input.components[self.name]
+        state = state.components[self.name]
+        
+        if state < 0.02 and input > 0:
+            #print("battery is too depleted to discharge")
             return False
         elif state > .98 and input < 0:
-            print("battery is too full to charge")
+            #print("battery is too full to charge")
             return False
         else:
+            #print("state {sta} is consistent with input {inp}".format(sta = state, inp = input))
             return True
 
 class Generator(Source):

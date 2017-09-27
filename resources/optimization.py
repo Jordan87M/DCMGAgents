@@ -146,15 +146,15 @@ class InputSignal(object):
         self.gridconnected = gridconnected
         self.drevent = drpart
         self.components = comps
-        self.transcost = None
+        #self.transcost = None
         self.pathcost = None
     
     #sets cost of transition associated with input
     #returns old the old cost
-    def setcost(self,cost):
-        temp = self.transcost
-        self.transcost = cost
-        return temp
+    #def setcost(self,cost):
+    #    temp = self.transcost
+    #    self.transcost = cost
+    #    return temp
     
     def printInfo(self,depth = 0):
         tab = "    "

@@ -739,6 +739,8 @@ class HomeAgent(Agent):
         bound = initprice
         pstep = 1
         
+        #turns debugging on or off for subroutines
+        #subdebug = True
         subdebug = False
         
         start = time.time()
@@ -793,11 +795,13 @@ class HomeAgent(Agent):
             
         itr = 0
         while abs(rec.pathcost) > threshold:
+            
             mid = (upper + lower)*.5
             
-            rec = self.getOptimalForPrice(mid)
-            
-            print("new cost {cos} for price {mid}".format(cos = rec.pathcost, mid = mid))
+            before = time.time()
+            rec = self.getOptimalForPrice(mid,subdebug)
+            after = time.time()
+            print("new cost {cos} for price {mid}. iteration took {sec} seconds".format(cos = rec.pathcost, mid = mid, sec = after - before))
             
             if rec.pathcost > 0:
                 upper = mid
@@ -855,7 +859,7 @@ class HomeAgent(Agent):
                 
             #remake grid points
             self.makeDPGrid(selperiod,debug)
-            #remake new inputs
+            #if we failed to remake grid points, print error and return
             if not selperiod.plan.stategrid.grid:
                 print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = selperiod.periodNumber))
                 return
@@ -1090,36 +1094,24 @@ class HomeAgent(Agent):
         #grid connected inputs
         if period.pendingdrevents:
             for devact in devactions:
-                inputs.append(optimization.InputSignal(devact,True,period.pendingdrevents[0]))
+                newinput = optimization.InputSignal(devact,True,period.pendingdrevents[0])
+                
+                if self.admissibleInput(newinput,state,period,False):
+                    inputs.append(newinput)
         
         #no DR participation
         for devact in devactions:
-            inputs.append(optimization.InputSignal(devact,True,None))
+            newinput = optimization.InputSignal(devact,True,None)
+                
+            if self.admissibleInput(newinput,state,period,False):
+                inputs.append(newinput)
             
         #non grid connected inputs
         #do this later... needs special consideration
         
         if debug:
             print("HOMEOWNER {me} made input list for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(inputs)))
-        
-        
-        for input in inputs:
-            #weed out inadmissible inputs
-            if not self.admissibleInput(input,state,period,True): 
-                inputs.remove(input)
-            else:
-                #input is admissible keep going
-                #sum cost of all actions
-                total = 0
-                for devkey in input.components:
-                    device = listparse.lookUpByName(devkey,self.Devices)
-                    total += device.inputCostFn(input.components[devkey],period,state,settings.ST_PLAN_INTERVAL) 
-                
-                input.setcost(total)
-                
-        #having generated the list of admissible inputs and computed their costs
-        #we replace any previously existing list of admissible controls for the
-        #period's plan with this one
+
         
         period.plan.setAdmissibleInputs(inputs)
 
@@ -1142,7 +1134,7 @@ class HomeAgent(Agent):
                 else:
                     #input not consistent with state
                     if debug:
-                        print("inadmissible input: input doesn't make sense for this state")
+                        print("inadmissible input: {input} doesn't make sense for {state}".format(input = input.components, state = state.components))
                     return False
                 #keep track of contribution from source
                 totalsource += device.getPowerFromPU(input.components[compkey])

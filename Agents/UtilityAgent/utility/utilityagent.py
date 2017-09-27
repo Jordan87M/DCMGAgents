@@ -439,7 +439,7 @@ class UtilityAgent(Agent):
                     
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} SOLICITING RESERVE POWER BIDS FROM {them}".format(me = self.name, them = cust.name))
-        sched = datetime.now() + timedelta(seconds = 5)            
+        sched = datetime.now() + timedelta(seconds = settings.BID_SUBMISSION_INTERVAL)            
         delaycall = self.core.schedule(sched,self.planShortTerm)
         
     def planShortTerm(self):

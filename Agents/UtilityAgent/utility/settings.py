@@ -8,6 +8,9 @@ LT_PLAN_INTERVAL = 120
 
 #short term planning interval in seconds
 ST_PLAN_INTERVAL = 30
+#interval between bid solicitation and auction
+BID_SUBMISSION_INTERVAL = 10
+
 
 #time between fault detection routine runs in seconds
 FAULT_DETECTION_INTERVAL = 5
