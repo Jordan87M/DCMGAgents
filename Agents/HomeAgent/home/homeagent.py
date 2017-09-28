@@ -109,9 +109,6 @@ class HomeAgent(Agent):
         self.NextPeriod = self.PlanningWindow.periods[0]
         self.CurrentPeriod.nextperiod = self.NextPeriod
         
-        
-        self.PlanningWindow.printInfo(0)
-        
         #core.schedule event object for the function call to begin next period
         self.advanceEvent = None
         
@@ -130,9 +127,13 @@ class HomeAgent(Agent):
             self.requestForecast(period)
         
         #sleep to give weather agent a chance to respond before proceeding    
-        time.sleep(1)    
+        sched = datetime.now() + timedelta(seconds = 1)
+        self.core.schedule(sched,self.firstplan)
         
-        print('!!!Hello!!! Agent for the {name} home at {loc} beginning preparations for PERIOD 1'.format(name = self.name, loc = self.location))
+        #self.printInfo(0)
+    
+    def firstplan(self):
+        print('Homeowner {name} at {loc} beginning preparations for PERIOD 1'.format(name = self.name, loc = self.location))
         
         #find offer price
         self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
@@ -141,7 +142,7 @@ class HomeAgent(Agent):
             self.NextPeriod.plan.optimalcontrol.printInfo(0)
         self.NextPeriod.plan.planningcomplete = True
         
-        self.bidSolicitationResponse(self.NextPeriod)
+        self.prepareBidsFromPlan(self.NextPeriod)
                 
         #now that we have the offer price we can respond with bids, but wait until the utility has solicited them
         if self.NextPeriod.supplybidmanager.recPowerSolicitation and self.NextPeriod.demandbidmanager.recDemandSolicitation:
@@ -154,8 +155,6 @@ class HomeAgent(Agent):
             if settings.DEBUGGING_LEVEL >= 2:
                 print("HOMEOWNER {me} WAITING FOR SOLICITATION".format(me = self.name))
             
-        self.printInfo(0)
-        
         
     @Core.periodic(settings.SIMSTEP_INTERVAL)
     def simStep(self):
@@ -547,7 +546,7 @@ class HomeAgent(Agent):
                 if settings.DEBUGGING_LEVEL >= 2:
                     print("RECEIVED RATE NOTIFICATION FROM {them} FOR PERIOD {per}. NEW RATE IS {rate}".format(them = messageSender, per = pnum, rate = rate))
     
-    def bidSolicitationResponse(self,period):
+    def prepareBidsFromPlan(self,period):
         comps = period.plan.optimalcontrol.components
         rate = period.offerprice
         
@@ -570,7 +569,7 @@ class HomeAgent(Agent):
                     elif pu < 0:
                         newbid = control.DemandBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
                         period.demandbidmanager.initBid(newbid)
-                        period.demandbidmanager.setBid(newbid,amount,rate,res.name)
+                        period.demandbidmanager.setBid(newbid,abs(amount),rate,res.name)
                         bidmanager = period.demandbidmanager
                     if res.issink:
                         #the device is not being deployed and can be offered as reserve
@@ -583,7 +582,7 @@ class HomeAgent(Agent):
                                 bidmanager = period.supplybidmanager
                 if newbid:
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("HOMEOWNER AGENT {me} SUBMITTING BID".format(me = self.name))
+                        print("HOMEOWNER AGENT {me} READYING BID".format(me = self.name))
                         newbid.printInfo(0)
                         
                     mesdict["message_sender"] = self.name
@@ -629,12 +628,21 @@ class HomeAgent(Agent):
                 print("HOMEOWNER AGENT {me} HAS NO DEMAND FOR period {per}".format(me =self.name, per = period.periodNumber))
         
     def submitBids(self,bidmanager):      
-        for bid in bidmanager.readybids:
+        while bidmanager.readybids:
+            bid = bidmanager.readybids[0]
+            
+            #this takes care of the case when the utility name was not known
+            #when the bids were created
+            if not bid.counterparty:
+                bid.counterparty = self.utilityName
+                bid.routinginfo["message_target"] = self.utilityName
+                
+                
             if settings.DEBUGGING_LEVEL >= 2:
                 print("SUBMITTING BID")
                 bid.printInfo(0)
             self.vip.pubsub.publish("pubsub","energymarket",{},bidmanager.sendBid(bid))
-            bidmanager.printInfo()
+            #bidmanager.printInfo()
     
     def homefeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -1282,7 +1290,7 @@ class HomeAgent(Agent):
             self.NextPeriod.plan.optimalcontrol.printInfo(0)
         self.NextPeriod.plan.planningcomplete = True
         
-        self.bidSolicitationResponse(self.NextPeriod)
+        self.prepareBidsFromPlan(self.NextPeriod)
                 
         #now that we have the offer price we can respond with bids, but wait until the utility has solicited them
         if self.NextPeriod.supplybidmanager.recPowerSolicitation and self.NextPeriod.demandbidmanager.recDemandSolicitation:

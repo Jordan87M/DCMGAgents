@@ -282,15 +282,16 @@ class BidManager(object):
         return bid.makedict()
     
     def readyBid(self,bid,**mesdict):
-        outdict = bid.makedict()
-        for key in mesdict:
-            outdict[key] = mesdict[key]
+        bid.routinginfo = mesdict
         
-        bid.bidstring = json.dumps(outdict)
-        #print(bid.bidstring)
         self.moveInitToReady(bid)
     
     def sendBid(self,bid):
+        outdict = bid.makedict()
+        for key in bid.routinginfo:
+            outdict[key] = bid.routinginfo[key]
+        bid.bidstring = json.dumps(outdict)    
+        
         self.moveReadyToPending(bid)
         #print(bid.bidstring)
         return bid.bidstring
@@ -429,6 +430,7 @@ class BidBase(object):
         self.modified = False
         
         self.bidstring = None
+        self.routinginfo = None
         
         #generate an id randomly if one is not specified
         if biddict.get("uid",None):

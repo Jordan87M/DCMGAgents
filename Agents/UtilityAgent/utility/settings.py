@@ -7,9 +7,9 @@ DEBUGGING_LEVEL = 2
 LT_PLAN_INTERVAL = 120
 
 #short term planning interval in seconds
-ST_PLAN_INTERVAL = 30
+ST_PLAN_INTERVAL = 45
 #interval between bid solicitation and auction
-BID_SUBMISSION_INTERVAL = 10
+BID_SUBMISSION_INTERVAL = 30
 
 
 #time between fault detection routine runs in seconds

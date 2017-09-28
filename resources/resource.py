@@ -293,13 +293,13 @@ class LeadAcidBattery(Storage):
         #the first term penalizes being too empty to discharge or too full to charge
         target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
         #the second term accounts for the value of the stored energy
-        energy = soc*self.capacity*period.expectedenergycost
+        energy = -soc*self.capacity*period.expectedenergycost
         
         return target + energy
     
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
-        return power*duration*period.expectedenergycost
+        return -power*duration*period.expectedenergycost
 
     def getSOCfromOCV(self):
         #get battery voltage

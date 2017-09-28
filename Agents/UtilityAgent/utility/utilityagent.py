@@ -5,6 +5,7 @@ import sys
 import json
 import operator
 import random
+import time
 
 from volttron.platform.vip.agent import Agent, BasicCore, core, Core, PubSub, compat
 from volttron.platform.agent import utils
@@ -169,16 +170,31 @@ class UtilityAgent(Agent):
         self.vip.pubsub.subscribe('pubsub','customerservice',callback = self.customerfeed)
         self.vip.pubsub.subscribe('pubsub','weatherservice',callback = self.weatherfeed)
         
-        
-        self.printInfo(2)
-        #self.discoverCustomers()
-        
+        #self.printInfo(2)
+              
+        self.discoverCustomers()
         #solicit bids for next period, this function schedules a delayed function call to process
         #the bids it has solicited
         self.solicitBids()
         
         #schedule planning period advancement
         self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
+        
+        #schedule first customer enrollment attempt
+        sched = datetime.now() + timedelta(seconds = 4)            
+        delaycall = self.core.schedule(sched,self.discoverCustomers)
+        
+        #schedule bid solicitation for first period
+        sched = datetime.now() + timedelta(seconds = 11)
+        self.core.schedule(sched,self.sendBidSolicitation)
+        
+        
+        subs = self.getTopology()
+        if settings.DEBUGGING_LEVEL >= 2:
+            print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
+        
+        
+        
     
     '''callback for weatherfeed topic'''
     def weatherfeed(self, peer, sender, bus, topic, headers, message):
@@ -217,65 +233,81 @@ class UtilityAgent(Agent):
                 if messageType == "new_customer_response":
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} RECEIVED A RESPONSE TO CUSTOMER ENROLLMENT SOLICITATION FROM {them}".format(me = self.name, them = messageSender))
-                    try:
-                        name, location, resources, customerType = mesdict.get("info")                        
-                    except Exception as e:
-                        print("customer information improperly formatted :(")
-                    #create a new object to represent customer in our database    
-                    if customerType == "residential":
-                        cust = customer.ResidentialCustomerProfile(name,location,resources,2)
-                        self.customers.append(cust)
-                    elif customerType == "commercial":
-                        cust = customer.CommercialCustomerProfile(name,location,resources,5)
-                        self.customers.append(cust)
-                    else:                        
-                        pass
                     
-                    #add customer to Node object
-                    for node in self.nodes:
-                        if cust.location.split(".")[0:3] == node.name.split("."):
-                            node.addCustomer(cust)
+                    name, location, resources, customerType = mesdict.get("info")                        
                     
-                    for resource in resources:
-                        print("NEW RESOURCE: {res}".format(res = resource))
-                        foundmatch = False
+                    #create a new object to represent customer in our database 
+                    dupobj = listparse.lookUpByName(name,self.customers)
+                    if dupobj:
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("HOMEOWNER {me} has already registered {cust}".format(me = self.name, cust = name))
+                        return
+                    else:   
+                        if customerType == "residential":
+                            cust = customer.ResidentialCustomerProfile(name,location,resources,2)
+                            self.customers.append(cust)
+                        elif customerType == "commercial":
+                            cust = customer.CommercialCustomerProfile(name,location,resources,5)
+                            self.customers.append(cust)
+                        else:                        
+                            if settings.DEBUGGING_LEVEL >= 2:
+                                print("HOMEOWNER {me} doesn't recognize customer type".format(me = self.name))
+                                return
+                            
+                        #add customer to Node object
                         for node in self.nodes:
-                            if node.name.split(".") == resource["location"].split(".")[0:3]:
-                                resType = resource.get("type",None)
-                                if resType == "solar":
-                                    newres = customer.SolarProfile(**resource)
-                                elif resType == "lead_acid_battery":
-                                    newres = customer.LeadAcidBatteryProfile(**resource)
-                                elif resType == "generator":
-                                    newres = customer.GeneratorProfile(**resource)
-                                else:
-                                    print("unsupported resource type")
-                                node.addResource(newres)
-                                cust.addResource(newres)
-                                foundmatch = True
-                            #else:
-                                #print("{nodloc} is not {resloc}".format(nodloc = node.name.split("."), resloc = resource["location"].split(".")[0:3]))
-                        if not foundmatch:
-                            print("couldn't find a match for {loc}".format(loc = resource["location"]))
-                          
+                            if cust.location.split(".")[0:3] == node.name.split("."):
+                                node.addCustomer(cust)
+                                if node.group:
+                                    node.group.customers.append(cust)
                         
-                    if settings.DEBUGGING_LEVEL >= 1:
-                        print("\nNEW CUSTOMER ENROLLMENT ##############################")
-                        print("UTILITY {me} enrolled customer {them}".format(me = self.name, them = name))
-                        cust.printInfo(0)
-                        if settings.DEBUGGING_LEVEL >= 3:
-                            print("...and here's how they did it:\n {mes}".format(mes = message))
-                        print("#### END ENROLLMENT NOTIFICATION #######################")
+                        for resource in resources:
+                            print("NEW RESOURCE: {res}".format(res = resource))
+                            foundmatch = False
+                            for node in self.nodes:
+                                if node.name.split(".") == resource["location"].split(".")[0:3]:
+                                    resType = resource.get("type",None)
+                                    if resType == "solar":
+                                        newres = customer.SolarProfile(**resource)
+                                    elif resType == "lead_acid_battery":
+                                        newres = customer.LeadAcidBatteryProfile(**resource)
+                                    elif resType == "generator":
+                                        newres = customer.GeneratorProfile(**resource)
+                                    else:
+                                        print("unsupported resource type")
+                                    node.addResource(newres)
+                                    cust.addResource(newres)
+                                    if node.group:
+                                        node.group.resources.append(newres)
+                                    foundmatch = True
+                            if not foundmatch:
+                                print("couldn't find a match for {loc}".format(loc = resource["location"]))
+                        
+                        
+                            
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print("\nNEW CUSTOMER ENROLLMENT ##############################")
+                            print("UTILITY {me} enrolled customer {them}".format(me = self.name, them = name))
+                            cust.printInfo(0)
+                            if settings.DEBUGGING_LEVEL >= 3:
+                                print("...and here's how they did it:\n {mes}".format(mes = message))
+                            print("#### END ENROLLMENT NOTIFICATION #######################")
+                        
+                        resdict = {}
+                        resdict["message_subject"] = "customer_enrollment"
+                        resdict["message_type"] = "new_customer_confirm"
+                        resdict["message_target"] = name
+                        response = json.dumps(resdict)
+                        self.vip.pubsub.publish(peer = "pubsub",topic = "customerservice", headers = {}, message = response)
+                        
+                        if settings.DEBUGGING_LEVEL >= 1:
+                            print("let the customer {name} know they've been successfully enrolled by {me}".format(name = name, me = self.name))
+                            
+                        #one more try
+                        sched = datetime.now() + timedelta(seconds = 2)
+                        self.core.schedule(sched,self.sendBidSolicitation)
+                        
                     
-                    resdict = {}
-                    resdict["message_subject"] = "customer_enrollment"
-                    resdict["message_type"] = "new_customer_confirm"
-                    resdict["message_target"] = name
-                    response = json.dumps(resdict)
-                    self.vip.pubsub.publish(peer = "pubsub",topic = "customerservice", headers = {}, message = response)
-                    
-                    if settings.DEBUGGING_LEVEL >= 1:
-                        print("let the customer {name} know they've been successfully enrolled by {me}".format(name = name, me = self.name))
             elif messageSubject == "request_connection":
                 #the utility has the final say in whether a load can connect or not
                 #look up customer object by name
@@ -373,8 +405,7 @@ class UtilityAgent(Agent):
     
     #solicit bids for the next period
     def solicitBids(self):
-        if settings.DEBUGGING_LEVEL >=2 :
-            print("\nUTILITY {me} IS ASKING FOR BIDS FOR PERIOD {per}".format(me = self.name, per = self.NextPeriod.periodNumber))
+        
         subs = self.getTopology()
         self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
@@ -390,10 +421,23 @@ class UtilityAgent(Agent):
         self.supplyBidList = []
         self.reserveBidList = []
         self.demandBidList = []
-        #send bid solicitations to all customers who are known to have behind the meter resources
+        
+        #send bid solicitations to all customers who are known to have resources
+        self.sendBidSolicitation()
+        
+        sched = datetime.now() + timedelta(seconds = settings.BID_SUBMISSION_INTERVAL)            
+        delaycall = self.core.schedule(sched,self.planShortTerm)
+        
+    #sends bid solicitation without rescheduling call to planning function or finding topology
+    def sendBidSolicitation(self):
+        if settings.DEBUGGING_LEVEL >=2 :
+            print("\nUTILITY {me} IS ASKING FOR BIDS FOR PERIOD {per}".format(me = self.name, per = self.NextPeriod.periodNumber))
+        
         self.bidstate.acceptall()
         for group in self.groupList:
+            #group.printInfo()
             for cust in group.customers:
+                #cust.printInfo()
                 # ask about consumption
                 mesdict = {}
                 mesdict["message_sender"] = self.name
@@ -439,8 +483,6 @@ class UtilityAgent(Agent):
                     
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} SOLICITING RESERVE POWER BIDS FROM {them}".format(me = self.name, them = cust.name))
-        sched = datetime.now() + timedelta(seconds = settings.BID_SUBMISSION_INTERVAL)            
-        delaycall = self.core.schedule(sched,self.planShortTerm)
         
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
@@ -1188,7 +1230,7 @@ class UtilityAgent(Agent):
             print("{mat}".format(mat = self.connMatrix))
         
     def marketfeed(self, peer, sender, bus, topic, headers, message):
-        print("TEMP DEBUG - UTILITY: {mes}".format(mes = message))
+        #print("TEMP DEBUG - UTILITY: {mes}".format(mes = message))
         mesdict = json.loads(message)
         messageSubject = mesdict.get("message_subject",None)
         messageTarget = mesdict.get("message_target",None)
