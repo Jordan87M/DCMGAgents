@@ -52,7 +52,7 @@ class EnergyBehavior(object):
         self.params = params
         
     def costFn(self,period,devstate):
-        #period not currently in use
+        
         return self.utilityfn.eval(devstate)
             
 class QuadraticCostFn(object):
@@ -146,21 +146,26 @@ class PiecewiseConstant(object):
 class Interpolated(object):
     def __init__(self,**params):
         self.points = params["points"]
+        self.n = len(self.points)
         
         self.name = "interpolate"
         
-    def eval(self,x):
-        right = None
-        for point in self.points:
-            if x <= point[0]:
-                right = point.index
-        if right == None:
+    def eval(self,z):
+        rindex = None
+        for index,point in enumerate(self.points):
+            if z <= point[0]:
+                rindex = index
+                break
+        if not rindex:
             return self.points[-1][1]
-        if right == 0:
+        if rindex == 0:
             return self.points[0][1]
         
-        slope = (self.points[right][1] - self.points[right - 1][1])/(self.points[right][0] - self.points[right - 1][0])
-        return self.points[right-1][1] + slope*(x - self.points[right][0])        
-            
+        x1,y1 = self.points[rindex-1]
+        x2,y2 = self.points[rindex]
+        
+        out = (((y2-y1)/(x2-x1))*(z - x1)) + y1
+        return out
+          
 
         

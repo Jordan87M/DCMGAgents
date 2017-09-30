@@ -69,6 +69,9 @@ class HomeAgent(Agent):
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,False)
+        #add cost function if applicable
+        
+        
         for app in self.appliances:
             if app["type"] == "heater":
                 newapp = appliances.HeatingElement(**app)
@@ -79,7 +82,7 @@ class HomeAgent(Agent):
             else:
                 pass
             self.Appliances.append(newapp)
-            self.addCostFn(newapp,app)
+            appliances.addCostFn(newapp,app)
             
             print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
             newapp.printInfo(1)
@@ -172,30 +175,6 @@ class HomeAgent(Agent):
             for app in self.Appliances:            
                 app.simulationStep(app.nominalpower,settings.SIMSTEP_INTERVAL)
                 
-    def addCostFn(self,appobj,appdict):
-        fn = appdict["costfn"]
-        paramdict = appdict["cfnparams"]
-        type = appdict["type"]
-        
-        if fn == "quad":
-            newfn = human.QuadraticCostFn(**paramdict)
-        elif fn == "quadcap":
-            newfn = human.QuadraticWCapCostFn(**paramdict)
-        elif fn == "quadmono":
-            newfn = human.QuadraticOneSideCostFn(**paramdict)
-        elif fn == "quadmonocap":
-            newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
-        elif fn == "const":
-            newfn = human.ConstantCostFn(**paramdict)
-        elif fn == "piecewise":
-            newfn = human.PiecewiseConstant(**paramdict)
-        elif fn == "interpolate":
-            newfn = human.Interpolated(**paramdict)
-        else:
-            print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
-            
-        behavior = human.EnergyBehavior(type,appobj,newfn)
-        appobj.associatedbehavior =  behavior
         
     def costFn(self,period,statecomps):
         #the costFn() method is implemented at the level of the User class
@@ -292,7 +271,7 @@ class HomeAgent(Agent):
                         for res in self.Resources:
                             #charge a battery if available
                             if res is resources.LeadAcidBattery:
-                                if res.SOC < 95:
+                                if res.SOC < .95:
                                     res.charge(sig*self.FREG_power)
                                     if settings.DEBUGGING_LEVEL >= 2:
                                         print("STORAGE DEVICE {me}: charging at {rate} W".format(me = self.name, rate = sig*self.FREG_power))

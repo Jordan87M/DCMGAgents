@@ -1,4 +1,6 @@
 from volttron.platform.vip.agent import RPC
+from DCMGClasses.resources.demand import human
+
 
 class Device(object):
     def __init__(self, **dev):
@@ -54,8 +56,10 @@ class Device(object):
         print(tab*depth + "DEVICE NAME: {name}".format(name = self.name))
         
     def costFn(self,period,devstate):
-        return self.associatedbehavior.costFn(period,devstate)
-    
+        devstate = self.statePUToEng(devstate)
+        cost = self.associatedbehavior.costFn(period,devstate)
+        print("device: {name}, state: {sta}, cost: {cos}".format(name = self.name, sta = devstate, cos = cost))
+        return cost
     
 class HeatingElement(Device):
     def __init__(self,**dev):
@@ -158,7 +162,7 @@ class HeatingElement(Device):
     
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
-        #print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
+        #print("name: {name}, cost: {cost}, power: {pow}, duration: {dur}".format(name = self.name, cost = period.expectedenergycost, pow = power, dur = duration))
         return power*duration*period.expectedenergycost    
         
     def printInfo(self,depth = 0):
@@ -280,7 +284,7 @@ class HeatPump(Device):
     
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
-        #print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
+        #print("name: {name}, cost: {cost}, power: {pow}, duration: {dur}".format(name = self.name, cost = period.expectedenergycost, pow = power, dur = duration))
         return power*duration*period.expectedenergycost    
         
     def printInfo(self,depth):
@@ -354,6 +358,7 @@ class NoDynamics(Device):
         self.actionpoints = [0, 1]
         
         self.on = False
+        self.statebase = 1
     
     def getState(self):
         if self.on:
@@ -382,7 +387,7 @@ class NoDynamics(Device):
     
     def inputCostFn(self,puaction,period,state,duration):
         power = self.getPowerFromPU(puaction)
-        #print("temporary debug: cost: {cost}, power: {pow}, duration: {dur}".format(cost = period.expectedenergycost, pow = power, dur = duration))
+        #print("name: {name}, cost: {cost}, power: {pow}, duration: {dur}".format(name = self.name, cost = period.expectedenergycost, pow = power, dur = duration))
         return power*duration*period.expectedenergycost 
     
     def getPowerFromPU(self,pu):
@@ -406,4 +411,30 @@ class Light(NoDynamics):
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+    
+    
+def addCostFn(appobj,appdict):
+    fn = appdict["costfn"]
+    paramdict = appdict["cfnparams"]
+    type = appdict["type"]
+    
+    if fn == "quad":
+        newfn = human.QuadraticCostFn(**paramdict)
+    elif fn == "quadcap":
+        newfn = human.QuadraticWCapCostFn(**paramdict)
+    elif fn == "quadmono":
+        newfn = human.QuadraticOneSideCostFn(**paramdict)
+    elif fn == "quadmonocap":
+        newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
+    elif fn == "const":
+        newfn = human.ConstantCostFn(**paramdict)
+    elif fn == "piecewise":
+        newfn = human.PiecewiseConstant(**paramdict)
+    elif fn == "interpolate":
+        newfn = human.Interpolated(**paramdict)
+    else:
+        print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
+        
+    behavior = human.EnergyBehavior(type,appobj,newfn)
+    appobj.associatedbehavior =  behavior
     

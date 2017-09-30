@@ -1,4 +1,5 @@
 from DCMGClasses.resources.math import interpolation
+from DCMGClasses.resources.demand import human
 #from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
 from volttron.platform.vip.agent import Core
@@ -161,7 +162,7 @@ class Storage(Source):
     def __init__(self,**res):
         super(Storage,self).__init__(**res)
         self.maxChargePower = res["maxChargePower"]
-        self.capacity = res["capacity"]
+        self.capacity = float(res["capacity"])
         self.chargeChannel = res["chargeChannel"]
         
         self.isCharging = False
@@ -176,6 +177,14 @@ class Storage(Source):
         self.isintermittent = False
         self.issource = True
         self.issink = True
+        
+        self.replacementenergycost = None
+        
+        self.associatedbehavior = None
+        
+        #state based cost function specified in config
+        if res.get("costfn",None):
+            addCostFn(self,res)
         
     def getInputUnregVoltage(self):
         voltage = self.ChargeChannel.getUnregV()
@@ -288,19 +297,33 @@ class LeadAcidBattery(Storage):
         self.issource = True
         self.issink = True
         
+        self.chargeEfficiency = .7
+        self.dischargeEfficiency = .8
+        
         
     def costFn(self,period,soc):
         #the first term penalizes being too empty to discharge or too full to charge
         target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
         #the second term accounts for the value of the stored energy
-        energy = -soc*self.capacity*period.expectedenergycost
+        #energy = -soc*self.capacity*period.expectedenergycost        
+        #return target + energy
         
-        return target + energy
+        if self.associatedbehavior:
+            cost = self.associatedbehavior.costFn(period,soc)
+        else:
+            cost = 0
+        #print("device: {name}, soc: {soc}, cost: {cost}".format(name = self.name, soc = soc, cost = cost))
+        return cost
     
     def inputCostFn(self,puaction,period,state,duration):
+        if not self.replacementenergycost:
+            self.replacementenergycost = period.expectedenergycost
+            
         power = self.getPowerFromPU(puaction)
-        return -power*duration*period.expectedenergycost
-
+        cost = -power*duration*(period.expectedenergycost-(self.replacementenergycost/(self.chargeEfficiency*self.dischargeEfficiency)))
+        #print("device: {name}, power: {pow}, cost: {cost}, duration: {dur}".format(name = self.name, pow = power, cost = cost, dur = duration))
+        return cost
+        
     def getSOCfromOCV(self):
         #get battery voltage
         voltage = self.DischargeChannel.getUnregV()
@@ -348,13 +371,10 @@ class LeadAcidBattery(Storage):
         power = self.getPowerFromPU(input)
         soc = state
         
-        if power > 0:   #if discharging
-            delta = ((power/(0.8*12))*(duration/3600))/self.capacity
-            soc = soc - delta
-        else:           #if charging
-            delta = ((power*0.8/12)*(duration/3600))/self.capacity
-            soc = soc + delta
+        delta = ((power/(0.8*12.0))*(duration/3600.0))/self.capacity
+        soc = soc - delta
         
+        #print("battery change: {delt} power: {pow}".format(delt = delta, pow = power))
         return soc
     
     #state:
@@ -380,9 +400,10 @@ class Generator(Source):
         self.amortizationPeriod = res["amortization_period"]
         
         self.actionpoints = [0, .1, .25, .5, 1]
+        self.gridpoints = [1]
         
     def getState(self):
-        return None
+        return 1
     
     def costFn(self,period,devstate):
         return 0
@@ -715,5 +736,28 @@ def makeResource(strlist,classlist,debug = False):
     if debug:
         print("here's how the classlist looks now: {cl}".format(cl = classlist))
         
+def addCostFn(appobj,appdict):
+        fn = appdict["costfn"]
+        paramdict = appdict["cfnparams"]
+        type = appdict["type"]
         
+        if fn == "quad":
+            newfn = human.QuadraticCostFn(**paramdict)
+        elif fn == "quadcap":
+            newfn = human.QuadraticWCapCostFn(**paramdict)
+        elif fn == "quadmono":
+            newfn = human.QuadraticOneSideCostFn(**paramdict)
+        elif fn == "quadmonocap":
+            newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
+        elif fn == "const":
+            newfn = human.ConstantCostFn(**paramdict)
+        elif fn == "piecewise":
+            newfn = human.PiecewiseConstant(**paramdict)
+        elif fn == "interpolate":
+            newfn = human.Interpolated(**paramdict)
+        else:
+            print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
+            
+        behavior = human.EnergyBehavior(type,appobj,newfn)
+        appobj.associatedbehavior =  behavior        
         
