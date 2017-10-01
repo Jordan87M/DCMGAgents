@@ -58,7 +58,7 @@ class Device(object):
     def costFn(self,period,devstate):
         devstate = self.statePUToEng(devstate)
         cost = self.associatedbehavior.costFn(period,devstate)
-        print("device: {name}, state: {sta}, cost: {cos}".format(name = self.name, sta = devstate, cos = cost))
+        #print("device: {name}, state: {sta}, cost: {cos}".format(name = self.name, sta = devstate, cos = cost))
         return cost
     
 class HeatingElement(Device):
@@ -156,7 +156,9 @@ class HeatingElement(Device):
             input = 0
             self.elementOn = False
         
-        self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
+        state = self.stateEngToPU(self.temperature)
+        state = self.applySimulatedInput(state,input,duration,pin)
+        self.temperature = self.statePUToEng(state)
         self.printInfo()
         return self.temperature
     
@@ -278,7 +280,9 @@ class HeatPump(Device):
             input = 0
             self.on = False
         
-        self.temperature = self.applySimulatedInput(self.temperature,input,duration,pin)
+        state = self.stateEngToPU(self.temperature)
+        state = self.applySimulatedInput(state,input,duration,pin)
+        self.temperature = self.statePUToEng(state)
         self.printInfo(0)
         return self.temperature
     

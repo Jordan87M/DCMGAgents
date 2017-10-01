@@ -1,4 +1,7 @@
-from DCMGClasses.resources.math import interpolation
+import math
+import sys
+
+from DCMGClasses.resources.mathtools import interpolation
 from DCMGClasses.resources.demand import human
 #from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
@@ -312,16 +315,22 @@ class LeadAcidBattery(Storage):
             cost = self.associatedbehavior.costFn(period,soc)
         else:
             cost = 0
-        #print("device: {name}, soc: {soc}, cost: {cost}".format(name = self.name, soc = soc, cost = cost))
+        print("device: {name}, soc: {soc}, cost: {cost}".format(name = self.name, soc = soc, cost = cost))
         return cost
     
     def inputCostFn(self,puaction,period,state,duration):
         if not self.replacementenergycost:
-            self.replacementenergycost = period.expectedenergycost
+            self.replacementenergycost = .1
             
         power = self.getPowerFromPU(puaction)
         cost = -power*duration*(period.expectedenergycost-(self.replacementenergycost/(self.chargeEfficiency*self.dischargeEfficiency)))
-        #print("device: {name}, power: {pow}, cost: {cost}, duration: {dur}".format(name = self.name, pow = power, cost = cost, dur = duration))
+        
+        #high cost bids are unlikely to be accepted. estimate expected value of benefit
+        #in the future, should probably use long run cost as std deviation for erf
+        if power > 1:
+            print("python version: {maj}.{min}".format(maj = sys.version_info[0], min = sys.version_info[1]))
+            cost *= (1 - math.erf(period.expectedenergycost/self.replacementenergycost))
+        print("device: {name}, power: {pow}, cost: {cost}, duration: {dur}".format(name = self.name, pow = power, cost = cost, dur = duration))
         return cost
         
     def getSOCfromOCV(self):

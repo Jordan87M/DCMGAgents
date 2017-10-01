@@ -13,7 +13,7 @@ from volttron.platform.messaging import headers as headers_mod
 
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
-from DCMGClasses.resources.math import interpolation, combin
+from DCMGClasses.resources.mathtools import combin
 from DCMGClasses.resources import control, resource, customer, optimization
 from DCMGClasses.resources.demand import appliances, human
 
@@ -870,9 +870,9 @@ class HomeAgent(Agent):
                             currentbest = input.pathcost
                             #associate state with optimal input
                             state.setoptimalinput(input)
-                        else:
-                            if debug:
-                                print(">NO BETTER: {newcost} >= {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
+                        #else:
+                        #    if debug:
+                        #        print(">NO BETTER: {newcost} >= {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
                     
                     
                     if debug:

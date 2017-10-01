@@ -14,7 +14,7 @@ from volttron.platform.messaging import headers as headers_mod
 #from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources.misc import listparse
-from DCMGClasses.resources.math import interpolation, graph
+from DCMGClasses.resources.mathtools import graph
 from DCMGClasses.resources import resource, groups, control, customer
 
 
