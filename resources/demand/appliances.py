@@ -77,7 +77,7 @@ class HeatingElement(Device):
         self.gridpoints = [0.5, 0.6, 0.7, 0.8, 0.9]
         self.actionpoints = [0,1]
         
-        self.elementOn = False
+        self.on = False
         self.temperature = dev["inittemp"]
         
     def getState(self):
@@ -149,13 +149,14 @@ class HeatingElement(Device):
         return self.stateEngToPU(state)
         
     def simulationStep(self,pin,duration):
-        if pin > 0.0005:
-            input = 1
-            self.elementOn = True
+        if self.on:
+            if pin > 0.0005:
+                input = 1
+            else:
+                input = 0
         else:
             input = 0
-            self.elementOn = False
-        
+            
         state = self.stateEngToPU(self.temperature)
         state = self.applySimulatedInput(state,input,duration,pin)
         self.temperature = self.statePUToEng(state)
@@ -173,7 +174,7 @@ class HeatingElement(Device):
         print(tab*depth + "DEVICE SUMMARY FOR HEATER: {heat}".format(heat = self.name))
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
         print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
-        print(tab*depth + "STATE: {state}".format(state = self.elementOn))
+        print(tab*depth + "STATE: {state}".format(state = self.on))
         if self.associatedbehavior:
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
@@ -273,12 +274,13 @@ class HeatPump(Device):
         return self.stateEngToPU(state)
         
     def simulationStep(self,pin,duration):
-        if pin > 0.0005:
-            input = 1
-            self.on = True
+        if self.on:
+            if pin > 0.0005:
+                input = 1
+            else:
+                input = 0
         else:
             input = 0
-            self.on = False
         
         state = self.stateEngToPU(self.temperature)
         state = self.applySimulatedInput(state,input,duration,pin)
@@ -380,12 +382,8 @@ class NoDynamics(Device):
     def applySimulatedInput(self,state,input,duration,pin = "default"):
         return input
     
-    def simulationStep(self,pin,duration):
-        if pin > 0:
-            self.on = True
-        else:
-            self.on = False
-        print("power in: {pow}".format(pow = pin))
+    def simulationStep(self,pin,duration):        
+        #print("power in: {pow}".format(pow = pin))
         self.printInfo(0)
         return self.on
     

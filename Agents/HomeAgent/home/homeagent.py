@@ -20,6 +20,7 @@ from DCMGClasses.resources.demand import appliances, human
 
 from . import settings
 from zmq.backend.cython.constants import RATE
+from __builtin__ import False
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -165,10 +166,16 @@ class HomeAgent(Agent):
         print("TOTAL POWER AVAILABLE TO HOMEOWNER {me}: {pow}".format(me = self.name, pow = totalavail))
         unconstrained = 0
         for app in self.Appliances:
-            unconstrained += app.nominalpower
+            if app.on:
+                unconstrained += app.nominalpower
+
         
         if unconstrained > totalavail:
-            frac = totalavail/unconstrained
+            if unconstrained > 0:
+                frac = totalavail/unconstrained
+            else:
+                frac = 0
+                
             for app in self.Appliances:
                 app.simulationStep(frac*app.nominalpower,settings.SIMSTEP_INTERVAL)            
         else:
@@ -408,9 +415,9 @@ class HomeAgent(Agent):
                     if name:
                         res = listparse.lookUpByName(name,self.Resources)
                         if service == "power":
-                            period.disposition.components[name] = DeviceDisposition(name,amount,"power")
+                            period.disposition.components[name] = control.DeviceDisposition(name,amount,"power")
                         elif service == "reserve":
-                            period.disposition.components[name] = DeviceDisposition(name,amount,"reserve",.2)
+                            period.disposition.components[name] = control.DeviceDisposition(name,amount,"reserve",.2)
                     
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("-->HOMEOWNER {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
@@ -421,9 +428,21 @@ class HomeAgent(Agent):
                     period.demandbidmanager.bidAccepted(bid,**mesdict)
                     
                     if name:
-                        period.disposition.components[name] = DeviceDisposition(name,amount)
+                        period.disposition.components[name] = control.DeviceDisposition(name,amount,"charge")
                     else:
                         period.disposition.closeRelay = True
+                        if period.plan.optimalcontrol:
+                            print("has opt control")
+                            comps = period.plan.optimalcontrol.components
+                            for app in self.Appliances:
+                                if app.name in comps:
+                                    if settings.DEBUGGING_LEVEL >= 2:
+                                        print("HOMEOWNER {me} adding appliance disposition for {them} in {per}".format(me = self.name, them = app.name, per = period.periodNumber))
+                                    period.disposition.components[app.name] = control.DeviceDisposition(app.name,comps[app.name],"consumption")
+                                else:
+                                    period.disposition.components[app.name] = control.DeviceDisposition(app.name,0,"consumption")
+                        else:
+                            pass
                     
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("-->HOMEOWNER {me} ACK DEMAND BID ACCEPTANCE for {id}".format(me = self.name, id = uid))
@@ -1319,6 +1338,18 @@ class HomeAgent(Agent):
             #if not, we should make sure the device is disconnected
             else:
                 res.setDisposition(0)
+                
+        #keep tack of simulated device states
+        for app in self.Appliances:
+            #is the device in this period's disposition?
+            if app.name in comps:
+                appdisp = comps[app.name]
+                if appdisp.value == 0:
+                    app.on = False
+                    print("turning {app} off".format(app = app.name))
+                elif appdisp.value > 1:
+                    app.on = True
+                    print("turning {app} on".format(app = app.name))
         
     
     def disconnectLoad(self):

@@ -145,24 +145,26 @@ class PiecewiseConstant(object):
     
 class Interpolated(object):
     def __init__(self,**params):
-        self.points = params["points"]
-        self.n = len(self.points)
+        self.states = params["states"]
+        self.values = params["values"]
         
         self.name = "interpolate"
         
     def eval(self,z):
         rindex = None
-        for index,point in enumerate(self.points):
-            if z <= point[0]:
+        for index,state in enumerate(self.states):
+            if z <= state:
                 rindex = index
                 break
         if not rindex:
-            return self.points[-1][1]
+            return self.values[-1]
         if rindex == 0:
-            return self.points[0][1]
+            return self.values[0]
         
-        x1,y1 = self.points[rindex-1]
-        x2,y2 = self.points[rindex]
+        x1 = self.states[rindex-1]
+        y1 = self.values[rindex-1]
+        x2 = self.states[rindex]
+        y2 = self.values[rindex]
         
         out = (((y2-y1)/(x2-x1))*(z - x1)) + y1
         return out
