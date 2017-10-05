@@ -365,32 +365,34 @@ class HomeAgent(Agent):
                             
                     elif side == "supply":
                         period.supplybidmanager.procSolicitation(**mesdict)
-                        if service == "power":
-                            for res in self.Resources:
-                                #we can tender a solar panel bid immediately
-                                if type(res) is resource.SolarPanel:
-                                    mesdict["resource_name"] = res.name
-                                    amount = self.checkForecastAvailablePower(res,period)
-                                    if amount:
-                                        rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
-                                        
-                                        mesdict["auxilliary_service"] = "reserve"
-                                        newbid = control.SupplyBid(**mesdict)
-                                        period.supplybidmanager.initBid(newbid)
-                                        period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
-                                        biddict = {}
-                                        
-                                        biddict["message_target"] = messageSender
-                                        biddict["message_sender"] = self.name
-                                        biddict["message_subject"] = "bid_response"
-                                        
-                                        period.supplybidmanager.readyBid(newbid, **biddict)
-                                        
-                                        #and send to utility for consideration
-                                        self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
-                                    else:
-                                        print("HOMEOWNER {me} has no info on irradiance for period {per}".format(me = self.name, per = period))
-                                
+#                         if service == "power":
+#                             for res in self.Resources:
+#                                 #we can tender a solar panel bid immediately
+#                                 if type(res) is resource.SolarPanel:
+#                                     mesdict["resource_name"] = res.name
+#                                     amount = self.checkForecastAvailablePower(res,period)
+#                                     if settings.DEBUGGING_LEVEL >= 2:
+#                                         print("HOMEOWNER {me} expects {amt} W of solar power to be available in period {per}".format(me = self.name, amt = amount, per = period.periodNumber))
+#                                     if amount:
+#                                         rate = 0 #control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2)
+#                                         
+#                                         mesdict["auxilliary_service"] = "reserve"
+#                                         newbid = control.SupplyBid(**mesdict)
+#                                         period.supplybidmanager.initBid(newbid)
+#                                         period.supplybidmanager.setBid(newbid,amount,rate,res.name,"power")
+#                                         biddict = {}
+#                                         
+#                                         biddict["message_target"] = messageSender
+#                                         biddict["message_sender"] = self.name
+#                                         biddict["message_subject"] = "bid_response"
+#                                         
+#                                         period.supplybidmanager.readyBid(newbid, **biddict)
+#                                         
+#                                         #and send to utility for consideration
+#                                         self.vip.pubsub.publish("pubsub","energymarket",{},period.supplybidmanager.sendBid(newbid))
+#                                     else:
+#                                         print("HOMEOWNER {me} has no info on irradiance for period {per}".format(me = self.name, per = period.periodNumber))
+#                                 
                         if period.plan.planningcomplete:
                             if period.supplybidmanager.readybids:
                                 self.submitBids(period.supplybidmanager)
@@ -589,7 +591,34 @@ class HomeAgent(Agent):
                     mesdict["period_number"] = period.periodNumber
                     
                     bidmanager.readyBid(newbid,**mesdict)
+            
+            #zero marginal cost sources don't appear in the plan
+            elif type(res) is resource.SolarPanel:
+                newbid = []
+                mesdict = {}
+                amount = self.checkForecastAvailablePower(res,period)
+                
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("HOMEOWNER {me} expects {amt} W of solar power to be available in period {per}".format(me = self.name, amt = amount, per = period.periodNumber))
+                if amount:
+                    newbid = control.SupplyBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
+                    period.supplybidmanager.initBid(newbid)
+                    period.supplybidmanager.setBid(newbid,amount,0,res.name,"power","reserve")
                     
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("HOMEOWNER AGENT {me} READYING ZERO MARGINAL COST BID FOR {res}".format(me = self.name, res = res.name))
+                        newbid.printInfo(0)
+                        
+                    mesdict["message_sender"] = self.name
+                    mesdict["message_target"] = self.utilityName
+                    mesdict["message_subject"] = "bid_response"
+                    mesdict["period_number"] = period.periodNumber
+                    
+                    period.supplybidmanager.readyBid(newbid,**mesdict)
+                
+                else:
+                    print("HOMEOWNER {me} has no info on irradiance for period {per}".format(me = self.name, per = period.periodNumber))
+                                
                         
         #now take care of demand from smart appliances
         #since our actual loads are binary, any demand will require the load to be
@@ -672,7 +701,7 @@ class HomeAgent(Agent):
                         period = self.PlanningWindow.getPeriodByNumber(periodnumber)
                         if period:
                             period.addForecast(control.Forecast(responses,period))
-                            print("HOMEOWNER {me} received forecast for period {per}".format(me = self.name, per = period.periodNumber))
+                            print("HOMEOWNER {me} received forecast for period {per}: {rsp}".format(me = self.name, per = period.periodNumber, rsp = responses))
                         else:
                             if periodnumber == self.CurrentPeriod.periodNumber:
                                 self.CurrentPeriod.addForecast(control.Forecast(responses,period))
@@ -1207,6 +1236,8 @@ class HomeAgent(Agent):
         irradiance = self.checkForecast(device,period)
         if irradiance:
             power = device.powerAvailable(irradiance)
+            if settings.DEBUGGING_LEVEL >= 2:
+                print("HOMEOWNER {me} believes {pow} W should be available to resource {res} in {per}".format(me = self.name, pow =power, res = device.name, per = period.periodNumber))
             return power
         else:
             return None
@@ -1214,7 +1245,11 @@ class HomeAgent(Agent):
     def checkForecast(self,device,period):
         if period.forecast:
             if device.environmentalVariable in period.forecast.data:
-                return period.forecast.data[device.environmentalVariable]
+                amount = period.forecast.data[device.environmentalVariable]
+                if settings.DEBUGGING_LEVEL >=2:
+                    print("HOMEOWNER {me} expects the irradiance value for period {per} to be {amt}".format(me = self.name, per = period.periodNumber, amt = amount))
+                
+                return amount
             else:
                 print("Agent {me}'s forecast for period {per} doesn't include data for {dat}".format(me = self.name, per = period.periodNumber,dat = device.environmentalVariable))
                 

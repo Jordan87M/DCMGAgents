@@ -448,7 +448,7 @@ class SolarPanel(Source):
     #calculates available power from irradiance
     def powerAvailable(self,irradiance):
         power = self.maxDischargePower*irradiance
-        return
+        return power
     
     #the marginal cost of running a solar panel is 0    
     def costFn(self,period,devstate):
