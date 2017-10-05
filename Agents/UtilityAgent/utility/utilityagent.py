@@ -393,7 +393,7 @@ class UtilityAgent(Agent):
         
     def announceRate(self, recipient, rate, period):
         if settings.DEBUGGING_LEVEL >= 2:
-            print("UTILITY {me} ANNOUNCING RATE {rate} to {rec}".format(me = self.name, rate = rate, rec = recipient.name))
+            print("UTILITY {me} ANNOUNCING RATE {rate} to {rec} for period {per}".format(me = self.name, rate = rate, rec = recipient.name, per = period.periodNumber))
         mesdict = {"message_sender" : self.name,
                    "message_subject" : "rate_announcement",
                    "message_target" : recipient.name,

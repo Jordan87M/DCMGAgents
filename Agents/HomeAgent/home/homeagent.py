@@ -521,7 +521,7 @@ class HomeAgent(Agent):
                         
             elif messageSubject == "rate_announcement":
                 rate = mesdict.get("rate")
-                pnum = mesdict.get("period")
+                pnum = mesdict.get("period_number")
                 period = self.PlanningWindow.getPeriodByNumber(pnum)
                 if period:
                     print("period exists")
@@ -538,7 +538,7 @@ class HomeAgent(Agent):
                         if not period.rateannounced or rate != period.expectedenergycost:
                             print("should remake planning window")
                             #remake the planning window
-                            self.planningRemakeWindow(True)
+                            #self.planningRemakeWindow(True)
                             period.rateannounced = True
                 
                 if settings.DEBUGGING_LEVEL >= 2:
@@ -1247,20 +1247,7 @@ class HomeAgent(Agent):
         mes = json.dumps(mesdict)
         self.vip.pubsub.publish("pubsub","weatherservice",{},mes)
 
-                
-    def generateDemandBids(self,periodNumber):
-        ''''a load agent that can vary its consumption might want to split up its
-        total consumption into components at different rates'''
-        period = self.PlanningWindow.getPeriodByNumber(periodNumber)
-        
-        
-        bidcomponents = []
-        
-        if period.offerprice:
-            bid ={"amount":  self.refload, "rate": period.offerprice }        
-        bidcomponents.append(bid)
-        return bidcomponents
-
+    
             
     def advancePeriod(self):
         self.CurrentPeriod = self.PlanningWindow.periods[0]
@@ -1347,7 +1334,7 @@ class HomeAgent(Agent):
                 if appdisp.value == 0:
                     app.on = False
                     print("turning {app} off".format(app = app.name))
-                elif appdisp.value > 1:
+                elif appdisp.value > 0:
                     app.on = True
                     print("turning {app} on".format(app = app.name))
         

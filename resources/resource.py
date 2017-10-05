@@ -286,6 +286,7 @@ class LeadAcidBattery(Storage):
     def __init__(self,**res):
         super(LeadAcidBattery,self).__init__(**res)
         self.SOC = self.getSOCfromOCV()
+        print("initial SOC for battery {me} is {soc}".format(me = self.name, soc = self.SOC))
         self.preferredSOC = .6
         
         self.cyclelife = 1000
@@ -306,7 +307,7 @@ class LeadAcidBattery(Storage):
         
     def costFn(self,period,soc):
         #the first term penalizes being too empty to discharge or too full to charge
-        target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
+        #target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
         #the second term accounts for the value of the stored energy
         #energy = -soc*self.capacity*period.expectedenergycost        
         #return target + energy
@@ -323,8 +324,10 @@ class LeadAcidBattery(Storage):
             self.replacementenergycost = .1
             
         power = self.getPowerFromPU(puaction)
-        cost = -power*duration*(period.expectedenergycost-(self.replacementenergycost/(self.chargeEfficiency*self.dischargeEfficiency)))
-        
+        if power >= 0:
+            cost = -power*duration*(period.expectedenergycost-(self.replacementenergycost/(self.chargeEfficiency*self.dischargeEfficiency)))
+        else:
+            cost = -power*duration*(period.expectedenergycost-self.replacementenergycost*self.chargeEfficiency*self.dischargeEfficiency)
         #high cost bids are unlikely to be accepted. estimate expected value of benefit
         #in the future, should probably use long run cost as std deviation for erf
         if power > 1:

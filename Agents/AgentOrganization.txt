@@ -29,4 +29,24 @@ Deneb
 Capella
 Arcturus
 
+config 2
 
+BR1B1L1 -- Crunderson
+BR1B1L2 -- 
+BR1B1L3 -- 
+BR1B2L1 -- 
+BR1B2L2 -- 
+BR1B2L3 -- 
+BR2B1L1 --  Miraflores
+BR2B1L2 --  Robeski
+BR2B1L3 --  
+BR2B2L1 --  
+BR2B2L2 -- 
+BR2B2L3 -- 
+
+SRC1 -- Enercon-
+SRC2 -- Enercon-Phaeton
+SRC3 -- Ganderley-Ra
+SRC4 -- Robeski-Helios
+SRC5 -- Broussard-Demeter
+SRC6 -- Broussard-Demeter
