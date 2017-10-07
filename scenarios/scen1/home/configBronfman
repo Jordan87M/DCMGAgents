@@ -5,9 +5,9 @@
 	"message": "home agent up",
 	"FREGpart" : 0,
 	"DRpart" : 0,
-	"refload" : 0.25,
-	"windowlength" : 6,
+	"refload" : 0.6,
+	"windowlength" : 4,
 	"resources": [],
-	"appliances": [{"type": "light", "owner": "Bronfman","name":"Mirach","nominalpower":0.25,"costfn":"piecewise","cfnparams":{"values":[0.15, -0.15],"bounds":[0.5]}}]
+	"appliances": [{"type": "light", "owner": "Bronfman","name":"Mirach","nominalpower":0.6,"costfn":"piecewise","cfnparams":{"values":[0.7, -0.7],"bounds":[0.5]}}]
 }
 	

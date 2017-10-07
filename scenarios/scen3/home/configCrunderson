@@ -1,0 +1,15 @@
+{
+	"agentid": "home1",
+	"name": "Crunderson",
+	"location": "DC.BRANCH1.BUS1.LOAD1",
+	"message": "home agent up",
+	"FREGpart" : 1,
+	"DRpart" : 1,
+	"refload" : 1.8,
+	"windowlength" : 6,
+	"resources": [{"type": "lead_acid_battery", "owner": "Crunderson", "name":"Dionysus", "location": "DC.BRANCH1.BUS1", "capCost": 140, "maxDischargePower": 4, "maxChargePower": 4, "capacity": 1.2, "chargeChannel": 5, "dischargeChannel": 1, "costfn":"interpolate","cfnparams":{"states": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0], "values":[5.0, 1.0, -0.1, -0.1, 1.0, 5.0]}}],
+	"appliances": [{"type": "heater","owner":"Crunderson","name":"Mendeleev","specificheatcapacity":4.184,"mass":1,"thermalresistance":20,"maxsetpoint":40,"nominalpower":1.2,"deadband":0.1,"deltat":10,"inittemp":41,"initsetpoint":40, "costfn":"quad", "cfnparams":{"a":0.05,"b":-1.5,"c":35}},
+					{"type": "refrigerator","owner":"Crunderson","name":"Krylov","volume":0.08,"thermalresistance":48,"minsetpoint":0,"nominalpower":0.6,"deadband":0.4,"deltat":10,"relativeefficiency":0.5,"inittemp":3,"initsetpoint":4,"costfn":"piecewise", "cfnparams":{"values":[10,-0.1,-0.5,-0.1,10],"bounds":[0,2,4,6]}},
+					{"type": "light", "owner": "Crunderson","name":"Zubenelgenubi","nominalpower":0.1,"costfn":"piecewise","cfnparams":{"values":[0.1, -0.1],"bounds":[0.5]}}]
+}
+	

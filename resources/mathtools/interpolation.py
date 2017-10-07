@@ -1,7 +1,7 @@
 def lininterp(points,evalat):
-    if evalat < points[0][1]:
+    if evalat <= points[0][1]:
         return points[0][0]
-    elif evalat > points[-1][1]:
+    elif evalat >= points[-1][1]:
         return points[-1][0]
 
     for index, point in enumerate(points):

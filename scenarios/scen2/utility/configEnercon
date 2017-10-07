@@ -1,0 +1,8 @@
+{
+	"agentid": "utility",
+	"name": "ENERCON",
+	"message": "utility agent starting up",
+	"resources": [{"type":"solar","owner":"ENERCON", "location": "DC.BRANCH1.BUS1", "name":"Phaeton", "capCost": 90, "maxDischargePower":6,"dischargeChannel":4,"Voc":21,"Vmpp":18}
+			]
+}
+

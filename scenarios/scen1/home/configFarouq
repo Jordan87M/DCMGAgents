@@ -1,0 +1,13 @@
+{
+	"agentid": "home10",
+	"name": "Farouq",
+	"location": "DC.BRANCH1.BUS1.LOAD2",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 1,
+	"refload" : 0.6,
+	"windowlength" : 6,
+	"resources": [],
+	"appliances": [{"type": "heater","owner":"Farouq","name":"Chebyshev","specificheatcapacity":4.184,"mass":2,"thermalresistance":10,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10,"inittemp":41,"initsetpoint":40, "costfn":"quad", "cfnparams":{"a":0.05,"b":-1.5,"c":37}}]
+}
+	

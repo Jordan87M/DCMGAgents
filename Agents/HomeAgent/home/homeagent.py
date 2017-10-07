@@ -21,6 +21,7 @@ from DCMGClasses.resources.demand import appliances, human
 from . import settings
 from zmq.backend.cython.constants import RATE
 from __builtin__ import False
+from lib2to3.btm_utils import rec_test
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -526,7 +527,7 @@ class HomeAgent(Agent):
                 pnum = mesdict.get("period_number")
                 period = self.PlanningWindow.getPeriodByNumber(pnum)
                 if period:
-                    print("period exists")
+                    #print("period exists")
                     #update expected energy cost variable
                     period.expectedenergycost = rate
                     
@@ -535,10 +536,10 @@ class HomeAgent(Agent):
                         self.priceForecast()
                     #if the rate announcement is for the next period
                     elif period == self.NextPeriod:
-                        print("period is next period")
+                        #print("period is next period")
                         #and there had either not been an announcement or the announced rate differs
                         if not period.rateannounced or rate != period.expectedenergycost:
-                            print("should remake planning window")
+                            #print("should remake planning window")
                             #remake the planning window
                             #self.planningRemakeWindow(True)
                             period.rateannounced = True
@@ -706,7 +707,7 @@ class HomeAgent(Agent):
                             if periodnumber == self.CurrentPeriod.periodNumber:
                                 self.CurrentPeriod.addForecast(control.Forecast(responses,period))
                             else:
-                                print("HOMEOWNER {me} doesn't know what to do with forecast for period {per}".format(per = periodnumber))
+                                print("HOMEOWNER {me} doesn't know what to do with forecast for period {per}".format(me = self.name,per = periodnumber))
                             
     def DRfeed(self,peer,sender,bus,topic,headers,message):
         mesdict = json.loads(message)
@@ -767,13 +768,21 @@ class HomeAgent(Agent):
     
     #determine offer price by finding a price for which the cost function is 0          
     def determineOffer(self,debug = False):
-        threshold = .5
+        threshold = .005
         maxstep = 2
-        maxitr = 4
         initprice = 0
         bound = initprice
         pstep = 1
         
+        #saves best bid so far so we can fall back on this to avoid submitting null bids when we approach optimal bid from the wrong side
+        savebid = None
+        saveopt = None
+        
+        if len(self.Devices) >= 3:
+            maxitr = 4
+        else:
+            maxitr = 6
+            
         #turns debugging on or off for subroutines
         #subdebug = True
         subdebug = False
@@ -859,14 +868,37 @@ class HomeAgent(Agent):
                 if settings.DEBUGGING_LEVEL >= 1:
                     elapsed = time.time() - start
                     print("HOMEOWNER {me} took too many iterations ({sec} seconds) to generate offer price. RANGE: {lower}-{upper} COST: {cost}".format(me = self.name, sec = elapsed, lower = lower, upper = upper, cost = rec.pathcost))
-                return (upper + lower)*.5, rec
+                    if rec.isnull():
+                        if saveopt:
+                            print("avoiding null bid by submitting saved bid. bid: {bid} for {act}".format(bid = savebid, act = saveopt.components))
+                            return savebid, saveopt
+                        else:
+                            print("no saved bid to fall back on submit null bid")
+                            return 0,rec
+                    else:
+                        return (upper + lower)*.5, rec
+            
+            #bids associated with null actions by saving acceptable non-null bids
+            if mid > 0 and rec.pathcost <= 0:
+                if not rec.isnull():
+                    saveopt = rec
+                    savebid = mid
+                    print("HOMEOWNER {me} saving acceptable bid: {bid} for action: {act}".format(me = self.name, bid = savebid, act = saveopt.components))
         
         price = (upper + lower)*.5
         elapsed = time.time() - start
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} determined offer price: {bid} (took {et} seconds)".format(me = self.name, bid = price, et = elapsed))
         
-        return price, rec
+        if rec.isnull():
+            if saveopt:
+                print("avoiding null bid by submitting saved bid. bid: {bid} for {act}".format(bid = savebid, act = saveopt.components))
+                return savebid, saveopt
+            else:
+                print("no saved bid to fall back on submit null bid")
+                return 0,rec
+        else:
+            return price, rec
     
     def getOptimalForPrice(self,price,debug = False):
         

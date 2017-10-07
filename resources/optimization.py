@@ -156,6 +156,12 @@ class InputSignal(object):
     #    self.transcost = cost
     #    return temp
     
+    def isnull(self):
+        for key in self.components:
+            if self.components[key] != 0:
+                return False
+        return True
+    
     def printInfo(self,depth = 0):
         tab = "    "
         print(tab*depth + "INPUT: {inp}".format(inp = self.components))

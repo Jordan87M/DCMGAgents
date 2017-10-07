@@ -47,7 +47,7 @@ class WeatherAgent(Agent):
         return self.temperature
         
     def getIrradiance(self):
-        irradiance = .1 * tagClient.readTags([self.solarTag])
+        irradiance = .1 * tagClient.readTags([self.solarTag],"SG")
         irradiance += random.normalvariate(0,.1)
         return irradiance
     

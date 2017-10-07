@@ -1,0 +1,12 @@
+{
+	"agentid": "home11",
+	"name": "Motohashi",
+	"location": "DC.BRANCH1.BUS2.LOAD1",
+	"message": "home agent up",
+	"FREGpart" : 0,
+	"DRpart" : 1,
+	"refload" : 0.6,
+	"windowlength" : 5,
+	"resources": [],
+	"appliances": [{"type": "heater","owner":"Motohashi","name":"Lyapunov","specificheatcapacity":4.184,"mass":1,"thermalresistance":21,"maxsetpoint":40,"nominalpower":0.6,"deadband":0.1,"deltat":10,"inittemp":41,"initsetpoint":40, "costfn":"quad", "cfnparams":{"a":0.28,"b":-4.5,"c":34}}]
+}

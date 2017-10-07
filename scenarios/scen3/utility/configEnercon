@@ -1,0 +1,8 @@
+{
+	"agentid": "utility",
+	"name": "ENERCON",
+	"message": "utility agent starting up",
+	"resources": [{"type":"solar","owner":"ENERCON", "location": "DC.BRANCH1.BUS1", "name":"Phaeton", "capCost": 90, "maxDischargePower":10,"dischargeChannel":4,"Voc":21,"Vmpp":18},
+			{"type": "lead_acid_battery", "owner": "ENERCON", "name":"Demeter", "location": "DC.BRANCH2.BUS1", "capCost": 200, "maxDischargePower": 10, "maxChargePower": 4, "capacity": 7, "chargeChannel": 6, "dischargeChannel": 2}]
+}
+

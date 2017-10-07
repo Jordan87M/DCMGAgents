@@ -511,7 +511,14 @@ class UtilityAgent(Agent):
                 self.outstandingSupplyBids.append(newbid)
         
         for group in self.groupList:
-            maxLoad = self.getMaxGroupLoad(group)
+            maxLoad = self.getMaxGroupLoad(group)    
+            
+                    
+            #sort array of supplier bids by rate from low to high
+            self.supplyBidList.sort(key = operator.attrgetter("rate"))
+            #sort array of consumer bids by rate from high to low
+            self.demandBidList.sort(key = operator.attrgetter("rate"),reverse = True)
+            
             if settings.DEBUGGING_LEVEL >= 2:
                 print("\n\nPLANNING for GROUP {group} for PERIOD {per}: worst case load is {max}".format(group = group.name, per = self.NextPeriod.periodNumber, max = maxLoad))
                 print(">>here are the supply bids:")
@@ -523,13 +530,6 @@ class UtilityAgent(Agent):
                 print(">>here are the demand bids:")          
                 for bid in self.demandBidList:                    
                     bid.printInfo(0)
-                
-            
-                    
-            #sort array of supplier bids by rate from low to high
-            self.supplyBidList.sort(key = operator.attrgetter("rate"))
-            #sort array of consumer bids by rate from high to low
-            self.demandBidList.sort(key = operator.attrgetter("rate"),reverse = True)
             
             qrem = 0                #leftover part of bid
             supplyindex = 0
