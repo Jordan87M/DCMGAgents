@@ -82,11 +82,11 @@ class Window(object):
             period.printInfo(depth + 1)
         
 class Period(object):
-    def __init__(self,periodNumber,startTime,endTime):
+    def __init__(self,periodNumber,startTime,endTime,planner = None):
         self.periodNumber = periodNumber
         self.startTime = startTime
         self.endTime = endTime
-        self.planner = None
+        self.planner = planner
         
         self.pendingdrevents = []
         self.accepteddrevents = []
@@ -182,7 +182,8 @@ class Plan(object):
             self.acceptedBids.append(newbid)            
             self.totalsupply += newbid.amount
         
-        if newbid.counterparty == self.planner:
+        if newbid.counterparty == self.planner.name:
+            print("adding bid to own bids ({id})".format(id = newbid.uid))
             self.ownBids.append(newbid)
             
     def removeBid(self,bid):

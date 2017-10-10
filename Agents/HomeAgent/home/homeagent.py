@@ -880,6 +880,7 @@ class HomeAgent(Agent):
             
             #bids associated with null actions by saving acceptable non-null bids
             if mid > 0 and rec.pathcost <= 0:
+                print("HOMEOWNER {me} not saving bid because it is null".format(me = self.name))
                 if not rec.isnull():
                     saveopt = rec
                     savebid = mid

@@ -149,9 +149,9 @@ class UtilityAgent(Agent):
         
         now = datetime.now()
         end = datetime.now() + timedelta(seconds = settings.ST_PLAN_INTERVAL)
-        self.CurrentPeriod = control.Period(0,now,end)
+        self.CurrentPeriod = control.Period(0,now,end,self)
         
-        self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL))
+        self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL),self)
         
         self.bidstate = BidState()
         
@@ -694,6 +694,7 @@ class UtilityAgent(Agent):
                                 
                             self.supplyBidList.remove(supbid)
                             self.reserveBidList.append(supbid)
+                            supbid.service = "reserve"
                     else:
                         supbid.accepted = False
                 supplyindex += 1
@@ -719,6 +720,7 @@ class UtilityAgent(Agent):
             for bid in self.supplyBidList:
                 if bid.accepted:
                     totalsupply += bid.amount
+                    bid.rate = group.rate
                     self.sendBidAcceptance(bid, group.rate)
                     self.NextPeriod.plan.addBid(bid)
                     #give customer permission to connect if resource is co-located
@@ -737,6 +739,7 @@ class UtilityAgent(Agent):
                 cust = listparse.lookUpByName(bid.counterparty,self.customers)
                 if bid.accepted:
                     totaldemand += bid.amount
+                    bid.rate = group.rate
                     self.sendBidAcceptance(bid, group.rate)
                     self.NextPeriod.plan.addConsumption(bid)
                     #give customer permission to connect
@@ -798,7 +801,7 @@ class UtilityAgent(Agent):
         self.bidstate.acceptnone()
         #make next period the current period and create new object for next period
         self.CurrentPeriod = self.NextPeriod
-        self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL))
+        self.NextPeriod = control.Period(self.CurrentPeriod.periodNumber+1,self.CurrentPeriod.endTime,self.CurrentPeriod.endTime + timedelta(seconds = settings.ST_PLAN_INTERVAL),self)
         
         if settings.DEBUGGING_LEVEL >= 1:
             print("UTILITY AGENT {me} moving into new period:".format(me = self.name))
@@ -829,6 +832,10 @@ class UtilityAgent(Agent):
                 print("UTILITY {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
                 
             for bid in self.CurrentPeriod.plan.ownBids:
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("UTILITY {me} IS ACTUATING BID {bid}".format(me = self.name, bid = bid.uid))
+                
+                bid.printInfo(0)
                 res = listparse.lookUpByName(bid.resourceName,self.Resources)
                 if res is not None:
                     involvedResources.append(res)
