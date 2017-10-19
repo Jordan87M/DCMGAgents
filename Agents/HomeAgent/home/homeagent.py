@@ -1387,7 +1387,11 @@ class HomeAgent(Agent):
                 if devdisp.mode == "power":
                     res.setDisposition(devdisp.value)
                 elif devdisp.mode == "reserve":
-                    res.setDisposition(devdisp.value,devdisp.param)
+                    if devdisp.param:
+                        res.setDisposition(devdisp.value,devdisp.param)
+                    else:
+                        print("{dev} has no param even though it's a reserve. i wonder why.".format(dev = res.name))
+                        res.setDisposition(devdisp.value,.2)
                 else:
                     pass
             #if not, we should make sure the device is disconnected

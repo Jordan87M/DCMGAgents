@@ -237,8 +237,7 @@ class DeviceDisposition(object):
         self.value = value
         self.mode = mode
         
-        if param:
-            self.param = param
+        self.param = param
         
     def printInfo(self,depth = 0):
         tab = "    "

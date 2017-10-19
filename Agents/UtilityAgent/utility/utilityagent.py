@@ -500,7 +500,8 @@ class UtilityAgent(Agent):
                 newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"reserve", "amount": amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.Generator:
                 amount = res.maxDischargePower*.8
-                rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2) + amount*settings.ST_PLAN_INTERVAL*res.fuelCost
+                #rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2) + amount*settings.ST_PLAN_INTERVAL*res.fuelCost
+                rate = 1.15*res.fuelCost
                 newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"either", "amount": amount, "rate":rate, "counterparty":self.name, "period_number": self.NextPeriod.periodNumber})
             else:
                 print("trying to plan for an unrecognized resource type")
@@ -692,8 +693,10 @@ class UtilityAgent(Agent):
                             if settings.DEBUGGING_LEVEL >= 2:
                                 print("UTILITY {me} placing rejected power bid {bid} in reserve list".format(me = self.name, bid = supbid.uid))
                                 
+                            sblen = len(self.supplyBidList)
                             self.supplyBidList.remove(supbid)
                             self.reserveBidList.append(supbid)
+                            self.reserveBidList.sort(key = operator.attrgetter("rate"))
                             supbid.service = "reserve"
                     else:
                         supbid.accepted = False
@@ -1062,13 +1065,17 @@ class UtilityAgent(Agent):
         mesdict["message_sender"] = self.name
         
         mesdict["amount"] = bid.amount
+        
         if bid.__class__.__name__ == "SupplyBid":
-            mesdict["side"] = "supply"
+            mesdict["side"] = bid.side
             mesdict["service"] = bid.service
         elif bid.__class__.__name__ == "DemandBid":
-            mesdict["side"] = "demand"
+            mesdict["side"] = bid.side
         else:
             mesdict["side"] = "unspecified"
+            
+
+            
             
         mesdict["rate"] = rate        
         mesdict["period_number"] = bid.periodNumber
