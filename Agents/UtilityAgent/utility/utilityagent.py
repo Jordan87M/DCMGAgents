@@ -1,11 +1,13 @@
 from __future__ import absolute_import
 from datetime import datetime, timedelta
+
 import logging
 import sys
 import json
 import operator
 import random
 import time
+import atexit
 
 from volttron.platform.vip.agent import Agent, BasicCore, core, Core, PubSub, compat
 from volttron.platform.agent import utils
@@ -65,6 +67,7 @@ class UtilityAgent(Agent):
         self._agent_id = self.config['agentid']
         self.state = "init"
         
+        self.t0 = time.time()
         self.name = self.config["name"]
         self.resources = self.config["resources"]
         self.Resources = []
@@ -75,6 +78,10 @@ class UtilityAgent(Agent):
         
         self.outstandingSupplyBids = []
         self.outstandingDemandBids = []
+        
+        sys.path.append('/usr/lib/python2.7/dist-packages')
+        print(sys.path)
+        import mysql.connector
         
         #build grid model objects from the agent's a priori knowledge of system
         #infrastructure relays
@@ -130,6 +137,32 @@ class UtilityAgent(Agent):
         
         self.connMatrix = [[0 for x in range(len(self.nodes))] for y in range(len(self.nodes))]
         
+        #DATABASE STUFF
+        self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
+
+        cursor = self.dbconn.cursor()
+        
+        cursor.execute('DROP TABLE IF EXISTS infmeas')
+        cursor.execute('DROP TABLE IF EXISTS faults')
+        cursor.execute('DROP TABLE IF EXISTS customers')
+        cursor.execute('DROP TABLE IF EXISTS bids')
+        cursor.execute('DROP TABLE IF EXISTS prices')
+        cursor.execute('DROP TABLE IF EXISTS drevents')
+        cursor.execute('DROP TABLE IF EXISTS transactions')
+        
+        cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, signame TEXT, value DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS customers(logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS bids(logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
+        cursor.execute('CREATE TABLE IF NOT EXISTS prices(logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS drevents(logtime TIMESTAMP, et DOUBLE, period INT, type TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS transactions(logtime TIMESTAMP, et DOUBLE, period INT, account_holder TEXT, transaction_type TEXT, amount DOUBLE, balance DOUBLE)')
+        
+        cursor.close()
+        
+        #register exit function to close database connection
+        atexit.register(self.exit_handler,self.dbconn)
+        
         
         #import list of utility resources and make into object
         resource.makeResource(self.resources,self.Resources,False)
@@ -157,7 +190,9 @@ class UtilityAgent(Agent):
         
         self.CurrentPeriod.printInfo(0)
         self.NextPeriod.printInfo(0)
-        
+    
+    def exit_handler(self,dbconn):
+        dbconn.close()    
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):
@@ -253,6 +288,8 @@ class UtilityAgent(Agent):
                             if settings.DEBUGGING_LEVEL >= 2:
                                 print("HOMEOWNER {me} doesn't recognize customer type".format(me = self.name))
                                 return
+                            
+                        self.dbnewcustomer(cust,self.dbconn,self.t0)
                             
                         #add customer to Node object
                         for node in self.nodes:
@@ -351,6 +388,9 @@ class UtilityAgent(Agent):
                 energy = power*settings.ACCOUNTING_INTERVAL
                 balanceAdjustment = -energy*group.rate*cust.rateAdjustment
                 cust.customerAccount.adjustBalance(balanceAdjustment)
+                
+                #update database
+                self.dbtransaction(cust,balanceAdjustment,"net home consumption",self.dbconn,self.t0)
                 if settings.DEBUGGING_LEVEL >= 2:
                     print("The account of {holder} has been adjusted by {amt} units for net home consumption".format(holder = cust.name, amt = balanceAdjustment))
             
@@ -366,6 +406,10 @@ class UtilityAgent(Agent):
                             energy = power*settings.ACCOUNTING_INTERVAL
                             balanceAdjustment = -energy*group.rate*cust.rateAdjustment
                             cust.customerAccount.adjustBalance(balanceAdjustment)
+                            
+                            #update database
+                            self.dbtransaction(cust,balanceAdjustment,"remote resource",self.dbconn,self.t0)
+                            
                         else:
                             print("TEMP DEBUG: resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
                     else:
@@ -490,6 +534,7 @@ class UtilityAgent(Agent):
         
         #tender bids for the utility's own resources
         for res in self.Resources:
+            newbid = None
             if type(res) is resource.SolarPanel:
                 amount = res.maxDischargePower*self.perceivedInsol/100
                 rate = 0
@@ -502,7 +547,7 @@ class UtilityAgent(Agent):
                 amount = res.maxDischargePower*.8
                 #rate = control.ratecalc(res.capCost,.05,res.amortizationPeriod,.2) + amount*settings.ST_PLAN_INTERVAL*res.fuelCost
                 rate = 1.15*res.fuelCost
-                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"either", "amount": amount, "rate":rate, "counterparty":self.name, "period_number": self.NextPeriod.periodNumber})
+                newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"power", "auxilliary_service": "reserve", "amount": amount, "rate":rate, "counterparty":self.name, "period_number": self.NextPeriod.periodNumber})
             else:
                 print("trying to plan for an unrecognized resource type")
             
@@ -510,6 +555,9 @@ class UtilityAgent(Agent):
                 print("UTILITY {me} ADDING OWN BID {id} TO LIST".format(me = self.name, id = newbid.uid))
                 self.supplyBidList.append(newbid)
                 self.outstandingSupplyBids.append(newbid)
+                
+                #write to database
+                self.dbnewbid(newbid,self.dbconn,self.t0)
         
         for group in self.groupList:
             maxLoad = self.getMaxGroupLoad(group)    
@@ -693,10 +741,10 @@ class UtilityAgent(Agent):
                             if settings.DEBUGGING_LEVEL >= 2:
                                 print("UTILITY {me} placing rejected power bid {bid} in reserve list".format(me = self.name, bid = supbid.uid))
                                 
-                            sblen = len(self.supplyBidList)
+                            
                             self.supplyBidList.remove(supbid)
+                            sblen = len(self.supplyBidList)
                             self.reserveBidList.append(supbid)
-                            self.reserveBidList.sort(key = operator.attrgetter("rate"))
                             supbid.service = "reserve"
                     else:
                         supbid.accepted = False
@@ -725,6 +773,8 @@ class UtilityAgent(Agent):
                     totalsupply += bid.amount
                     bid.rate = group.rate
                     self.sendBidAcceptance(bid, group.rate)
+                    #update bid's entry in database
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
                     self.NextPeriod.plan.addBid(bid)
                     #give customer permission to connect if resource is co-located
                     res = listparse.lookUpByName(bid.resourceName,group.resources)
@@ -734,6 +784,8 @@ class UtilityAgent(Agent):
                             cust.permission = True   
                 else:
                     self.sendBidRejection(bid, group.rate)   
+                    #update bid's entry in database
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
                     
             totaldemand = 0        
             #notify the counterparties of the terms on which they will consume power
@@ -744,12 +796,16 @@ class UtilityAgent(Agent):
                     totaldemand += bid.amount
                     bid.rate = group.rate
                     self.sendBidAcceptance(bid, group.rate)
+                    #update bid's entry in database
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
                     self.NextPeriod.plan.addConsumption(bid)
                     #give customer permission to connect
                     cust.permission = True                    
                     
                 else:
                     self.sendBidRejection(bid, group.rate)
+                    #update bid's entry in database
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
                     #customer does not have permission to connect
                     cust.permission = False
             
@@ -774,6 +830,8 @@ class UtilityAgent(Agent):
                     self.NextPeriod.plan.addBid(bid)
                 else:
                     self.sendBidRejection(bid,group.rate)
+                #update bid's entry in database
+                self.dbupdatebid(bid,self.dbconn,self.t0)
                     
             self.bidstate.reserveonly()
             
@@ -1272,9 +1330,13 @@ class UtilityAgent(Agent):
                         self.supplyBidList.append(newbid)
                     elif service == "reserve":                  
                         self.reserveBidList.append(newbid)
+                    #write to database
+                    self.dbnewbid(newbid,self.dbconn,self.t0)
                 elif side == "demand":
                     newbid = control.DemandBid(**mesdict)
                     self.demandBidList.append(newbid)
+                    #write to database
+                    self.dbnewbid(newbid,self.dbconn,self.t0)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("UTILITY {me} RECEIVED A {side} BID#{id} FROM {them}".format(me = self.name, side = side,id = uid, them = messageSender ))
@@ -1307,8 +1369,36 @@ class UtilityAgent(Agent):
                         
                         if settings.DEBUGGING_LEVEL >= 1:
                             print("ENROLLMENT SUCCESSFUL! {me} enrolled {them} in DR scheme".format(me = self.name, them = messageSender))
-                            
-
+    
+    
+    def dbnewcustomer(self,newcust,dbconn,t0):
+        cursor = dbconn.cursor()
+        command = 'INSERT INTO customers VALUES ("{time}",{et},"{name}","{location}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, name = newcust.name, location = newcust.location)
+        cursor.execute(command)
+        dbconn.commit()
+        cursor.close()
+    
+    def dbnewbid(self,newbid,dbconn,t0):
+        cursor = dbconn.cursor()
+        command = 'INSERT INTO bids (logtime, et, period, id, side, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
+        cursor.execute(command)
+        dbconn.commit()
+        cursor.close()
+        
+    def dbupdatebid(self,bid,dbconn,t0):
+        cursor = dbconn.cursor()
+        command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = bid.accepted, rate = bid.rate, amt = bid.amount, id = bid.uid)
+        cursor.execute(command)
+        dbconn.commit()
+        cursor.close()
+        
+    def dbtransaction(self,cust,amt,type,dbconn,t0):
+        cursor = dbconn.cursor()
+        command = 'INSERT INTO transactions VALUES("{time}",{et},{per},"{name}","{type}",{amt},{bal})'.format(time = datetime.utcnow().isoformat(),et = time.time()-t0,per = self.CurrentPeriod.periodNumber,name = cust.name,type = type, amt = amt, bal = cust.customerAccount.accountBalance )
+        cursor.execute(command)
+        dbconn.commit()
+        cursor.close()
+        
     
     '''prints information about the utility and its assets'''
     def printInfo(self,verbosity):

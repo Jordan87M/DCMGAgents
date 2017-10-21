@@ -474,6 +474,8 @@ class SupplyBid(BidBase):
         print(spaces*depth + "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
         print(spaces*depth + "SUPPLY BID INFORMATION for BID {id}".format(id = self.uid))
         print(spaces*depth + "SERVICE: {service} FROM: {res}".format(service = self.service, res = self.resourceName))
+        if self.auxilliaryService:
+            print(spaces*depth + "AUXILLIARY SERVICE: {aux}".format(aux = self.auxilliaryService))
         print(spaces*depth + "AMOUNT: {amt} AT: {rate} Credits/Joule".format(amt = self.amount, rate = self.rate))
         print(spaces*depth + "FOR PERIOD: {per}".format(per = self.periodNumber))
         print(spaces*depth + "COUNTERPARTY: {ctr}".format(ctr = self.counterparty))
