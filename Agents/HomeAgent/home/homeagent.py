@@ -28,6 +28,8 @@ _log = logging.getLogger(__name__)
 class HomeAgent(Agent):
     def __init__(self,config_path,**kwargs):
         super(HomeAgent,self).__init__(**kwargs)
+        self.dbsafe = False
+        
         self.config = utils.load_config(config_path)
         self._agent_id = self.config['agentid']
         #read from config structure
@@ -41,14 +43,15 @@ class HomeAgent(Agent):
         self.FREGpart = bool(self.config["FREGpart"])
         self.DRpart = bool(self.config["DRpart"])
         
+        self.t0 = time.time()
+        
         #asset lists
         self.Resources = []
         self.Appliances = []
         self.Devices = []
         
         #name of utility enrolled with
-        self.utilityName = None
-        
+        self.utilityName = None        
         self.currentSpot = None
         
         loclist = self.location.split('.')
@@ -67,6 +70,24 @@ class HomeAgent(Agent):
         self.relayTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_User".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.currentTag = "BRANCH_{branch}_BUS_{bus}_LOAD_{load}_Current".format(branch = self.branchNumber, bus = self.busNumber, load = self.loadNumber)
         self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
+        
+        #add dist-packages to python path for mysql module
+        sys.path.append('/usr/lib/python2.7/dist-packages')
+        print(sys.path)
+        import mysql.connector
+        
+        self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
+        cursor = self.dbconn.cursor()
+        
+        cursor.execute('DROP TABLE IF EXISTS appliances')
+        cursor.execute('DROP TABLE IF EXISTS resources')
+        cursor.execute('DROP TABLE IF EXISTS appstate')
+        
+        cursor.execute('CREATE TABLE IF NOT EXISTS appliances (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, max_power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS resources (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, location TEXT, max_power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS appstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, power DOUBLE)')
+        
+        cursor.close()
         
         
         #create resource objects for resources
@@ -88,6 +109,8 @@ class HomeAgent(Agent):
             
             print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
             newapp.printInfo(1)
+        
+        self.dbsafe = True
             
         #Both smart appliances and distributed resources are considered Devices
         #it is useful to consider the two of these together sometimes
@@ -178,11 +201,23 @@ class HomeAgent(Agent):
                 frac = 0
                 
             for app in self.Appliances:
-                app.simulationStep(frac*app.nominalpower,settings.SIMSTEP_INTERVAL)            
-        else:
-            for app in self.Appliances:            
-                app.simulationStep(app.nominalpower,settings.SIMSTEP_INTERVAL)
-                
+                app.simulationStep(frac*app.nominalpower,settings.SIMSTEP_INTERVAL)
+                #update database
+                if self.dbsafe:
+                    self.dbupdateappliance(app,frac*app.nominalpower,self.dbconn,self.t0)            
+        else:    
+            for app in self.Appliances:   
+                if app.on:
+                    app.simulationStep(app.nominalpower,settings.SIMSTEP_INTERVAL)
+                    #update database
+                    if self.dbsafe:
+                        self.dbupdateappliance(app,app.nominalpower,self.dbconn,self.t0)   
+                else:
+                    app.simulationStep(0,settings.SIMSTEP_INTERVAL)
+                    #update database
+                    if self.dbsafe:
+                        self.dbupdateappliance(app,0,self.dbconn,self.t0)
+                    
         
     def costFn(self,period,statecomps):
         #the costFn() method is implemented at the level of the User class
@@ -1455,6 +1490,31 @@ class HomeAgent(Agent):
                     net -= res.getInputUnregPower()
         return net
         
+    def dbnewappliance(self, newapp, dbconn, t0):
+        command = 'INSERT INTO appliances VALUES("{time}",{et},"{name}","{type}",{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newapp.name, type = newapp.__class__.__name__, pow = app.nominalpower)
+        self.dbwrite(command,dbconn)
+        
+        
+    def dbnewresource(self, newres, dbconn, t0):
+        command = 'INSERT INTO resources VALLUES("{time}",{et},"{name}","{type}","{loc}", {pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newres.name, type = newres.__class__.__name__,loc = newres.location, pow = newres.maxDischargePower)
+        self.dbwrite(command,dbconn)
+        
+        
+    def dbupdateappliance(self, app, power, dbconn, t0):
+        command = 'INSERT INTO appstate VALUES ("{time}",{et},{per},"{name}",{state},{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = app.name, state = app.getStateEng(), pow = power)
+        self.dbwrite(command,dbconn)
+        
+               
+    def dbwrite(self,command,dbconn):
+        try:
+            cursor = dbconn.cursor()
+            cursor.execute(command)
+            dbconn.commit()
+            cursor.close()
+        except Exception as e:
+            print("dbase error - if it says the table doesn't exist, don't believe it")
+            print(e)
+            
     def printInfo(self,depth):
         print("\n________________________________________________________________")
         print("~~SUMMARY OF HOME STATE~~")

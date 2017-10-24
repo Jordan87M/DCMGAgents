@@ -51,6 +51,9 @@ class Device(object):
     def getState(self):
         return None
     
+    def getStateEng(self):
+        return None
+    
     def printInfo(self,depth):
         tab = "    "
         print(tab*depth + "DEVICE NAME: {name}".format(name = self.name))
@@ -82,6 +85,9 @@ class HeatingElement(Device):
         
     def getState(self):
         return self.stateEngToPU(self.temperature)
+    
+    def getStateEng(self):
+        return self.temperature
     
     def getPowerFromPU(self,pu):
         return pu*self.nominalpower
@@ -202,6 +208,9 @@ class HeatPump(Device):
         
     def getState(self):
         return self.stateEngToPU(self.temperature)
+    
+    def getStateEng(self):
+        return self.temperature
     
     def getPowerFromPU(self,pu):
         return pu*self.nominalpower
@@ -371,6 +380,9 @@ class NoDynamics(Device):
             return 1
         else:
             return 0
+        
+    def getStateEng(self):
+        return self.getState()
         
     def getActionpoints(self,mode = "hifi"):
         return self.actionpoints

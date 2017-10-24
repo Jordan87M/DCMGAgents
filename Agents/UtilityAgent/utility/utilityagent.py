@@ -404,7 +404,7 @@ class UtilityAgent(Agent):
                             #if resources are not colocated, we need to account for them separately
                             power = res.getDischargePower() - res.getChargePower()
                             energy = power*settings.ACCOUNTING_INTERVAL
-                            balanceAdjustment = -energy*group.rate*cust.rateAdjustment
+                            balanceAdjustment = energy*group.rate*cust.rateAdjustment
                             cust.customerAccount.adjustBalance(balanceAdjustment)
                             
                             #update database
@@ -921,7 +921,7 @@ class UtilityAgent(Agent):
                             res.DischargeChannel.connectWithSet(bid.amount,0)
                             if settings.DEBUGGING_LEVEL >= 2:
                                 print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
-                        elif bid.servie == "reserve":
+                        elif bid.service == "reserve":
                             #res.connectSourceSoft("Preg",.1)
                             res.DischargeChannel.connectWithSet(bid.amount, -.2)
                             if settings.DEBUGGING_LEVEL >= 2:
@@ -1393,12 +1393,15 @@ class UtilityAgent(Agent):
         cursor.close()
         
     def dbtransaction(self,cust,amt,type,dbconn,t0):
-        cursor = dbconn.cursor()
-        command = 'INSERT INTO transactions VALUES("{time}",{et},{per},"{name}","{type}",{amt},{bal})'.format(time = datetime.utcnow().isoformat(),et = time.time()-t0,per = self.CurrentPeriod.periodNumber,name = cust.name,type = type, amt = amt, bal = cust.customerAccount.accountBalance )
-        cursor.execute(command)
-        dbconn.commit()
-        cursor.close()
-        
+        try:
+            cursor = dbconn.cursor()
+            command = 'INSERT INTO transactions VALUES("{time}",{et},{per},"{name}","{type}",{amt},{bal})'.format(time = datetime.utcnow().isoformat(),et = time.time()-t0,per = self.CurrentPeriod.periodNumber,name = cust.name,type = type, amt = amt, bal = cust.customerAccount.accountBalance )
+            cursor.execute(command)
+            dbconn.commit()
+            cursor.close()
+        except Exception as e:
+            print("dbase error - if it says the table doesn't exist, don't believe it")
+            print(e)
     
     '''prints information about the utility and its assets'''
     def printInfo(self,verbosity):
