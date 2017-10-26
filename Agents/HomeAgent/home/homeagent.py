@@ -76,23 +76,15 @@ class HomeAgent(Agent):
         print(sys.path)
         import mysql.connector
         
+        #connect to database
         self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
-        cursor = self.dbconn.cursor()
-        
-        cursor.execute('DROP TABLE IF EXISTS appliances')
-        cursor.execute('DROP TABLE IF EXISTS resources')
-        cursor.execute('DROP TABLE IF EXISTS appstate')
-        
-        cursor.execute('CREATE TABLE IF NOT EXISTS appliances (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, max_power DOUBLE)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS resources (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, location TEXT, max_power DOUBLE)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS appstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, power DOUBLE)')
-        
-        cursor.close()
-        
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,False)
-        #add cost function if applicable
+        
+        #create database entries for resources
+        for res in self.Resources:
+            self.dbnewresource(res,self.dbconn,self.t0)
         
         
         for app in self.appliances:
@@ -106,6 +98,9 @@ class HomeAgent(Agent):
                 pass
             self.Appliances.append(newapp)
             appliances.addCostFn(newapp,app)
+            
+            #add appliance to database
+            self.dbnewappliance(newapp,self.dbconn,self.t0)
             
             print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
             newapp.printInfo(1)
@@ -1491,12 +1486,12 @@ class HomeAgent(Agent):
         return net
         
     def dbnewappliance(self, newapp, dbconn, t0):
-        command = 'INSERT INTO appliances VALUES("{time}",{et},"{name}","{type}",{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newapp.name, type = newapp.__class__.__name__, pow = app.nominalpower)
+        command = 'INSERT INTO appliances VALUES("{time}",{et},"{name}","{type}","{owner}",{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newapp.name, type = newapp.__class__.__name__, owner = newapp.owner, pow = newapp.nominalpower)
         self.dbwrite(command,dbconn)
         
         
     def dbnewresource(self, newres, dbconn, t0):
-        command = 'INSERT INTO resources VALLUES("{time}",{et},"{name}","{type}","{loc}", {pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newres.name, type = newres.__class__.__name__,loc = newres.location, pow = newres.maxDischargePower)
+        command = 'INSERT INTO resources VALUES("{time}",{et},"{name}","{type}","{owner}","{loc}", {pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newres.name, type = newres.__class__.__name__,owner = newres.owner, loc = newres.location, pow = newres.maxDischargePower)
         self.dbwrite(command,dbconn)
         
         

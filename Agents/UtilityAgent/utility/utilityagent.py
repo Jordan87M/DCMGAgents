@@ -83,6 +83,39 @@ class UtilityAgent(Agent):
         print(sys.path)
         import mysql.connector
         
+                #DATABASE STUFF
+        self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
+
+        cursor = self.dbconn.cursor()
+        
+        #recreate database tables
+        cursor.execute('DROP TABLE IF EXISTS infmeas')
+        cursor.execute('DROP TABLE IF EXISTS faults')
+        cursor.execute('DROP TABLE IF EXISTS customers')
+        cursor.execute('DROP TABLE IF EXISTS bids')
+        cursor.execute('DROP TABLE IF EXISTS prices')
+        cursor.execute('DROP TABLE IF EXISTS drevents')
+        cursor.execute('DROP TABLE IF EXISTS transactions')
+        cursor.execute('DROP TABLE IF EXISTS resources')
+        cursor.execute('DROP TABLE IF EXISTS appliances')
+        cursor.execute('DROP TABLE IF EXISTS appstate')
+        
+        cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, signame TEXT, value DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS customers(logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS bids(logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
+        cursor.execute('CREATE TABLE IF NOT EXISTS prices(logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS drevents(logtime TIMESTAMP, et DOUBLE, period INT, type TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS transactions(logtime TIMESTAMP, et DOUBLE, period INT, account_holder TEXT, transaction_type TEXT, amount DOUBLE, balance DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS resources (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, location TEXT, max_power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS appliances (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, max_power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS appstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, power DOUBLE)')
+        
+        cursor.close()
+        
+        #register exit function to close database connection
+        atexit.register(self.exit_handler,self.dbconn)
+        
         #build grid model objects from the agent's a priori knowledge of system
         #infrastructure relays
         self.relays = [groups.Relay("BRANCH_1_BUS_1_PROXIMAL_User","infrastructure"),
@@ -137,31 +170,7 @@ class UtilityAgent(Agent):
         
         self.connMatrix = [[0 for x in range(len(self.nodes))] for y in range(len(self.nodes))]
         
-        #DATABASE STUFF
-        self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
 
-        cursor = self.dbconn.cursor()
-        
-        cursor.execute('DROP TABLE IF EXISTS infmeas')
-        cursor.execute('DROP TABLE IF EXISTS faults')
-        cursor.execute('DROP TABLE IF EXISTS customers')
-        cursor.execute('DROP TABLE IF EXISTS bids')
-        cursor.execute('DROP TABLE IF EXISTS prices')
-        cursor.execute('DROP TABLE IF EXISTS drevents')
-        cursor.execute('DROP TABLE IF EXISTS transactions')
-        
-        cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, signame TEXT, value DOUBLE)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS customers(logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS bids(logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
-        cursor.execute('CREATE TABLE IF NOT EXISTS prices(logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS drevents(logtime TIMESTAMP, et DOUBLE, period INT, type TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS transactions(logtime TIMESTAMP, et DOUBLE, period INT, account_holder TEXT, transaction_type TEXT, amount DOUBLE, balance DOUBLE)')
-        
-        cursor.close()
-        
-        #register exit function to close database connection
-        atexit.register(self.exit_handler,self.dbconn)
         
         
         #import list of utility resources and make into object
@@ -171,6 +180,9 @@ class UtilityAgent(Agent):
             for node in self.nodes:
                 if res.location == node.name:
                     node.addResource(res)
+                    
+            #also add resource to database
+            self.dbnewresource(res,self.dbconn,self.t0)
             
         
         self.perceivedInsol = 75 #as a percentage of nominal
@@ -1379,23 +1391,25 @@ class UtilityAgent(Agent):
         cursor.close()
     
     def dbnewbid(self,newbid,dbconn,t0):
-        cursor = dbconn.cursor()
         command = 'INSERT INTO bids (logtime, et, period, id, side, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
-        cursor.execute(command)
-        dbconn.commit()
-        cursor.close()
+        self.dbwrite(command,dbconn)
         
     def dbupdatebid(self,bid,dbconn,t0):
-        cursor = dbconn.cursor()
         command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = bid.accepted, rate = bid.rate, amt = bid.amount, id = bid.uid)
-        cursor.execute(command)
-        dbconn.commit()
-        cursor.close()
+        self.dbwrite(command,dbconn)
         
     def dbtransaction(self,cust,amt,type,dbconn,t0):
+        command = 'INSERT INTO transactions VALUES("{time}",{et},{per},"{name}","{type}",{amt},{bal})'.format(time = datetime.utcnow().isoformat(),et = time.time()-t0,per = self.CurrentPeriod.periodNumber,name = cust.name,type = type, amt = amt, bal = cust.customerAccount.accountBalance )
+        self.dbwrite(command,dbconn)
+       
+    def dbnewresource(self, newres, dbconn, t0):
+        command = 'INSERT INTO resources VALUES("{time}",{et},"{name}","{type}","{owner}","{loc}", {pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newres.name, type = newres.__class__.__name__,owner = newres.owner, loc = newres.location, pow = newres.maxDischargePower)
+        self.dbwrite(command,dbconn)
+         
+            
+    def dbwrite(self,command,dbconn):
         try:
             cursor = dbconn.cursor()
-            command = 'INSERT INTO transactions VALUES("{time}",{et},{per},"{name}","{type}",{amt},{bal})'.format(time = datetime.utcnow().isoformat(),et = time.time()-t0,per = self.CurrentPeriod.periodNumber,name = cust.name,type = type, amt = amt, bal = cust.customerAccount.accountBalance )
             cursor.execute(command)
             dbconn.commit()
             cursor.close()
