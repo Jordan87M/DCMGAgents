@@ -117,6 +117,11 @@ class Source(Resource):
         voltage = self.DischargeChannel.getRegV()
         return current*voltage
     
+    #abstract method
+    def getInputUnregPower(self):
+        return 0
+    
+    
     def setDisposition(self,setpoint = None, offset = None):
         if setpoint != 0:
             if self.connected:
@@ -583,7 +588,7 @@ class Channel():
     def changeReserve(self,newPower,voffset):
         self.setpoint = newPower
         droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
-        tagClient.writeTags([self.droopCoeffTag, self.noLoadVoltageTag],[droopCoeff, self.noLoadVoltage - voffset])
+        tagClient.writeTags([self.droopCoeffTag, self.noLoadVoltageTag],[droopCoeff, self.noLoadVoltage + voffset])
     
     '''creates a voltage offset to the V-P curve corresponding to the addition of a fixed
     amount of power, poffset, at every voltage.'''        

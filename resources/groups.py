@@ -184,6 +184,8 @@ class BaseNode(object):
         self.edges.append(newedge)
         otherNode.edges.append(newedge)
         
+        return newedge
+        
     def removeEdge(self,otherNode):
         for edge in self.edges:
             if edge.startNode is self or edge.endNode is self:
@@ -387,6 +389,9 @@ class DirEdge(object):
     
     def getPowerFlowOut(self):
         return self.endNode.getVoltage()*self.getCurrent()
+    
+    def getPowerDissipation(self):
+        return abs(self.getPowerFlowIn()-self.getPowerFlowOut())
     
     def printInfo(self,depth = 0):
         spaces = "    "

@@ -149,7 +149,6 @@ class HomeAgent(Agent):
         for period in self.PlanningWindow.periods:
             self.requestForecast(period)
         
-        #sleep to give weather agent a chance to respond before proceeding    
         sched = datetime.now() + timedelta(seconds = 1)
         self.core.schedule(sched,self.firstplan)
         
@@ -159,7 +158,11 @@ class HomeAgent(Agent):
         print('Homeowner {name} at {loc} beginning preparations for PERIOD 1'.format(name = self.name, loc = self.location))
         
         #find offer price
+        before = time.time()
         self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
+        #add plan to database
+        self.dbnewplan(self.NextPeriod.plan.optimalcontrol,time.time()-before,self.dbconn,self.t0)
+        
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
             self.NextPeriod.plan.optimalcontrol.printInfo(0)
@@ -450,7 +453,7 @@ class HomeAgent(Agent):
                         if service == "power":
                             period.disposition.components[name] = control.DeviceDisposition(name,amount,"power")
                         elif service == "reserve":
-                            period.disposition.components[name] = control.DeviceDisposition(name,amount,"reserve",.2)
+                            period.disposition.components[name] = control.DeviceDisposition(name,amount,"reserve",-.2)
                     
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("-->HOMEOWNER {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
@@ -1367,7 +1370,12 @@ class HomeAgent(Agent):
         self.priceForecast()
         
         #find offer price
+        before = time.time()
         self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
+        
+        #add plan to database
+        self.dbnewplan(self.NextPeriod.plan.optimalcontrol,time.time()-before,self.dbconn,self.t0)
+        
         if settings.DEBUGGING_LEVEL >= 2:
             print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
             self.NextPeriod.plan.optimalcontrol.printInfo(0)
@@ -1421,7 +1429,7 @@ class HomeAgent(Agent):
                         res.setDisposition(devdisp.value,devdisp.param)
                     else:
                         print("{dev} has no param even though it's a reserve. i wonder why.".format(dev = res.name))
-                        res.setDisposition(devdisp.value,.2)
+                        res.setDisposition(devdisp.value,-.2)
                 else:
                     pass
             #if not, we should make sure the device is disconnected
@@ -1498,7 +1506,11 @@ class HomeAgent(Agent):
     def dbupdateappliance(self, app, power, dbconn, t0):
         command = 'INSERT INTO appstate VALUES ("{time}",{et},{per},"{name}",{state},{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = app.name, state = app.getStateEng(), pow = power)
         self.dbwrite(command,dbconn)
-        
+    
+    def dbnewplan(self, action, plantime, dbconn, t0):
+        command = 'INSERT INTO plans VALUES ("{time}",{et},{per},{pt},"{planner}",{cost},"{action}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.NextPeriod.periodNumber, pt = plantime, planner = self.name, cost = action.pathcost, action = json.dumps(action.components).replace('"',' '))
+        self.dbwrite(command,dbconn)
+            
                
     def dbwrite(self,command,dbconn):
         try:
@@ -1507,7 +1519,6 @@ class HomeAgent(Agent):
             dbconn.commit()
             cursor.close()
         except Exception as e:
-            print("dbase error - if it says the table doesn't exist, don't believe it")
             print(e)
             
     def printInfo(self,depth):

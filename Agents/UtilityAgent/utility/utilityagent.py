@@ -25,6 +25,7 @@ from zmq.backend.cython.constants import RATE
 from __builtin__ import True
 from bacpypes.vlan import Node
 from twisted.application.service import Service
+#from _pydev_imps._pydev_xmlrpclib import loads
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class UtilityAgent(Agent):
         print(sys.path)
         import mysql.connector
         
-                #DATABASE STUFF
+        #DATABASE STUFF
         self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
 
         cursor = self.dbconn.cursor()
@@ -99,6 +100,8 @@ class UtilityAgent(Agent):
         cursor.execute('DROP TABLE IF EXISTS resources')
         cursor.execute('DROP TABLE IF EXISTS appliances')
         cursor.execute('DROP TABLE IF EXISTS appstate')
+        cursor.execute('DROP TABLE IF EXISTS plans')
+        cursor.execute('DROP TABLE IF EXISTS efficiency')
         
         cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, signame TEXT, value DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
@@ -110,6 +113,8 @@ class UtilityAgent(Agent):
         cursor.execute('CREATE TABLE IF NOT EXISTS resources (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, location TEXT, max_power DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS appliances (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, max_power DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS appstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS plans (logtime TIMESTAMP, et DOUBLE, period INT, planning_time DOUBLE, planner TEXT, cost DOUBLE, action TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS efficiency(logtime TIMESTAMP, et DOUBLE, period INT, generation DOUBLE, consumption DOUBLE, loss DOUBLE, unaccounted DOUBLE)')
         
         cursor.close()
         
@@ -148,24 +153,26 @@ class UtilityAgent(Agent):
                       groups.Zone("DC.BRANCH2.ZONE2", [self.nodes[4], self.nodes[8]])
                       ]
         
+        self.Edges = []
+        
         #join nodes with edges containing relays
-        self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current", [self.relays[0]])
-        self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current", [self.relays[2]])
+        self.Edges.append(self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current", [self.relays[0]]))
+        self.Edges.append(self.nodes[0].addEdge(self.nodes[3], "to", "BRANCH_2_BUS_1_Current", [self.relays[2]]))
         
-        self.nodes[1].addEdge(self.nodes[5], "to", None, [self.relays[4]])
+        self.Edges.append(self.nodes[1].addEdge(self.nodes[5], "to", None, [self.relays[4]]))
         
-        self.nodes[5].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[1]])
-        self.nodes[5].addEdge(self.nodes[7], "to", "CROSSTIE_1_Current", [self.relays[8]])
+        self.Edges.append(self.nodes[5].addEdge(self.nodes[2], "to", "BRANCH_1_BUS_2_Current", [self.relays[1]]))
+        self.Edges.append(self.nodes[5].addEdge(self.nodes[7], "to", "CROSSTIE_1_Current", [self.relays[8]]))
         
-        self.nodes[2].addEdge(self.nodes[6], "to", None, [self.relays[5]])
+        self.Edges.append(self.nodes[2].addEdge(self.nodes[6], "to", None, [self.relays[5]]))
         
-        self.nodes[6].addEdge(self.nodes[8], "to", "CROSSTIE_2_Current", [self.relays[9]])
+        self.Edges.append(self.nodes[6].addEdge(self.nodes[8], "to", "CROSSTIE_2_Current", [self.relays[9]]))
         
-        self.nodes[3].addEdge(self.nodes[7], "to", None, [self.relays[2]])
+        self.Edges.append(self.nodes[3].addEdge(self.nodes[7], "to", None, [self.relays[2]]))
         
-        self.nodes[7].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current", [self.relays[3]])
+        self.Edges.append(self.nodes[7].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current", [self.relays[3]]))
         
-        self.nodes[4].addEdge(self.nodes[8], "to", None, [self.relays[7]])
+        self.Edges.append(self.nodes[4].addEdge(self.nodes[8], "to", None, [self.relays[7]]))
         
         
         self.connMatrix = [[0 for x in range(len(self.nodes))] for y in range(len(self.nodes))]
@@ -204,6 +211,7 @@ class UtilityAgent(Agent):
         self.NextPeriod.printInfo(0)
     
     def exit_handler(self,dbconn):
+        print('UTILITY {me} exit handler'.format(me = self.name))
         dbconn.close()    
         
     @Core.receiver('onstart')
@@ -235,11 +243,9 @@ class UtilityAgent(Agent):
         sched = datetime.now() + timedelta(seconds = 11)
         self.core.schedule(sched,self.sendBidSolicitation)
         
-        
         subs = self.getTopology()
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
-        
         
         
     
@@ -891,6 +897,9 @@ class UtilityAgent(Agent):
         self.core.schedule(self.NextPeriod.startTime,self.advancePeriod)
         self.announcePeriod()
         
+        #determine distribution system efficiency
+        self.efficiencyAssessment()
+        
         #reset customer permissions
         #for cust in self.customers:
         #    cust.permission = False
@@ -1106,27 +1115,71 @@ class UtilityAgent(Agent):
             if settings.DEBUGGING_LEVEL >= 2:
                 print("No faults detected by {me}!".format(me = self.name))
             
-    
-    ''' secondary voltage control loop to fix sagging voltage due to droop control''' 
-    @Core.periodic(settings.SECONDARY_VOLTAGE_INTERVAL)       
-    def correctVoltage(self):
+    @Core.periodic(settings.SECONDARY_VOLTAGE_INTERVAL)
+    def voltageMonitor(self):
         for group in self.groupList:
-            minvoltage = 12
-            maxvoltage = 0
             for node in group.nodes:
                 voltage = node.getVoltage()
-                if voltage < minvoltage:
-                    minvoltage = voltage
-                    
-                if voltage > maxvoltage:
-                    maxvoltage = voltage
-                    
-            if minvoltage < settings.VOLTAGE_BAND_LOWER:
-                #only use our own resources
-                pass
+                
+    
+    def groupEfficiencyAssessment(self,group):            
+        loads = 0
+        sources = 0
+        losses = 0
+        for cust in group.customers:
+            loads += cust.measurePower()
             
-            if maxvoltage > settings.VOLTAGE_BAND_UPPER:
-                pass
+        for res in group.resources:
+            if res.owner != self.name:
+                cust = listparse.lookUpByName(res.owner.name,self.customers)
+                #cust will be None if the resource belongs to the utility
+                if cust:
+                    if res.location != cust.location:
+                        #if resources are not colocated, we need to account for them separately
+                        sources += res.getDischargePower() - res.getChargePower()
+            else:
+                sources += res.getOutputRegPower() - res.getInputUnregPower()
+        
+        waste = sources - loads
+        
+        expedges = []
+        for node in group.nodes:
+            for edge in node.edges:
+                if edge not in expedges:
+                    expedges.append(edge)
+                    if edge.currentTag and edge in self.Edges:
+                        losses += edge.getPowerDissipation()
+        
+        unaccounted = waste - losses
+        
+        return loads, sources, losses
+        
+            
+    def efficiencyAssessment(self):
+        #net load power consumption
+        loads = 0
+        #net source power consumption
+        sources = 0
+        #line losses
+        losses = 0  
+        
+        for group in self.groupList:
+            grouploads, groupsources, grouplosses = self.groupEfficiencyAssessment(group)
+            loads += grouploads
+            sources += groupsources
+            losses += grouplosses
+            print('TEMP DEBUG: loads: {loads}, sources: {sources}, losses: {losses}'.format(loads = grouploads, sources = groupsources, losses = grouplosses))
+        
+        #difference
+        waste = sources - loads
+                
+        #unaccounted losses
+        unaccounted = waste - losses
+        
+        #write to database
+        self.dbnewefficiency(sources,loads,losses,unaccounted,self.dbconn,self.t0)
+        
+                
             
     def sendBidAcceptance(self,bid,rate):
         mesdict = {}
@@ -1406,6 +1459,9 @@ class UtilityAgent(Agent):
         command = 'INSERT INTO resources VALUES("{time}",{et},"{name}","{type}","{owner}","{loc}", {pow})'.format(time = datetime.utcnow().isoformat(), et = time.time()-t0, name = newres.name, type = newres.__class__.__name__,owner = newres.owner, loc = newres.location, pow = newres.maxDischargePower)
         self.dbwrite(command,dbconn)
          
+    def dbnewefficiency(self,generation,consumption,losses,unaccounted,dbconn, t0):
+        command = 'INSERT INTO efficiency VALUES("{time}",{et},{per},{gen},{con},{loss},{unacc})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, gen = generation, con = consumption, loss = losses, unacc = unaccounted)
+        self.dbwrite(command,dbconn)
             
     def dbwrite(self,command,dbconn):
         try:
