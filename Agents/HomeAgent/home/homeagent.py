@@ -6,6 +6,7 @@ import json
 import random
 import copy
 import time
+import atexit
 
 from volttron.platform.vip.agent import Agent, Core, PubSub, compat, RPC
 from volttron.platform.agent import utils
@@ -86,6 +87,8 @@ class HomeAgent(Agent):
         for res in self.Resources:
             self.dbnewresource(res,self.dbconn,self.t0)
         
+        #register exit function
+        atexit.register(self.exit_handler,self.dbconn)
         
         for app in self.appliances:
             if app["type"] == "heater":
@@ -134,6 +137,16 @@ class HomeAgent(Agent):
         
         #core.schedule event object for the function call to begin next period
         self.advanceEvent = None
+     
+    def exit_handler(self):
+        print("HOMEOWNER {me} exit handler".format(me = self.name))
+        
+        #disconnect all connected sources
+        for res in self.Resources:
+            res.disconnectSource()
+        
+        #close database connection
+        self.dbconn.close() 
         
     @Core.receiver('onstart')
     def setup(self,sender,**kwargs):

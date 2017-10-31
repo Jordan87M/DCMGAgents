@@ -118,7 +118,7 @@ class UtilityAgent(Agent):
         
         cursor.close()
         
-        #register exit function to close database connection
+        #register exit function
         atexit.register(self.exit_handler,self.dbconn)
         
         #build grid model objects from the agent's a priori knowledge of system
@@ -192,7 +192,7 @@ class UtilityAgent(Agent):
             self.dbnewresource(res,self.dbconn,self.t0)
             
         
-        self.perceivedInsol = 75 #as a percentage of nominal
+        self.perceivedInsol = .75 #per unit
         self.customers = []
         self.DRparticipants = []
         
@@ -212,6 +212,16 @@ class UtilityAgent(Agent):
     
     def exit_handler(self,dbconn):
         print('UTILITY {me} exit handler'.format(me = self.name))
+        
+        #disconnect any connected loads
+        for cust in self.customers:
+            cust.disconnectCustomer()
+        
+        #disconnect all utility-owned sources
+        for res in self.Resources:
+            res.disconnectSource()
+        
+        #close database connection
         dbconn.close()    
         
     @Core.receiver('onstart')
