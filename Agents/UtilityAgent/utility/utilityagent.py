@@ -247,7 +247,18 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
         
+    @Core.periodic(20)
+    def getNowcast(self):
+        mesdict = {}
+        mesdict["message_sender"] = self.name
+        mesdict["message_target"] = "Goddard"
+        mesdict["message_subject"] = "nowcast"
+        mesdict["message_type"] = "nowcast_request"
+        mesdict["requested_data"] = ["solar_irradiance", "wind_speed", "temperature"]
         
+        
+        mes = json.dumps(mesdict)
+        self.vip.pubsub.publish("pubsub","weatherservice",{},mes)
     
     '''callback for weatherfeed topic'''
     def weatherfeed(self, peer, sender, bus, topic, headers, message):
@@ -259,10 +270,12 @@ class UtilityAgent(Agent):
         #if we are the intended recipient
         if listparse.isRecipient(messageTarget,self.name):    
             if messageSubject == "nowcast":
-                if messageType == "solar_irradiance":
-                    #update local solar irradiance estimate
-                    self.perceivedInsol = mesdict.get("info",None)
-    
+                responses = mesdict.get("responses",None)
+                if responses:
+                    solar = responses["solar_irradiance"]
+                    if solar:
+                        self.perceivedInsol = solar
+                    
     '''callback for customer service topic. This topic is used to enroll customers
     and manage customer accounts.'''    
     def customerfeed(self, peer, sender, bus, topic, headers, message):
@@ -554,7 +567,7 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             newbid = None
             if type(res) is resource.SolarPanel:
-                amount = res.maxDischargePower*self.perceivedInsol/100
+                amount = res.maxDischargePower*self.perceivedInsol
                 rate = 0
                 newbid = control.SupplyBid(**{"resource_name": res.name, "side":"supply", "service":"power", "amount":amount, "rate":rate, "counterparty": self.name, "period_number": self.NextPeriod.periodNumber})
             elif type(res) is resource.LeadAcidBattery:
@@ -1264,7 +1277,7 @@ class UtilityAgent(Agent):
         total = 0
         for elem in group.resources:
             if elem is SolarPanel:
-                total += elem.maxDischargePower*self.perceivedInsol/100
+                total += elem.maxDischargePower*self.perceivedInsol
             elif elem is LeadAcidBattery:
                 if elem.SOC < .2:
                     total += 0

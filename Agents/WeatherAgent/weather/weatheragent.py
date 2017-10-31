@@ -74,8 +74,6 @@ class WeatherAgent(Agent):
                 resd["message_type"] = "nowcast_response"
                 for comp in mesdict["requested_data"]:
                     if comp == "solar_irradiance":
-                        #temporary, should eventually ask sg plc
-                        #restypes.append((comp,80))
                         responses["solar_irradiance"] = self.getIrradiance()
                     elif comp == "wind_speed":
                         #restypes.append((comp,0))

@@ -435,11 +435,12 @@ class HomeAgent(Agent):
             elif messageSubject == 'bid_acceptance':
                 #if acceptable, update the plan
                 side = mesdict.get("side",None)
+                service = mesdict.get("service",None)
                 amount = mesdict.get("amount",None)
                 rate = mesdict.get("rate",None)
                 periodNumber = mesdict.get("period_number",None)
                 uid = mesdict.get("uid",None)
-                name = mesdict.get("resource_name",None)
+    
                 
                 period = self.PlanningWindow.getPeriodByNumber(periodNumber)
                 
@@ -447,8 +448,10 @@ class HomeAgent(Agent):
                 #service also may have been changed from power to regulation
                 if side == "supply":
                     bid = period.supplybidmanager.findPending(uid)
+                    
                     period.supplybidmanager.bidAccepted(bid,**mesdict)
-                    if name:
+                    if bid.resourceName:
+                        name = bid.resourceName
                         res = listparse.lookUpByName(name,self.Resources)
                         if service == "power":
                             period.disposition.components[name] = control.DeviceDisposition(name,amount,"power")
@@ -458,12 +461,14 @@ class HomeAgent(Agent):
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("-->HOMEOWNER {me} ACK SUPPLY BID ACCEPTANCE".format(me = self.name))
                         bid.printInfo()
+                        print(" TEMP DEBUG: resname: {rnam}".format(rnam = name))
                         
                 elif side == "demand":
                     bid = period.demandbidmanager.findPending(uid)
                     period.demandbidmanager.bidAccepted(bid,**mesdict)
                     
-                    if name:
+                    if bid.resourceName:
+                        name = bid.resourceName
                         period.disposition.components[name] = control.DeviceDisposition(name,amount,"charge")
                     else:
                         period.disposition.closeRelay = True
