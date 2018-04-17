@@ -1471,7 +1471,7 @@ class UtilityAgent(Agent):
         self.dbwrite(command,dbconn)
         
     def dbupdatebid(self,bid,dbconn,t0):
-        command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = bid.accepted, rate = bid.rate, amt = bid.amount, id = bid.uid)
+        command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = str(bid.accepted), rate = bid.rate, amt = bid.amount, id = bid.uid)
         self.dbwrite(command,dbconn)
         
     def dbtransaction(self,cust,amt,type,dbconn,t0):
