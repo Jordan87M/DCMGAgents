@@ -3,6 +3,7 @@ import sys
 import subprocess
 from datetime import datetime
 
+#not used anymore
 def startTagServer():
     try:
         subprocess.call(["ServeTagsTemporarily&"])

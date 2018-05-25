@@ -120,7 +120,7 @@ class HomeAgent(Agent):
         self.gridConnected = False
         self.registered = False
         
-        self.marginalutility = .2
+        #self.marginalutility = .2
         self.avgEnergyCost = 1
         
         self.mygroup = None
@@ -1135,7 +1135,7 @@ class HomeAgent(Agent):
         #find next state if this input is applied
         comps = self.applySimulatedInput(state,input,duration,False)
         
-        #if the next period is not the last, consider the path cost
+        #if the next period is not the last, consider the path cost from that point forward
         if period.nextperiod.nextperiod:
             #cost of optimal path from next state forward
             pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,False)
@@ -1454,7 +1454,7 @@ class HomeAgent(Agent):
             else:
                 res.setDisposition(0)
                 
-        #keep tack of simulated device states
+        #keep track of simulated device states
         for app in self.Appliances:
             #is the device in this period's disposition?
             if app.name in comps:
