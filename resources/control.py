@@ -1,5 +1,7 @@
 from DCMGClasses.resources import groups, optimization
 from DCMGClasses.resources import misc
+from DCMGClasses.resources.mathtools import combin
+
 from datetime import datetime, timedelta
 
 import random
@@ -86,7 +88,7 @@ class Period(object):
         self.periodNumber = periodNumber
         self.startTime = startTime
         self.endTime = endTime
-        self.planner = planner
+        #self.planner = planner
         
         self.pendingdrevents = []
         self.accepteddrevents = []
@@ -96,7 +98,8 @@ class Period(object):
         self.offerprice = None
         
         #initialize the plan for this period
-        self.plan = Plan(self,self.planner)
+        #self.plan = Plan(self,self.planner)
+        self.plans = []
         
         #initialize bid manager object for this period
         self.supplybidmanager = BidManager(self)
@@ -110,7 +113,19 @@ class Period(object):
         self.nextperiod = None
         
         #has an official rate been announced for this period?
-        self.rateannounced = False
+        self.firmrate = False
+        
+    def makeplan(self,bidgroup):
+        for plan in self.plans:
+            if plans.bidgroup == bidgroup:
+                #if a plan already exists, assume it was generated in an earlier
+                #period and erase it
+                plan = []
+                
+        plan = Plan(self,bidgroup)
+        self.plans
+        
+        return plan
         
     def setExpectedCost(self,cost):
         self.expectedenergycost = cost
@@ -135,19 +150,23 @@ class Period(object):
         
     
 class Plan(object):
-    def __init__(self,period,planner):
+    def __init__(self,period,bidgroup):
         self.period = period
-        self.planner = planner
+        #self.planner = planner
         
-        self.acceptedBids = []
-        self.reserveBids = []
-        self.ownBids = []
-        self.plannedConsumption = []
+        self.bidgroup = bidgroup
+        self.devices = devices
+    
+        
+        #self.acceptedBids = []
+        #self.reserveBids = []
+        #self.ownBids = []
+        #self.plannedConsumption = []
         
         
-        self.totalsupply = 0
-        self.totalreserve = 0
-        self.totaldemand = 0
+        #self.totalsupply = 0
+        #self.totalreserve = 0
+        #self.totaldemand = 0
         
         self.stategrid = None
         self.admissiblecontrols = None
@@ -155,8 +174,20 @@ class Plan(object):
         
         self.planningcomplete = False
         
-    def makeGrid(self,period,gridstates,costfunc):
-        self.stategrid = optimization.StateGrid(period,gridstates,costfunc)
+        
+    def makeGrid(self,costfunc):
+        for dev in self.devices:
+            if dev.gridpoints:
+                if len(self.devices) >= 3:
+                    inputdict[dev.name] = dev.getGridpoints("lofi")
+                else:
+                    inputdict[dev.name] = dev.getGridpoints()
+                    
+        devstates = combin.makeopdict(inputdict)
+        
+        self.stategrid = optimization.StateGrid(self.period,devstates,costfunc)
+        
+        return self.stategrid
         
     def setAdmissibleInputs(self,inputs):
         temp = []
@@ -165,56 +196,61 @@ class Plan(object):
         self.admissiblecontrols = inputs
         return temp
     
-    def addBid(self,newbid):
-        for bid in self.acceptedBids:
-            if bid.uid == newbid.uid:
-                print("can't add duplicate bid ({id}) to period {per} plan".format(id = newbid.uid, per = self.period))
-                return
-        for bid in self.reserveBids:
-            if bid.uid == newbid.uid:
-                print("can't add duplicate reserve bid ({id}) to period {per} plan".format(id = newbid.uid, per = self.period))
-                return
-        
-        if newbid.service == "reserve":
-            self.reserveBids.append(newbid)
-            self.totalreserve += newbid.amount
-        elif newbid.service == "power":
-            self.acceptedBids.append(newbid)            
-            self.totalsupply += newbid.amount
-        
-        if newbid.counterparty == self.planner.name:
-            print("adding bid to own bids ({id})".format(id = newbid.uid))
-            self.ownBids.append(newbid)
+#     def addBid(self,newbid):
+#         for bid in self.acceptedBids:
+#             if bid.uid == newbid.uid:
+#                 print("can't add duplicate bid ({id}) to period {per} plan".format(id = newbid.uid, per = self.period))
+#                 return
+#         for bid in self.reserveBids:
+#             if bid.uid == newbid.uid:
+#                 print("can't add duplicate reserve bid ({id}) to period {per} plan".format(id = newbid.uid, per = self.period))
+#                 return
+#         
+#         if newbid.service == "reserve":
+#             self.reserveBids.append(newbid)
+#             self.totalreserve += newbid.amount
+#         elif newbid.service == "power":
+#             self.acceptedBids.append(newbid)            
+#             self.totalsupply += newbid.amount
+#         
+#         if newbid.counterparty == self.planner.name:
+#             print("adding bid to own bids ({id})".format(id = newbid.uid))
+#             self.ownBids.append(newbid)
             
-    def removeBid(self,bid):
-        self.acceptedBids.remove(bid)
-        self.totalsupply -= bid.amount
-        if bid.counterparty == self.planner:
-            self.ownBids.remove(bid)            
+#     def removeBid(self,bid):
+#         self.acceptedBids.remove(bid)
+#         self.totalsupply -= bid.amount
+#         if bid.counterparty == self.planner:
+#             self.ownBids.remove(bid)            
             
-    def addConsumption(self,demandbid):
-        self.plannedConsumption.append(demandbid)
-        self.totaldemand += demandbid.amount
+#     def addConsumption(self,demandbid):
+#         self.plannedConsumption.append(demandbid)
+#         self.totaldemand += demandbid.amount
         
-    def removeConsumption(self,demandbid):
-        self.plannedConsumption.remove(demandbid)
-        self.totaldemand -= demandbid.amount
+#     def removeConsumption(self,demandbid):
+#         self.plannedConsumption.remove(demandbid)
+#         self.totaldemand -= demandbid.amount
         
     def printInfo(self, depth = 0):
         tab = "    "
         print(tab*depth + "PLAN for {per}".format(per = self.period.periodNumber))
-        print(tab*depth + "INCLUDES THE FOLLOWING BIDS ({n} bids for {ts} W):".format(n = len(self.acceptedBids), ts = self.totalsupply))
-        for bid in self.acceptedBids:
-            bid.printInfo(depth + 1)
-        print(tab*depth + "INCLUDES THE FOLLOWING RESERVE BIDS ({n} bids for {tr} W):".format(n = len(self.reserveBids), tr = self.totalreserve))
-        for bid in self.reserveBids:
-            bid.printInfo(depth + 1)
-        print(tab*depth + "ANTICIPATED CONSUMPTION ({n} bids for {td} W):".format(n = len(self.plannedConsumption), td = self.totaldemand))
-        for bid in self.plannedConsumption:
-            bid.printInfo(depth + 1)
+        print(tab*depth + "INCLUDES THE FOLLOWING DEVICES:")
+        for dev in self.devices:
+            print(tab*(depth+1) + "{name}".format(name = dev.name))
+#         print(tab*depth + "INCLUDES THE FOLLOWING BIDS ({n} bids for {ts} W):".format(n = len(self.acceptedBids), ts = self.totalsupply))
+#         for bid in self.acceptedBids:
+#             bid.printInfo(depth + 1)
+#         print(tab*depth + "INCLUDES THE FOLLOWING RESERVE BIDS ({n} bids for {tr} W):".format(n = len(self.reserveBids), tr = self.totalreserve))
+#         for bid in self.reserveBids:
+#             bid.printInfo(depth + 1)
+#         print(tab*depth + "ANTICIPATED CONSUMPTION ({n} bids for {td} W):".format(n = len(self.plannedConsumption), td = self.totaldemand))
+#         for bid in self.plannedConsumption:
+#             bid.printInfo(depth + 1)
         print(tab*depth + "OPTIMAL CONTROL:")
         if self.optimalcontrol:
             self.optimalcontrol.printInfo(depth + 1)
+        
+        
         
 class Disposition(object):
     def __init__(self,period):

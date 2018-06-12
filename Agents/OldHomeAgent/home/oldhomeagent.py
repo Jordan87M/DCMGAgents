@@ -40,7 +40,6 @@ class HomeAgent(Agent):
         self.appliances = self.config["appliances"]
         self.refload = float(self.config["refload"])
         self.winlength = self.config["windowlength"]
-        self.preferences = self.config["preference_manager"]
         #the following variables 
         self.FREGpart = bool(self.config["FREGpart"])
         self.DRpart = bool(self.config["DRpart"])
@@ -94,32 +93,28 @@ class HomeAgent(Agent):
         
         self.Appliances.extend(appliances.makeAppliancesFromList(self.appliances))
         
-        #make preference manager object from configuration file
-        self.Preferences = human.PreferenceManager(**self.preferences)
-        self.Preferences.printInfo()
-        
         for app in self.Appliances:
             #add appliance to database
             self.dbnewappliance(app,self.dbconn,self.t0)
             
         
-#         for app in self.appliances:
-#             if app["type"] == "heater":
-#                 newapp = appliances.HeatingElement(**app)
-#             elif app["type"] == "refrigerator":
-#                 newapp = appliances.Refrigerator(**app)
-#             elif app["type"] == "light":
-#                 newapp = appliances.Light(**app)
-#             else:
-#                 pass
-#             self.Appliances.append(newapp)
-#             appliances.addCostFn(newapp,app)
-#             
-#             #add appliance to database
-#             self.dbnewappliance(newapp,self.dbconn,self.t0)
-#             
-#             print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
-#             newapp.printInfo(1)
+        for app in self.appliances:
+            if app["type"] == "heater":
+                newapp = appliances.HeatingElement(**app)
+            elif app["type"] == "refrigerator":
+                newapp = appliances.Refrigerator(**app)
+            elif app["type"] == "light":
+                newapp = appliances.Light(**app)
+            else:
+                pass
+            self.Appliances.append(newapp)
+            appliances.addCostFn(newapp,app)
+            
+            #add appliance to database
+            self.dbnewappliance(newapp,self.dbconn,self.t0)
+            
+            print("ADDED A NEW APPLIANCE TO APPLIANCE LIST:")
+            newapp.printInfo(1)
         
         self.dbsafe = True
             
@@ -154,7 +149,7 @@ class HomeAgent(Agent):
         #core.schedule event object for the function call to begin next period
         self.advanceEvent = None
      
-    def exit_handler(self,**kwargs):
+    def exit_handler(self):
         print("HOMEOWNER {me} exit handler".format(me = self.name))
         
         #disconnect all connected sources
@@ -255,19 +250,19 @@ class HomeAgent(Agent):
                     if self.dbsafe:
                         self.dbupdateappliance(app,0,self.dbconn,self.t0)
                     
-#NOW DONE THROUGH PREFERENCE MANAGER OBJECT
-#     def costFn(self,period,statecomps):
-#         #the costFn() method is implemented at the level of the User class
-#         #to allow the implementation of cost functions that are not independent
-#         #of other devices
-#         
-#         #for now, my cost functions are independent
-#         totalcost = 0
-#         for devkey in statecomps:
-#             dev = listparse.lookUpByName(devkey, self.Devices)
-#             totalcost += dev.costFn(period,statecomps[devkey])
-#             
-#         return totalcost
+        
+    def costFn(self,period,statecomps):
+        #the costFn() method is implemented at the level of the User class
+        #to allow the implementation of cost functions that are not independent
+        #of other devices
+        
+        #for now, my cost functions are independent
+        totalcost = 0
+        for devkey in statecomps:
+            dev = listparse.lookUpByName(devkey, self.Devices)
+            totalcost += dev.costFn(period,statecomps[devkey])
+            
+        return totalcost
     
     #update expectations regarding future prices
     def priceForecast(self):
@@ -587,7 +582,8 @@ class HomeAgent(Agent):
                     elif period == self.NextPeriod:
                         #print("period is next period")
                         #and there had either not been an announcement or the announced rate differs
-                        period.firmrate = True
+                        if not period.rateannounced:
+                            period.rateannounced = True
                 
                 if settings.DEBUGGING_LEVEL >= 2:
                     print("RECEIVED RATE NOTIFICATION FROM {them} FOR PERIOD {per}. NEW RATE IS {rate}".format(them = messageSender, per = pnum, rate = rate))
@@ -810,16 +806,9 @@ class HomeAgent(Agent):
                     
                 elif type == "enrollment_confirm":
                     self.DR_participant = True    
-                    
-    #generate new bid for each planning group                    
-    def makeNewPlan(self):
-        bidgroups = self.Preferences.getbidgroups()
-        
-        for bidgroup in bidGroups:
-            self.determineOffer(bidgroup)
     
     #determine offer price by finding a price for which the cost function is 0          
-    def determineOffer(self,bidgroup,debug = False):
+    def determineOffer(self,debug = False):
         threshold = .005
         maxstep = 2
         initprice = 0
@@ -830,7 +819,7 @@ class HomeAgent(Agent):
         savebid = None
         saveopt = None
         
-        if len(bidgroup.devices) >= 3:
+        if len(self.Devices) >= 3:
             maxitr = 4
         else:
             maxitr = 6
@@ -840,7 +829,7 @@ class HomeAgent(Agent):
         subdebug = False
         
         start = time.time()
-        rec = self.getOptimalForPrice(bound,bidgroup,subdebug)
+        rec = self.getOptimalForPrice(bound,subdebug)
         oneround = time.time() - start
         print("took {sec} seconds to find initial cost: {cos}".format(sec = oneround, cos = rec.pathcost))
         
@@ -849,7 +838,7 @@ class HomeAgent(Agent):
             while rec.pathcost > 0:
                 bound -= pstep*(itr+1)
                 
-                rec = self.getOptimalForPrice(bound,bigroup,subdebug)
+                rec = self.getOptimalForPrice(bound,subdebug)
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
                 itr += 1
@@ -861,7 +850,7 @@ class HomeAgent(Agent):
                 bound += pstep*(itr+1)
                 #temporary debugging
                 
-                rec = self.getOptimalForPrice(bound,bidgroup,subdebug)
+                rec = self.getOptimalForPrice(bound,subdebug)
                 
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
@@ -895,7 +884,7 @@ class HomeAgent(Agent):
             mid = (upper + lower)*.5
             
             before = time.time()
-            rec = self.getOptimalForPrice(mid,bidgroup,subdebug)
+            rec = self.getOptimalForPrice(mid,subdebug)
             after = time.time()
             print("new cost {cos} for price {mid}. iteration took {sec} seconds".format(cos = rec.pathcost, mid = mid, sec = after - before))
             
@@ -953,17 +942,16 @@ class HomeAgent(Agent):
         else:
             return price, rec
     
-    def getOptimalForPrice(self,price,bidgroup,debug = False):
+    def getOptimalForPrice(self,price,debug = False):
         
         if debug:
             print("HOMEOWNER {me} starting new iteration".format(me = self.name))
             
-        #window = control.Window(self.name,self.winlength,self.NextPeriod.periodNumber,self.NextPeriod.startTime,settings.ST_PLAN_INTERVAL)
-        window = self.PlanningWindow
+        window = control.Window(self.name,self.winlength,self.NextPeriod.periodNumber,self.NextPeriod.startTime,settings.ST_PLAN_INTERVAL)
         
         #add current state to grid points
         snapstate = {}
-        for dev in bidgroup.devices:
+        for dev in self.Devices:
             snapcomp = dev.addCurrentStateToGrid()
             if snapcomp is not None:
                 snapstate[dev.name] = snapcomp
@@ -978,17 +966,13 @@ class HomeAgent(Agent):
             if debug:
                 print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = selperiod.periodNumber))
                 
-            #make new plan for bidgroup and period
-            plan = selperiod.makeplan(bidgroup)    
-            
             #remake grid points
-            plan.makeGrid(self.Preferences.eval)
-            
+            self.makeDPGrid(selperiod,debug)
             #if we failed to remake grid points, print error and return
-            if not plan.stategrid.grid:
+            if not selperiod.plan.stategrid.grid:
                 print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = selperiod.periodNumber))
                 return
-            for state in plan.stategrid.grid:
+            for state in selperiod.plan.stategrid.grid:
                 #if this is not the last period
                 if selperiod.nextperiod:
                     if debug:
@@ -1071,8 +1055,8 @@ class HomeAgent(Agent):
         #add cost of being in next state for next period
         
         #we don't need to interpolate, just evaluate the state function
-        #pathcost += self.costFn(period,comps)
-        pathcost += self.Preferences.eval(period,comps)
+        #pathcost += period.nextperiod.plan.stategrid.interpolatestate(comps,False)
+        pathcost += self.costFn(period,comps)
         
         #cost of getting to next state with t
         totaltrans = 0
@@ -1103,25 +1087,24 @@ class HomeAgent(Agent):
         
         return newstatecomps
         
-#     def makeDPGrid(self,period,bidgroup,debug = False):
-#         inputdict = {}
-#         
-#         for dev in bidgroup.devices:
-#             if dev.gridpoints:
-#                 #inputdict[dev.name] = dev.gridpoints
-#                 if len(bidgroup.devices) >= 3:
-#                     inputdict[dev.name] = dev.getGridpoints("lofi")
-#                 else:
-#                     inputdict[dev.name] = dev.getGridpoints()
-#             
-#         devstates = combin.makeopdict(inputdict)
-#         
-#         #period.plan.makeGrid(period,devstates,self.costFn)
-#         bidgroup.plan.makeGrid(period,devstates,self.Preferences.eval)
-#         
-#         if debug:
-#             print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(period.plan.stategrid.grid)))
-#         
+    def makeDPGrid(self,period,debug = False):
+        inputdict = {}
+        
+        for dev in self.Devices:
+            if dev.gridpoints:
+                #inputdict[dev.name] = dev.gridpoints
+                if len(self.Devices) >= 3:
+                    inputdict[dev.name] = dev.getGridpoints("lofi")
+                else:
+                    inputdict[dev.name] = dev.getGridpoints()
+            
+        devstates = combin.makeopdict(inputdict)
+        
+        period.plan.makeGrid(period,devstates,self.costFn)
+        
+        if debug:
+            print("HOMEOWNER {me} made state grid for period {per} with {num} points".format(me = self.name, per = period.periodNumber, num = len(period.plan.stategrid.grid)))
+        
         
     def makeInputs(self,state,period,debug = False):
         inputdict = {}
@@ -1316,9 +1299,7 @@ class HomeAgent(Agent):
         
         #find offer price
         before = time.time()
-        
-        #self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
-        self.makeNewPlan(True)
+        self.NextPeriod.offerprice, self.NextPeriod.plan.optimalcontrol = self.determineOffer(True)
         
         #add plan to database
         self.dbnewplan(self.NextPeriod.plan.optimalcontrol,time.time()-before,self.dbconn,self.t0)

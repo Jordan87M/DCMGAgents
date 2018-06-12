@@ -1,59 +1,78 @@
 
+class PreferenceManager(object):
+    def __init__(self,**spec):
+        print spec
+        self.behaviorsets = []
+        self.selector = makeSelectionRule(**spec["selection_rule"])
+        print self.selector
+        for behaviorset in spec["behavior_sets"]:
+            print behaviorset
+            self.behaviorsets.append(BehaviorSet(behaviorset))            
+        
+        
+    def eval(self,period,comps):
+        #use the period number to determine which set of cost functions to use
+        cfnindex = self.selector.eval(period.periodNumber)
 
-#from twisted.words.protocols.oscar import CAP_CHAT
-# class User(object):
-#     def __init__(self, name):
-#         self.name = name
-#         
-#         self.devices = []
-#         self.energyBehaviors = []
-#         
-#     def printInfo(self,depth):
-#         tab = "    "
-#         print(tab*depth + "***HUMAN: {nam}".format(nam = self.name))
-#         for behavior in self.energyBehaviors:
-#             behavior.printInfo(depth + 1)
-#             
-#             
-#     def costFn(self,period,statecomps):
-#         #the costFn() method is implemented at the level of the User class
-#         #to allow the implementation of cost functions that are not independent
-#         #of other devices
-#         
-#         #for now, my cost functions are independent
-#         totalcost = 0
-#         for devkey in statecomps:
-#             device = listparse.lookUpByName(devkey, self.Devices)
-#             totalcost += dev.costFn(period.expectedenergycost,statecomps[dev.name])
-#             
-#         return totalcost
+        return self.behaviorsets[cfnindex].eval(periodnumber,comps)
+    
+    def printInfo(self,depth = 1):
+        tab = "    "
+        print(tab*depth + "-=PREFERENCE MANAGER=-")
+        self.selector.printInfo(depth+1)
+        for bset in self.behaviorsets:
+            bset.printInfo(depth+1)
+
+class SelectionRule(object):
+    def __init__(self,**spec):
+        print spec
+        
+        
+    def printInfo(self,depth=1):
+        tab = "    "
+        print(tab*depth + " SELECTION RULE: ")
+        
+    def eval(self,periodNumber):
+        return 0
+        
+class BehaviorSet(object):
+    def __init__(self,spec):
+        self.behaviors = []
+        for behavior in spec:
+            self.behaviors.append(EnergyBehavior(**behavior))
+    
+    def getbehaviorbygroupname(self,groupname):
+        for behavior in self.behaviors:
+            if behavior.groupname == groupname:
+                return behavior 
+        
+    def eval(self,comps):
+        behavior = self.getbehaviorbygroupname()
+        return behavior.eval(state)
+                
+    def printInfo(self,depth = 1):
+        for behavior in self.behaviors:
+            behavior.printInfo(depth+1)
             
         
 class EnergyBehavior(object):
-    def __init__(self, name, device, utilityfn = None):
-        self.name = name
-        
-        self.device = device
-        self.setpoint = 0
-        self.params = []
-        
-        if utilityfn:
-            self.utilityfn = utilityfn
+    def __init__(self, **spec):
+        self.name = spec["name"]
+        self.devicenames = spec["devicenames"]
+        self.costfn = makeCostFn(**spec["costfn"])
         
         
     def printInfo(self,depth):
         tab = "    "
         print(tab*depth + "ENERGY BEHAVIOR: {name}".format(name = self.name))
-        self.utilityfn.printInfo(depth + 1)
+        self.costfn.printInfo(depth + 1)
         
+    #replaces existing costfn object with new costfn object
+    def setcostfn(self, fn):
+        self.costfn = fn
         
-    def setcostfn(self, fn, params):
-        self.utilityfn = fn
-        self.params = params
-        
-    def costFn(self,period,devstate):
-        
-        return self.utilityfn.eval(devstate)
+    def eval(self,state):        
+        return self.costfn.eval(period,state)
             
 class QuadraticCostFn(object):
     def __init__(self,**params):
@@ -168,6 +187,84 @@ class Interpolated(object):
         
         out = (((y2-y1)/(x2-x1))*(z - x1)) + y1
         return out
+
+       
+class RepeatingSets(SelectionRule):
+    def __init__(self,**spec):
+        super(RepeatingSets,self).__init__(**spec)
+        self.periods = spec["periods"]
+        self.behaviors = spec["behaviors"]
+        
+        #determine number of periods in pattern
+        self.patternlength = 0
+        for set in periods:
+            self.patternlength += len(set)
+            
+        
+    def eval(self,periodNumber):
+        periodNumber = periodNumber % self.patternlength
+        #determine the index of the rule to be used
+        for i,set in enumerate(periods):
+            if periodNumber in set:
+                return i
+        
+    def printInfo(self,depth = 1):
+        super(RepeatingSets,self).printInfo(depth)
+        tab = "    "
+        print(tab*depth + "PARAMETERS:")
+        print(tab*(depth+1) + "PERIOD SETS: {per}".format(per = self.periods))        
+
+class Fixed(SelectionRule):
+    def __init__(self,**spec):
+        super(Fixed,self).__init__(**spec)
+        self.type = spec["type"]
+        
           
+def makeSelectionRule(**spec):
+    print "inside makeselectionrule"
+    print spec
+    
+    type = spec["type"]
+    params = spec["params"]
+    if type == "repeating_sets":
+        newrule = RepeatingSets(**params)
+    elif type == "fixed":
+        newrule = SelectionRule(**params)
+    else:
+        print("HOMEOWNER {me} encountered unknown costfn selection rule: {type}".format(me = self.name, type = type))  
+    return newrule
+    
+#def makeCostFn(appobj,appdict):
+def makeCostFn(**cfndict):
+    #fn = appdict["costfn"]
+    #paramdict = appdict["cfnparams"]
+    #type = appdict["type"]
+    print "inside makecostfn"
+    print cfndict
+    
+    fn = cfndict["type"]
+    paramdict = cfndict["params"]
+    
+    if fn == "quad":
+        newfn = QuadraticCostFn(**paramdict)
+    elif fn == "quadcap":
+        newfn = QuadraticWCapCostFn(**paramdict)
+    elif fn == "quadmono":
+        newfn = QuadraticOneSideCostFn(**paramdict)
+    elif fn == "quadmonocap":
+        newfn = QuadraticOneSideWCapCostFn(**paramdict)
+    elif fn == "const":
+        newfn = ConstantCostFn(**paramdict)
+    elif fn == "piecewise":
+        newfn = PiecewiseConstant(**paramdict)
+    elif fn == "interpolate":
+        newfn = Interpolated(**paramdict)
+    else:
+        print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
+        
+    return newfn
+
+    #behavior = human.EnergyBehavior(type,appobj,newfn)
+    #appobj.associatedbehavior =  behavior
 
         

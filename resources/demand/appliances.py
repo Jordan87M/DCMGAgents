@@ -1,7 +1,23 @@
 from volttron.platform.vip.agent import RPC
 from DCMGClasses.resources.demand import human
 
+class DeviceComplex(object):
+    def __init__(self,**devs):
+        self.name = dev["name"]
 
+class NestedTemps(DeviceComplex):
+    def __init__(self,**devs):
+        super(NestedTemps,self).__init__(**devs)
+        self.inner =  devs["inner"]
+        self.outer = devs["outer"]
+        
+        
+    def getState(self):
+        return [self.inner.getState, self.outer.getState]
+    
+    
+    
+    
 class Device(object):
     def __init__(self, **dev):
         self.name = dev["name"]
@@ -64,18 +80,16 @@ class Device(object):
         #print("device: {name}, state: {sta}, cost: {cos}".format(name = self.name, sta = devstate, cos = cost))
         return cost
     
+    
 class HeatingElement(Device):
     def __init__(self,**dev):
         super(HeatingElement,self).__init__(**dev)
         self.shc = dev["specificheatcapacity"]
         self.mass = dev["mass"]        
         self.thermR = dev["thermalresistance"]
-        self.maxSetpoint = dev["maxsetpoint"]
-        self.deadband = dev["deadband"]
         
         self.tamb = 25
         self.statebase = 50.0
-        self.setpoint = dev["initsetpoint"]
         
         self.gridpoints = [0.5, 0.6, 0.7, 0.8, 0.9]
         self.actionpoints = [0,1]
@@ -94,12 +108,6 @@ class HeatingElement(Device):
     
     def getPUFromPower(self,power):
         return power/self.nominalpower
-    
-    def updateSetpoint(self,new):
-        if new > self.maxSetpoint:
-            new = self.maxSetpoint
-            
-        self.setpoint = new
         
     def getActionpoints(self,mode = "hifi"):
         return self.actionpoints
@@ -179,8 +187,8 @@ class HeatingElement(Device):
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print(tab*depth + "DEVICE SUMMARY FOR HEATER: {heat}".format(heat = self.name))
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
-        print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
-        print(tab*depth + "STATE: {state}".format(state = self.on))
+        print(tab*depth + "STATE: {temp}".format(temp = self.temperature ))
+        print(tab*depth + "INPUT: {inp}".format(inp = self.on))
         if self.associatedbehavior:
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
@@ -192,13 +200,10 @@ class HeatPump(Device):
         self.vol = dev["volume"]
         self.heatcap = self.vol*1.2*1007  #volume * approx. density * specific heat capacity
         self.thermR = dev["thermalresistance"]
-        self.maxSetpoint = dev["minsetpoint"]
-        self.deadband = dev["deadband"]
         self.carnotrelativeefficiency = dev["relativeefficiency"]
         
         self.tamb = 25
         self.tbase = 40
-        self.setpoint = dev["initsetpoint"]
         
         self.gridpoints = [0.375, 0.5, 0.625, 0.75, 0.875, 1]
         self.actionpoints = [0,1]
@@ -217,12 +222,6 @@ class HeatPump(Device):
     
     def getPUFromPower(self,power):
         return power/self.nominalpower
-    
-    def updateSetpoint(self,new):
-        if new > self.maxSetpoint:
-            new = self.maxSetpoint
-            
-        self.setpoint = new
         
     def getActionpoints(self,mode = "lofi"):
         return self.actionpoints
@@ -307,8 +306,8 @@ class HeatPump(Device):
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print(tab*depth + "DEVICE SUMMARY FOR HEATER: {heat}".format(heat = self.name))
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
-        print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
-        print(tab*depth + "STATE: {state}".format(state = self.on))
+        print(tab*depth + "STATE: {temp}".format(temp = self.temperature ))
+        print(tab*depth + "INPUT: {inp}".format(inp = self.on))
         if self.associatedbehavior:
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
@@ -358,8 +357,8 @@ class Refrigerator(HeatPump):
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
         print(tab*depth + "DEVICE SUMMARY FOR REFRIGERATOR: {me}".format(me = self.name))
         print(tab*depth + "OWNER: {own}".format(own = self.owner))
-        print(tab*depth + "SETPOINT: {stp}    CURRENT: {temp}".format(stp = self.setpoint, temp = self.temperature ))
-        print(tab*depth + "STATE: {state}".format(state = self.on))
+        print(tab*depth + "STATE: {temp}".format(temp = self.temperature ))
+        print(tab*depth + "INPUT: {inp}".format(inp = self.on))
         if self.associatedbehavior:
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
@@ -425,30 +424,73 @@ class Light(NoDynamics):
             print(tab*depth + "BEHAVIOR:")
             self.associatedbehavior.printInfo(depth + 1)
         print(tab*depth + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
-    
-    
-def addCostFn(appobj,appdict):
-    fn = appdict["costfn"]
-    paramdict = appdict["cfnparams"]
-    type = appdict["type"]
-    
-    if fn == "quad":
-        newfn = human.QuadraticCostFn(**paramdict)
-    elif fn == "quadcap":
-        newfn = human.QuadraticWCapCostFn(**paramdict)
-    elif fn == "quadmono":
-        newfn = human.QuadraticOneSideCostFn(**paramdict)
-    elif fn == "quadmonocap":
-        newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
-    elif fn == "const":
-        newfn = human.ConstantCostFn(**paramdict)
-    elif fn == "piecewise":
-        newfn = human.PiecewiseConstant(**paramdict)
-    elif fn == "interpolate":
-        newfn = human.Interpolated(**paramdict)
-    else:
-        print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
+ 
+def makeResource(strlist,classlist,debug = False):
+    def addOne(item,classlist):
+        if type(item) is dict:
+            resType = item.get("type",None)
+            if resType == "solar":
+                res = SolarPanel(**item)
+            elif resType == "lead_acid_battery":
+                res = LeadAcidBattery(**item)
+            elif resType == "generator":
+                res = Generator(**item)
+            else:
+                pass
+            classlist.append(res)
         
-    behavior = human.EnergyBehavior(type,appobj,newfn)
-    appobj.associatedbehavior =  behavior
+    if type(strlist) is list:
+        if len(strlist) > 1:
+            if debug:
+                print("list contains multiple resources")
+            for item in strlist:
+                if debug:
+                    print("working on new element")
+                addOne(item,classlist)                
+        if len(strlist) == 1:
+            if debug:
+                print("list contains one resource")
+            addOne(strlist[0],classlist)
+    elif type(strlist) is dict:
+        if debug:
+            print("no list, just a single dict")
+        addOne(strlist,classlist)
+    if debug:
+        print("here's how the classlist looks now: {cl}".format(cl = classlist))
+        
+        
+def makeAppliancesFromList(applist, debug = True):   
+    #initialize output list
+    outlist = []
+    
+    #if the input is a list, iterate over the list and make all appliances
+    if type(applist) is list:
+        #for each device dictionary, create a corresponding object and append to list
+        for app in applist:
+            outlist.append(makeAppliance(app,True))
+    #if the input is a single dictionary, just make one Appliance
+    elif type(applist) is dict:
+        outlist = makeAppliance(applist,True)
+    else:
+        return None
+    
+    return outlist
+            
+            
+def makeAppliance(appdict,debug = False):
+    apptype = appdict.get("type",None)
+    if apptype == "heater":
+        newapp = HeatingElement(**appdict)
+    elif apptype == "refrigerator":
+        newapp = Refrigerator(**appdict)
+    elif apptype == "light":
+        newapp = Light(**appdict)
+    elif apptype == "airconditioner":
+        newapp == AirConditioner(**appdict)
+    elif apptype == "fridgeroomcomplex":
+        newapp = FridgeRoomComplex(**appdict)
+    else:
+        return None
+    return newapp
+        
     
