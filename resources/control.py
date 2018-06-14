@@ -126,6 +126,18 @@ class Period(object):
         self.plans
         
         return plan
+    
+    def getplan(self,bidgroup):
+        for plan in self.plans:
+            if plans.bidgroup == bidgroup:
+                return plan
+        return None
+        
+    def allplanscomplete(self):
+        for plan in self.plans:
+            if not plan.planningcomplete:
+                return False
+        return True
         
     def setExpectedCost(self,cost):
         self.expectedenergycost = cost
@@ -146,7 +158,11 @@ class Period(object):
         print(tab*depth + "START: {start}".format(start = self.startTime.isoformat()))
         print(tab*depth + "END: {end}".format(end = self.endTime))
         print(tab*depth + "PLAN INFORMATION:")
-        self.plan.printInfo(depth + 1)
+        for plan in self.plans:
+            plan.printInfo(depth + 1)
+        print(tab*depth + "BID INFORMATION:")
+        self.supplybidmanager.printInfo(depth + 1)
+        self.demandbidmanager.printInfo(depth + 1)
         
     
 class Plan(object):
@@ -168,12 +184,19 @@ class Plan(object):
         #self.totalreserve = 0
         #self.totaldemand = 0
         
+        #list of all points in the device statespace to be evaluated
         self.stategrid = None
+        #list of all controls admissible for a point,
         self.admissiblecontrols = None
+        #list of inputs that have been deemed unsatisfactory for this plan
+        self.disqualifiedcontrols = None
+        #current estimate of optimal control
         self.optimalcontrol = None
         
         self.planningcomplete = False
         
+    def nextplan(self):
+        return self.period.nextperiod.getplan(self.bidgroup)
         
     def makeGrid(self,costfunc):
         for dev in self.devices:
@@ -467,6 +490,9 @@ class BidBase(object):
         
         self.bidstring = None
         self.routinginfo = None
+        
+        #optionally used to link to the plan on which the bid is based
+        self.plan = None
         
         #generate an id randomly if one is not specified
         if biddict.get("uid",None):

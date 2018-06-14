@@ -71,8 +71,10 @@ class EnergyBehavior(object):
     def setcostfn(self, fn):
         self.costfn = fn
         
-    def eval(self,state):        
-        return self.costfn.eval(period,state)
+    def eval(self,comps):        
+        if len(comps) == 1:
+            state = comps["name"]
+            return self.costfn.eval(state)
             
 class QuadraticCostFn(object):
     def __init__(self,**params):
