@@ -38,6 +38,30 @@ class Window(object):
         
         self.appendPeriod()
         
+    #remove the plans associated with all periods in the window
+    def clearPlans(self):
+        for period in self.periods:
+            period.plans = []
+            
+    
+    def resetPlans(self,devicesets,debug = False):
+        for period in self.periods:
+            period.plans = []
+            for deviceset in devicesets:
+                period.plans.append(Plan(period,deviceset))
+        
+        for period in self.periods:   
+            if period.nextperiod:
+                for plan1 in period.plans:
+                    for plan2 in period.nextperiod.plans:
+                        if plan1.devices == plan2.devices:
+                            plan1.nextplan = plan2
+                            
+        if debug:
+            print("!!! PLANNING WINDOW PLANS RESET !!!")
+            self.printInfo(1)
+                    
+        
     #create a new Period instance and append it to the list of periods in the window
     def appendPeriod(self):
         endtime = self.nextstarttime + timedelta(seconds = self.increment)
@@ -98,7 +122,6 @@ class Period(object):
         self.offerprice = None
         
         #initialize the plan for this period
-        #self.plan = Plan(self,self.planner)
         self.plans = []
         
         #initialize bid manager object for this period
@@ -116,20 +139,15 @@ class Period(object):
         self.firmrate = False
         
     def makeplan(self,bidgroup):
-        for plan in self.plans:
-            if plans.bidgroup == bidgroup:
-                #if a plan already exists, assume it was generated in an earlier
-                #period and erase it
-                plan = []
-                
+        plan = self.getplan(bidgroup)
         plan = Plan(self,bidgroup)
-        self.plans
-        
+        self.plans.append(plan)
+         
         return plan
-    
+     
     def getplan(self,bidgroup):
         for plan in self.plans:
-            if plans.bidgroup == bidgroup:
+            if plan.devices[0] in bidgroup:
                 return plan
         return None
         
@@ -166,12 +184,13 @@ class Period(object):
         
     
 class Plan(object):
-    def __init__(self,period,bidgroup):
+    def __init__(self,period,devices):
         self.period = period
         #self.planner = planner
         
-        self.bidgroup = bidgroup
         self.devices = devices
+        self.costfn = None
+        self.offerprice = None
     
         
         #self.acceptedBids = []
@@ -195,10 +214,13 @@ class Plan(object):
         
         self.planningcomplete = False
         
+        self.nextplan = None
+        
     def nextplan(self):
         return self.period.nextperiod.getplan(self.bidgroup)
         
     def makeGrid(self,costfunc):
+        inputdict = {}
         for dev in self.devices:
             if dev.gridpoints:
                 if len(self.devices) >= 3:
@@ -272,6 +294,10 @@ class Plan(object):
         print(tab*depth + "OPTIMAL CONTROL:")
         if self.optimalcontrol:
             self.optimalcontrol.printInfo(depth + 1)
+        if self.offerprice:
+            print(tab*depth + "FOR RATE: {rate}".format(rate = self.offerprice))
+        if self.costfn:
+            print(tab*depth + "COST FUNCTION: {cfn}".format(cfn = self.costfn))
         
         
         

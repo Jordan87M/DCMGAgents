@@ -127,17 +127,19 @@ class HomeAgent(Agent):
         #it is useful to consider the two of these together sometimes
         self.Devices.extend(self.Resources)
         self.Devices.extend(self.Appliances)
-                    
+        
+        #make devices addressible by name - is this faster? I don't think so
+        self.DevDict = {}
+        for dev in self.Devices:
+            self.DevDict[dev.name] = dev
+              
                     
         #initialize participation flags
         self.DR_participant = False
         self.FREG_participant = False
         self.gridConnected = False
         self.registered = False
-        
-        #self.marginalutility = .2
-        self.avgEnergyCost = 1
-        
+                
         #initialize grid topology subgraph membership
         self.mygroup = None
         
@@ -150,6 +152,17 @@ class HomeAgent(Agent):
         self.CurrentPeriod = control.Period(0,start,end)
         self.NextPeriod = self.PlanningWindow.periods[0]
         self.CurrentPeriod.nextperiod = self.NextPeriod
+        
+        #group resources into bidgroups
+        self.BidGroups = []
+        for bg in self.Preferences.getBidGroups(self.NextPeriod):
+            print("NEW BIDDING GROUP: {group}".format(group = bg))
+            g = []
+            for devname in bg:
+                g.append(self.DevDict[devname])
+            self.BidGroups.append(g)
+            
+        print self.BidGroups
         
         #core.schedule event object for the function call to begin next period
         self.advanceEvent = None
@@ -180,7 +193,8 @@ class HomeAgent(Agent):
             self.requestForecast(period)
         
         sched = datetime.now() + timedelta(seconds = 1)
-        self.core.schedule(sched,self.firstplan)
+        #self.core.schedule(sched,self.firstplan)
+        self.core.schedule(sched,self.makeNewPlan)
         
         #self.printInfo(0)
     
@@ -487,13 +501,11 @@ class HomeAgent(Agent):
                         name = bid.resourceName
                         period.disposition.components[name] = control.DeviceDisposition(name,amount,"charge")
                     else:
-                        
-                        
-                        
                         period.disposition.closeRelay = True
-                        if period.plan.optimalcontrol:
+                        plan = bid.plan
+                        if plan.optimalcontrol:
                             print("has opt control")
-                            comps = period.plan.optimalcontrol.components
+                            comps = plan.optimalcontrol.components
                             for app in self.Appliances:
                                 if app.name in comps:
                                     if settings.DEBUGGING_LEVEL >= 2:
@@ -600,10 +612,47 @@ class HomeAgent(Agent):
                 if settings.DEBUGGING_LEVEL >= 2:
                     print("RECEIVED RATE NOTIFICATION FROM {them} FOR PERIOD {per}. NEW RATE IS {rate}".format(them = messageSender, per = pnum, rate = rate))
     
-    def prepareBidsFromPlan(self,plan):
+    def prepareBids(self,period):
+        
+        #submit bids based on plans
+        for plan in period.plans:
+            self.prepareBidFromPlan(plan)
+            
+        
+        #zero marginal cost sources don't appear in the plan
+        for res in self.Resources:
+            if type(res) is resource.SolarPanel:
+                newbid = []
+                mesdict = {}
+                amount = self.checkForecastAvailablePower(res,period)
+                
+                if settings.DEBUGGING_LEVEL >= 2:
+                    print("HOMEOWNER {me} expects {amt} W of solar power to be available in period {per}".format(me = self.name, amt = amount, per = period.periodNumber))
+                if amount:
+                    newbid = control.SupplyBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
+                    period.supplybidmanager.initBid(newbid)
+                    period.supplybidmanager.setBid(newbid,amount,0,res.name,"power","reserve")
+                    
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("HOMEOWNER AGENT {me} READYING ZERO MARGINAL COST BID FOR {res}".format(me = self.name, res = res.name))
+                        newbid.printInfo(0)
+                        
+                    mesdict["message_sender"] = self.name
+                    mesdict["message_target"] = self.utilityName
+                    mesdict["message_subject"] = "bid_response"
+                    mesdict["period_number"] = period.periodNumber
+                    
+                    period.supplybidmanager.readyBid(newbid,**mesdict)
+                
+                else:
+                    print("HOMEOWNER {me} has no info on irradiance for period {per}".format(me = self.name, per = period.periodNumber))
+            
+    
+    def prepareBidFromPlan(self,plan):
         period = plan.period
         comps = plan.optimalcontrol.components
-        rate = period.offerprice
+        rate = plan.offerprice
+            
         
         for res in self.Resources:
             if comps.get(res.name,None):
@@ -648,32 +697,6 @@ class HomeAgent(Agent):
                     bidmanager.readyBid(newbid,**mesdict)
                     newbid.plan = plan
             
-            #zero marginal cost sources don't appear in the plan
-            elif type(res) is resource.SolarPanel:
-                newbid = []
-                mesdict = {}
-                amount = self.checkForecastAvailablePower(res,period)
-                
-                if settings.DEBUGGING_LEVEL >= 2:
-                    print("HOMEOWNER {me} expects {amt} W of solar power to be available in period {per}".format(me = self.name, amt = amount, per = period.periodNumber))
-                if amount:
-                    newbid = control.SupplyBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "supply"})
-                    period.supplybidmanager.initBid(newbid)
-                    period.supplybidmanager.setBid(newbid,amount,0,res.name,"power","reserve")
-                    
-                    if settings.DEBUGGING_LEVEL >= 2:
-                        print("HOMEOWNER AGENT {me} READYING ZERO MARGINAL COST BID FOR {res}".format(me = self.name, res = res.name))
-                        newbid.printInfo(0)
-                        
-                    mesdict["message_sender"] = self.name
-                    mesdict["message_target"] = self.utilityName
-                    mesdict["message_subject"] = "bid_response"
-                    mesdict["period_number"] = period.periodNumber
-                    
-                    period.supplybidmanager.readyBid(newbid,**mesdict)
-                
-                else:
-                    print("HOMEOWNER {me} has no info on irradiance for period {per}".format(me = self.name, per = period.periodNumber))
                                 
                         
         #now take care of demand from smart appliances
@@ -683,9 +706,11 @@ class HomeAgent(Agent):
         mesdict = {}
         anydemand = False
         comps = plan.optimalcontrol.components
+        amount = 0
         for devkey in comps:
             dev = listparse.lookUpByName(devkey,self.Appliances)
             if comps[devkey] > 0:
+                amount += dev.getPowerFromPU(comps[devkey])
                 anydemand = True
         
         if anydemand:
@@ -694,7 +719,8 @@ class HomeAgent(Agent):
             
             newbid = control.DemandBid(**{"counterparty": self.utilityName, "period_number": period.periodNumber, "side": "demand"})
             period.demandbidmanager.initBid(newbid)
-            period.demandbidmanager.setBid(newbid,self.refload,rate)
+            #period.demandbidmanager.setBid(newbid,self.refload,rate)
+            period.demandbidmanager.setBid(newbid,amount,rate)
             
             mesdict["message_sender"] = self.name
             mesdict["message_target"] = self.utilityName
@@ -706,6 +732,9 @@ class HomeAgent(Agent):
                 newbid.printInfo(0)
             
             period.demandbidmanager.readyBid(newbid,**mesdict)
+            #associate the bid with a plan
+            newbid.plan = plan
+            
         else:
             if settings.DEBUGGING_LEVEL >= 2:
                 print("HOMEOWNER AGENT {me} HAS NO DEMAND FOR period {per}".format(me =self.name, per = period.periodNumber))
@@ -822,25 +851,44 @@ class HomeAgent(Agent):
                     self.DR_participant = True    
                     
     #generate new bid for each planning group                    
-    def makeNewPlan(self):
-        bidgroups = self.Preferences.getbidgroups()
+    def makeNewPlan(self,debug = True):
+        self.PlanningWindow.resetPlans(self.BidGroups,False)
         
-        for bidgroup in bidGroups:
-            self.determineOffer(bidgroup)
+        #associate cost functions with plans
+        for period in self.PlanningWindow.periods:            
+            for plan in period.plans:
+                if debug:
+                    print("HOMEOWNER {me} ASSOCIATING COSTFN WITH PLAN IN PERIOD {per}".format(me = self.name,per = period.periodNumber))
+                
+                plan.costfn = self.Preferences.getcfn(plan)
+        
+        #determine offer and plan for the devices in each bidgroup
+        period = self.PlanningWindow.periods[0]
+        for bidgroup in self.BidGroups:
+            plan = period.getplan(bidgroup)            
+            plan.offerprice, plan.optimalcontrol = self.determineOffer(bidgroup,True)
+            
+            
     
     #determine offer price by finding a price for which the cost function is 0          
     def determineOffer(self,bidgroup,debug = False):
+        #how close to neutral value do we need to get?
         threshold = .005
+        #largest step size we can take to bracket the bid rate
         maxstep = 2
+        #initial lower bound for bid rate
         initprice = 0
+        
         bound = initprice
+        
         pstep = 1
         
         #saves best bid so far so we can fall back on this to avoid submitting null bids when we approach optimal bid from the wrong side
         savebid = None
         saveopt = None
         
-        if len(bidgroup.devices) >= 3:
+        #if the bidgroup contains many devices, sacrifice precision for speed
+        if len(bidgroup) >= 3:
             maxitr = 4
         else:
             maxitr = 6
@@ -857,35 +905,39 @@ class HomeAgent(Agent):
         itr = 0
         if rec.pathcost > 0:
             while rec.pathcost > 0:
-                bound -= pstep*(itr+1)
-                
-                rec = self.getOptimalForPrice(bound,bigroup,subdebug)
-                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
-                
                 itr += 1
-                if itr > maxstep:
-                    print("maxstep exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
-                    break
-        elif rec.pathcost < 0:
-            while rec.pathcost < 0:
-                bound += pstep*(itr+1)
-                #temporary debugging
+                bound -= pstep
+                
+                if pstep < maxstep:
+                    pstep += 1
+                    
+                if itr > maxitr:
+                    print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
+                    return 0, rec
                 
                 rec = self.getOptimalForPrice(bound,bidgroup,subdebug)
-                
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
                 
+        elif rec.pathcost < 0:
+            while rec.pathcost < 0:
                 itr += 1
-                if itr > maxstep:
-                    print("maxstep exceeded - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
-                    break
+                bound += pstep
+                
+                if pstep < maxstep:
+                    pstep += 1
+                    
+                if itr > maxitr:
+                    print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
+                    return 0, rec
+                
+                rec = self.getOptimalForPrice(bound,bidgroup,subdebug)                
+                print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
+                
         else:
             #got it right the first time
             return bound, rec
         
-        if itr > maxstep:
-            print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
-            return 0, rec
+        
             
         if bound < initprice:
             lower = bound
@@ -973,7 +1025,7 @@ class HomeAgent(Agent):
         
         #add current state to grid points
         snapstate = {}
-        for dev in bidgroup.devices:
+        for dev in bidgroup:
             snapcomp = dev.addCurrentStateToGrid()
             if snapcomp is not None:
                 snapstate[dev.name] = snapcomp
@@ -988,12 +1040,11 @@ class HomeAgent(Agent):
             if debug:
                 print(">HOMEOWNER {me} now working on period {per}".format(me = self.name, per = selperiod.periodNumber))
                 
-            #make new plan for bidgroup and period
-            plan = selperiod.makeplan(bidgroup)    
-            
+            plan = selperiod.getplan(bidgroup)
             #remake grid points
-            plan.makeGrid(self.Preferences.eval)
-            
+            #plan.makeGrid(self.Preferences.eval)            
+            plan.makeGrid(plan.costfn)
+                        
             #if we failed to remake grid points, print error and return
             if not plan.stategrid.grid:
                 print("Homeowner {me} encountered a missing state grid for period {per}".format(me = self.name, per = selperiod.periodNumber))
@@ -1011,7 +1062,7 @@ class HomeAgent(Agent):
                     #find the best input for this state
                     currentbest = float('inf')
                     for input in plan.admissiblecontrols:
-                        self.findInputCost(state,input,selperiod,settings.ST_PLAN_INTERVAL,debug)
+                        self.findInputCost(state,input,plan,settings.ST_PLAN_INTERVAL,debug)
                         if input.pathcost < currentbest:
                             if debug:
                                 print(">NEW BEST OPTION! {newcost} < {oldcost}".format(newcost = input.pathcost, oldcost = currentbest))
@@ -1037,7 +1088,8 @@ class HomeAgent(Agent):
             dev.revertStateGrid()
                
         #get beginning of path from current state
-        curstate = window.periods[0].plan.stategrid.match(snapstate)
+        plan = window.periods[0].getplan(bidgroup)
+        curstate = plan.stategrid.match(snapstate)
         if curstate:
             recaction = curstate.optimalinput
         else:
@@ -1077,7 +1129,7 @@ class HomeAgent(Agent):
         if period.nextperiod.nextperiod:
             #cost of optimal path from next state forward
             #pathcost = period.nextperiod.plan.stategrid.interpolatepath(comps,False)
-            pathcost = plan.nextplan().stategrid.interpolatepath(comps,False)
+            pathcost = plan.nextplan.stategrid.interpolatepath(comps,False)
         else:
             #otherwise, only consider the statecost 
             pathcost = 0
@@ -1337,17 +1389,16 @@ class HomeAgent(Agent):
         self.makeNewPlan(True)
         
         #add plan to database
-        for plan in self.NextPeriod.plans:
-            self.dbnewplan(plan.optimalcontrol,time.time()-before,self.dbconn,self.t0)
-        
+        if self.NextPeriod.plans:
+            for plan in self.NextPeriod.plans:
+                self.dbnewplan(plan.optimalcontrol,time.time()-before,self.dbconn,self.t0)
+                plan.planningcomplete = True
+                
 #         if settings.DEBUGGING_LEVEL >= 2:
 #             print("HOMEOWNER {me} generated offer price: {price}".format(me = self.name,price = self.NextPeriod.offerprice))
 #             self.NextPeriod.plan.optimalcontrol.printInfo(0)
-            
-#        self.NextPeriod.plan.planningcomplete = True
-        
-        for plan in self.NextPeriod.plans:
-            self.prepareBidsFromPlan(plan)
+                    
+        self.prepareBids(self.NextPeriod)
                 
         #now that we have the offer price we can respond with bids, but wait until the utility has solicited them
         if self.NextPeriod.supplybidmanager.recPowerSolicitation and self.NextPeriod.demandbidmanager.recDemandSolicitation:

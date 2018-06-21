@@ -188,11 +188,11 @@ class Storage(Source):
         
         self.replacementenergycost = None
         
-        self.associatedbehavior = None
+        #self.associatedbehavior = None
         
-        #state based cost function specified in config
-        if res.get("costfn",None):
-            addCostFn(self,res)
+#         #state based cost function specified in config
+#         if res.get("costfn",None):
+#             addCostFn(self,res)
         
     def getInputUnregVoltage(self):
         voltage = self.ChargeChannel.getUnregV()
@@ -310,19 +310,19 @@ class LeadAcidBattery(Storage):
         self.dischargeEfficiency = .8
         
         
-    def costFn(self,period,soc):
-        #the first term penalizes being too empty to discharge or too full to charge
-        #target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
-        #the second term accounts for the value of the stored energy
-        #energy = -soc*self.capacity*period.expectedenergycost        
-        #return target + energy
-        
-        if self.associatedbehavior:
-            cost = self.associatedbehavior.costFn(period,soc)
-        else:
-            cost = 0
-        #print("device: {name}, soc: {soc}, cost: {cost}".format(name = self.name, soc = soc, cost = cost))
-        return cost
+#     def costFn(self,period,soc):
+#         #the first term penalizes being too empty to discharge or too full to charge
+#         #target = period.expectedenergycost*self.capacity*(soc - self.preferredSOC)**2
+#         #the second term accounts for the value of the stored energy
+#         #energy = -soc*self.capacity*period.expectedenergycost        
+#         #return target + energy
+#         
+#         if self.associatedbehavior:
+#             cost = self.associatedbehavior.costFn(period,soc)
+#         else:
+#             cost = 0
+#         #print("device: {name}, soc: {soc}, cost: {cost}".format(name = self.name, soc = soc, cost = cost))
+#         return cost
     
     def inputCostFn(self,puaction,period,state,duration):
         if not self.replacementenergycost:
@@ -421,8 +421,8 @@ class Generator(Source):
     def getState(self):
         return 1
     
-    def costFn(self,period,devstate):
-        return 0
+#     def costFn(self,period,devstate):
+#         return 0
     
     def inputCostFn(self,input,period,state,duration):
         cost = control.ratecalc(self.capCost,.05,self.amortizationPeriod,.2) + self.getPowerFromPU(input)*duration*self.fuelCost
@@ -455,9 +455,9 @@ class SolarPanel(Source):
         power = self.maxDischargePower*irradiance
         return power
     
-    #the marginal cost of running a solar panel is 0    
-    def costFn(self,period,devstate):
-        return 0
+#     #the marginal cost of running a solar panel is 0    
+#     def costFn(self,period,devstate):
+#         return 0
     
     def inputCostFn(self,puaction,period,state,duration):
         return 0
@@ -752,28 +752,28 @@ def makeResource(strlist,classlist,debug = False):
     if debug:
         print("here's how the classlist looks now: {cl}".format(cl = classlist))
         
-def addCostFn(appobj,appdict):
-        fn = appdict["costfn"]
-        paramdict = appdict["cfnparams"]
-        type = appdict["type"]
-        
-        if fn == "quad":
-            newfn = human.QuadraticCostFn(**paramdict)
-        elif fn == "quadcap":
-            newfn = human.QuadraticWCapCostFn(**paramdict)
-        elif fn == "quadmono":
-            newfn = human.QuadraticOneSideCostFn(**paramdict)
-        elif fn == "quadmonocap":
-            newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
-        elif fn == "const":
-            newfn = human.ConstantCostFn(**paramdict)
-        elif fn == "piecewise":
-            newfn = human.PiecewiseConstant(**paramdict)
-        elif fn == "interpolate":
-            newfn = human.Interpolated(**paramdict)
-        else:
-            print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
-            
-        behavior = human.EnergyBehavior(type,appobj,newfn)
-        appobj.associatedbehavior =  behavior        
+# def addCostFn(appobj,appdict):
+#         fn = appdict["costfn"]
+#         paramdict = appdict["cfnparams"]
+#         type = appdict["type"]
+#         
+#         if fn == "quad":
+#             newfn = human.QuadraticCostFn(**paramdict)
+#         elif fn == "quadcap":
+#             newfn = human.QuadraticWCapCostFn(**paramdict)
+#         elif fn == "quadmono":
+#             newfn = human.QuadraticOneSideCostFn(**paramdict)
+#         elif fn == "quadmonocap":
+#             newfn = human.QuadraticOneSideWCapCostFn(**paramdict)
+#         elif fn == "const":
+#             newfn = human.ConstantCostFn(**paramdict)
+#         elif fn == "piecewise":
+#             newfn = human.PiecewiseConstant(**paramdict)
+#         elif fn == "interpolate":
+#             newfn = human.Interpolated(**paramdict)
+#         else:
+#             print("HOMEOWNER {me} encountered unknown cost function".format(me = self.name))
+#             
+#         behavior = human.EnergyBehavior(type,appobj,newfn)
+#         appobj.associatedbehavior =  behavior        
         

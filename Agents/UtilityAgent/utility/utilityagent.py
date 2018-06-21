@@ -816,7 +816,10 @@ class UtilityAgent(Agent):
                     self.sendBidAcceptance(bid, group.rate)
                     #update bid's entry in database
                     self.dbupdatebid(bid,self.dbconn,self.t0)
-                    self.NextPeriod.plan.addBid(bid)
+                    
+                    #self.NextPeriod.plan.addBid(bid)
+                    self.NextPeriod.supplybidmanager.readybids.append(bid)
+                    
                     #give customer permission to connect if resource is co-located
                     res = listparse.lookUpByName(bid.resourceName,group.resources)
                     cust = listparse.lookUpByName(bid.counterparty,self.customers)
@@ -839,7 +842,10 @@ class UtilityAgent(Agent):
                     self.sendBidAcceptance(bid, group.rate)
                     #update bid's entry in database
                     self.dbupdatebid(bid,self.dbconn,self.t0)
-                    self.NextPeriod.plan.addConsumption(bid)
+                    
+                    #self.NextPeriod.plan.addConsumption(bid)
+                    self.NextPeriod.demandbidmanager.readybids.append(bid)
+                    
                     #give customer permission to connect
                     cust.permission = True                    
                     
@@ -868,7 +874,9 @@ class UtilityAgent(Agent):
             for bid in self.reserveBidList:
                 if bid.accepted:
                     self.sendBidAcceptance(bid,group.rate)
-                    self.NextPeriod.plan.addBid(bid)
+                    
+                    #self.NextPeriod.plan.addBid(bid)
+                    self.NextPeriod.supplybidmanager.readybids.append(bid)
                 else:
                     self.sendBidRejection(bid,group.rate)
                 #update bid's entry in database
@@ -880,8 +888,9 @@ class UtilityAgent(Agent):
             #announce rates for next period
             for cust in group.customers:
                 self.announceRate(cust,group.rate,self.NextPeriod)
-                        
-        self.NextPeriod.plan.printInfo(0)
+        
+        for plan in self.NextPeriod.plans:
+            self.NextPeriod.plan.printInfo(0)
                 
     def sendDR(self,target,type,duration):
         mesdict = {"message_subject" : "DR_event",
@@ -932,44 +941,46 @@ class UtilityAgent(Agent):
         #which resources are being used during this period? keep track with this list
         involvedResources = []
         #change setpoints
-        if self.CurrentPeriod.plan:
+        if self.CurrentPeriod.plans:
+            plan = self.CurrentPeriod.plans[0]
             if settings.DEBUGGING_LEVEL >= 2:
                 print("UTILITY {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
                 
-            for bid in self.CurrentPeriod.plan.ownBids:
-                if settings.DEBUGGING_LEVEL >= 2:
-                    print("UTILITY {me} IS ACTUATING BID {bid}".format(me = self.name, bid = bid.uid))
-                
-                bid.printInfo(0)
-                res = listparse.lookUpByName(bid.resourceName,self.Resources)
-                if res is not None:
-                    involvedResources.append(res)
-                    #if the resource is already connected, change the setpoint
-                    if res.connected == True:
-                        if settings.DEBUGGING_LEVEL >= 2:
-                            print(" Resource {rname} is already connected".format(rname = res.name))
-                        if bid.service == "power":
-                            #res.DischargeChannel.ramp(bid.amount)
-                            res.DischargeChannel.changeSetpoint(bid.amount)
+            for bid in self.CurrentPeriod.supplybidmanager.readybids:
+                if bid.counterparty == self.name:                    
+                    if settings.DEBUGGING_LEVEL >= 2:
+                        print("UTILITY {me} IS ACTUATING BID {bid}".format(me = self.name, bid = bid.uid))
+                    
+                    bid.printInfo(0)
+                    res = listparse.lookUpByName(bid.resourceName,self.Resources)
+                    if res is not None:
+                        involvedResources.append(res)
+                        #if the resource is already connected, change the setpoint
+                        if res.connected == True:
                             if settings.DEBUGGING_LEVEL >= 2:
-                                print("Power resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
-                        elif bid.service == "reserve":
-                            #res.DischargeChannel.ramp(.1)            
-                            res.DischargeChannel.changeReserve(bid.amount,-.2)
-                            if settings.DEBUGGING_LEVEL >= 2:
-                                print("Reserve resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
-                    #if the resource isn't connected, connect it and ramp up power
-                    else:
-                        if bid.service == "power":
-                            #res.connectSourceSoft("Preg",bid.amount)
-                            res.DischargeChannel.connectWithSet(bid.amount,0)
-                            if settings.DEBUGGING_LEVEL >= 2:
-                                print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
-                        elif bid.service == "reserve":
-                            #res.connectSourceSoft("Preg",.1)
-                            res.DischargeChannel.connectWithSet(bid.amount, -.2)
-                            if settings.DEBUGGING_LEVEL >= 2:
-                                print("Committed resource {rname} as a reserve with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
+                                print(" Resource {rname} is already connected".format(rname = res.name))
+                            if bid.service == "power":
+                                #res.DischargeChannel.ramp(bid.amount)
+                                res.DischargeChannel.changeSetpoint(bid.amount)
+                                if settings.DEBUGGING_LEVEL >= 2:
+                                    print("Power resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
+                            elif bid.service == "reserve":
+                                #res.DischargeChannel.ramp(.1)            
+                                res.DischargeChannel.changeReserve(bid.amount,-.2)
+                                if settings.DEBUGGING_LEVEL >= 2:
+                                    print("Reserve resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
+                        #if the resource isn't connected, connect it and ramp up power
+                        else:
+                            if bid.service == "power":
+                                #res.connectSourceSoft("Preg",bid.amount)
+                                res.DischargeChannel.connectWithSet(bid.amount,0)
+                                if settings.DEBUGGING_LEVEL >= 2:
+                                    print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
+                            elif bid.service == "reserve":
+                                #res.connectSourceSoft("Preg",.1)
+                                res.DischargeChannel.connectWithSet(bid.amount, -.2)
+                                if settings.DEBUGGING_LEVEL >= 2:
+                                    print("Committed resource {rname} as a reserve with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
             #disconnect resources that aren't being used anymore
             for res in self.Resources:
                 if res not in involvedResources:
@@ -1471,7 +1482,10 @@ class UtilityAgent(Agent):
         self.dbwrite(command,dbconn)
         
     def dbupdatebid(self,bid,dbconn,t0):
-        command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = str(bid.accepted), rate = bid.rate, amt = bid.amount, id = bid.uid)
+        if bid.accepted:
+            command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = int(bid.accepted), rate = bid.rate, amt = bid.amount, id = bid.uid)
+        else:
+            command = 'UPDATE bids SET accepted={acc} WHERE id={id}'.format(acc = int(bid.accepted), id = bid.uid)
         self.dbwrite(command,dbconn)
         
     def dbtransaction(self,cust,amt,type,dbconn,t0):

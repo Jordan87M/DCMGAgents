@@ -9,12 +9,31 @@ class PreferenceManager(object):
             print behaviorset
             self.behaviorsets.append(BehaviorSet(behaviorset))            
         
+    def getBidGroups(self,period):
+        bidgroups = []
+        
+        cfnindex = self.selector.eval(period.periodNumber)
+        print(self.behaviorsets)
+        for behavior in self.behaviorsets[cfnindex].behaviors:
+            bidgroups.append(behavior.devicenames)
+        
+        print bidgroups
+        return bidgroups
+    
+    def getcfn(self,plan):
+        cfnindex = self.selector.eval(plan.period.periodNumber)
+        
+        behaviorset = self.behaviorsets[cfnindex]
+        
+        for behavior in behaviorset.behaviors:
+            if plan.devices[0].name in behavior.devicenames:
+                return behavior.eval
         
     def eval(self,period,comps):
         #use the period number to determine which set of cost functions to use
         cfnindex = self.selector.eval(period.periodNumber)
-
-        return self.behaviorsets[cfnindex].eval(periodnumber,comps)
+    
+        return self.behaviorsets[cfnindex].eval(period.periodNumber,comps)
     
     def printInfo(self,depth = 1):
         tab = "    "
@@ -22,6 +41,7 @@ class PreferenceManager(object):
         self.selector.printInfo(depth+1)
         for bset in self.behaviorsets:
             bset.printInfo(depth+1)
+        print(tab*depth + "-=END PREFERENCE MANAGER=-")
 
 class SelectionRule(object):
     def __init__(self,**spec):
@@ -45,14 +65,19 @@ class BehaviorSet(object):
         for behavior in self.behaviors:
             if behavior.groupname == groupname:
                 return behavior 
+    
+    def getbehavior(self,comps):
+        for behavior in self.behaviors:
+            if comps.keys()[0] in behavior.devicenames:
+                return behavior
         
-    def eval(self,comps):
-        behavior = self.getbehaviorbygroupname()
-        return behavior.eval(state)
+    def eval(self,period,comps):
+        behavior = self.getbehavior(comps)
+        return behavior.eval(period,comps)
                 
     def printInfo(self,depth = 1):
         for behavior in self.behaviors:
-            behavior.printInfo(depth+1)
+            behavior.printInfo(depth)
             
         
 class EnergyBehavior(object):
@@ -60,8 +85,7 @@ class EnergyBehavior(object):
         self.name = spec["name"]
         self.devicenames = spec["devicenames"]
         self.costfn = makeCostFn(**spec["costfn"])
-        
-        
+                
     def printInfo(self,depth):
         tab = "    "
         print(tab*depth + "ENERGY BEHAVIOR: {name}".format(name = self.name))
@@ -71,10 +95,9 @@ class EnergyBehavior(object):
     def setcostfn(self, fn):
         self.costfn = fn
         
-    def eval(self,comps):        
+    def eval(self,period,comps):        
         if len(comps) == 1:
-            state = comps["name"]
-            return self.costfn.eval(state)
+            return self.costfn.eval(comps.values()[0])
             
 class QuadraticCostFn(object):
     def __init__(self,**params):
@@ -219,8 +242,15 @@ class RepeatingSets(SelectionRule):
 class Fixed(SelectionRule):
     def __init__(self,**spec):
         super(Fixed,self).__init__(**spec)
-        self.type = spec["type"]
+    
+    def printInfo(self,depth = 1):
+        super(Fixed,self).printInfo(depth)
+        tab = "    "
         
+        print(tab*depth + "FIXED")
+        
+    def eval(self,periodNumber):
+        return 0
           
 def makeSelectionRule(**spec):
     print "inside makeselectionrule"
@@ -231,7 +261,7 @@ def makeSelectionRule(**spec):
     if type == "repeating_sets":
         newrule = RepeatingSets(**params)
     elif type == "fixed":
-        newrule = SelectionRule(**params)
+        newrule = Fixed(**params)
     else:
         print("HOMEOWNER {me} encountered unknown costfn selection rule: {type}".format(me = self.name, type = type))  
     return newrule
