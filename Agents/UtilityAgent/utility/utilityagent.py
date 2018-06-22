@@ -85,7 +85,7 @@ class UtilityAgent(Agent):
         import mysql.connector
         
         #DATABASE STUFF
-        self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
+        self.dbconn = mysql.connector.connect(user='smartgrid',password='ugrid123',host='localhost',database='testdbase')
 
         cursor = self.dbconn.cursor()
         

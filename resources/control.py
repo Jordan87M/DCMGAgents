@@ -298,8 +298,7 @@ class Plan(object):
             print(tab*depth + "FOR RATE: {rate}".format(rate = self.offerprice))
         if self.costfn:
             print(tab*depth + "COST FUNCTION: {cfn}".format(cfn = self.costfn))
-        
-        
+                    
         
 class Disposition(object):
     def __init__(self,period):

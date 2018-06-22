@@ -79,7 +79,7 @@ class HomeAgent(Agent):
         import mysql.connector
         
         #connect to database
-        self.dbconn = mysql.connector.connect(user='root',password='4malAttire',host='localhost',database='testdbase')
+        self.dbconn = mysql.connector.connect(user='smartgrid',password='ugrid123',host='localhost',database='testdbase')
         
         #create resource objects for resources
         resource.makeResource(self.resources,self.Resources,False)
@@ -167,9 +167,15 @@ class HomeAgent(Agent):
         #core.schedule event object for the function call to begin next period
         self.advanceEvent = None
      
-    def exit_handler(self,**kwargs):
-        print("HOMEOWNER {me} exit handler".format(me = self.name))
+    def exit_handler(self,*targs,**kwargs):
+        print("HOMEOWNER {me} exit handler: ".format(me = self.name, one = str(arg1), two = str(arg2)))
         
+        for arg in targs:
+            print("{msg}".format(msg = arg))
+        
+        for key in kwargs:
+            print("{key} : {msg}".format(key = key, msg = kwargs[key]))
+            
         #disconnect all connected sources
         for res in self.Resources:
             res.disconnectSource()
@@ -881,7 +887,8 @@ class HomeAgent(Agent):
         
         bound = initprice
         
-        pstep = 1
+        pstep = .1
+        pstepinc = .2
         
         #saves best bid so far so we can fall back on this to avoid submitting null bids when we approach optimal bid from the wrong side
         savebid = None
@@ -894,8 +901,8 @@ class HomeAgent(Agent):
             maxitr = 6
             
         #turns debugging on or off for subroutines
-        #subdebug = True
-        subdebug = False
+        subdebug = True
+        #subdebug = False
         
         start = time.time()
         rec = self.getOptimalForPrice(bound,bidgroup,subdebug)
@@ -909,7 +916,7 @@ class HomeAgent(Agent):
                 bound -= pstep
                 
                 if pstep < maxstep:
-                    pstep += 1
+                    pstep += pstepinc
                     
                 if itr > maxitr:
                     print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
@@ -924,7 +931,7 @@ class HomeAgent(Agent):
                 bound += pstep
                 
                 if pstep < maxstep:
-                    pstep += 1
+                    pstep += pstepinc
                     
                 if itr > maxitr:
                     print("HOMEOWNER {me}: couldn't bracket zero crossing".format(me = self.name))
