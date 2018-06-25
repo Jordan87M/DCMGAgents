@@ -121,6 +121,10 @@ class HeatingElement(Device):
             grid = [ 0.5, 0.75, 0.9]
             grid.extend(self.snapstate)
             return grid
+        elif mode == "superhi":
+            grid = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9]
+            grid.extend(self.snapstate)
+            return grid
         elif mode == "dyn":
             dynamicgrid = []
             dynamicgrid.extend(self.snapstate)

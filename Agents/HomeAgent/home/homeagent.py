@@ -168,7 +168,7 @@ class HomeAgent(Agent):
         self.advanceEvent = None
      
     def exit_handler(self,*targs,**kwargs):
-        print("HOMEOWNER {me} exit handler: ".format(me = self.name, one = str(arg1), two = str(arg2)))
+        print("HOMEOWNER {me} exit handler: ".format(me = self.name))
         
         for arg in targs:
             print("{msg}".format(msg = arg))
@@ -1204,6 +1204,8 @@ class HomeAgent(Agent):
             if dev.actionpoints:
                 if len(plan.devices) >= 3:
                     inputdict[dev.name] = dev.getActionpoints("lofi")
+                elif len(plan.devices) == 1:
+                    inputdict[dev.name] = dev.getActionpoints()
                 else:
                     inputdict[dev.name] = dev.getActionpoints()
             
@@ -1471,6 +1473,10 @@ class HomeAgent(Agent):
                 elif appdisp.value > 0:
                     app.on = True
                     print("turning {app} on".format(app = app.name))
+            #if it isn't part of the disposition, turn it off
+            else:
+                print("{app} is not in this period's disposition. turning it off".format(app = app.name))
+                app.on = False
         
     
     def disconnectLoad(self):

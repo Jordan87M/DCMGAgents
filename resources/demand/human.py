@@ -218,18 +218,18 @@ class RepeatingSets(SelectionRule):
     def __init__(self,**spec):
         super(RepeatingSets,self).__init__(**spec)
         self.periods = spec["periods"]
-        self.behaviors = spec["behaviors"]
+        #self.behaviors = spec["behaviors"]
         
         #determine number of periods in pattern
         self.patternlength = 0
-        for set in periods:
+        for set in self.periods:
             self.patternlength += len(set)
             
         
     def eval(self,periodNumber):
         periodNumber = periodNumber % self.patternlength
         #determine the index of the rule to be used
-        for i,set in enumerate(periods):
+        for i,set in enumerate(self.periods):
             if periodNumber in set:
                 return i
         

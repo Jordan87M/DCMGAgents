@@ -1,3 +1,4 @@
+import math, operator
 
 def generateStates(inputs,grid,nextgrid):
     for state in grid:
@@ -32,6 +33,12 @@ class StateGrid(object):
     def __init__(self,period,gridstates,costfunc):
         self.grid = []
         self.makeGrid(period,gridstates,costfunc)
+        self.dim = len(self.grid[0].components)
+        
+        #sort the states in ascending order if the state grid is one dimensional
+        #this facilitates the use of better interpolation methods
+        if self.dim == 1:
+            self.grid.sort(key = operator.attrgetter('components'))
         
     def match(self,comps):
         for point in self.grid:
@@ -64,42 +71,70 @@ class StateGrid(object):
                 a = a[index]
             
     def interpolatepath(self,x,debug = False):
-        #use inverse distance weighting interpolation
-        if debug:
-            print("****finding path cost value at {x} using inverse distance weighting interpolation".format(x = x))
-        #power to which distance should be raised
-        p = 4
-        
-        nsum = 0
-        dsum = 0
-        for point in self.grid:
-            #if there is no optimal input, this may be an end state
-            if not point.optimalinput:
-                if debug:
-                    print("there is no optimal input for this point")
-                return 0
+        if self.dim > 1:
+            #use inverse distance weighting interpolation
+            if debug:
+                print("****finding path cost value at {x} using inverse distance weighting interpolation".format(x = x))
+            #power to which distance should be raised
+            p = 4
             
-            #if the point falls directly on a grid point, just use that point's value
-            if point.components == x:
+            nsum = 0
+            dsum = 0
+            for point in self.grid:
+                #if there is no optimal input, this may be an end state
+                if not point.optimalinput:
+                    if debug:
+                        print("there is no optimal input for this point")
+                    return 0
+                
+                #if the point falls directly on a grid point, just use that point's value
+                if point.components == x:
+                    if debug:
+                        print("****point falls on a grid point: {pnt}".format(pnt = point.components))
+                    return point.optimalinput.pathcost
+                
+                d = self.getdistance(x,point.components)
+                w = d**-p
+                dsum += w
+                nsum += w*point.optimalinput.pathcost
+                
                 if debug:
-                    print("****point falls on a grid point: {pnt}".format(pnt = point.components))
-                return point.optimalinput.pathcost
+                    print("****contribution from {pnt}: \n        DISTANCE: {dist}, \n        WEIGHT: {weight}, \n        VALUE: {val}".format(pnt = point.components, dist = d, weight = w, val = point.optimalinput.pathcost))
             
-            d = self.getdistance(x,point.components)
-            w = d**-p
-            dsum += w
-            nsum += w*point.optimalinput.pathcost
+            intval = nsum/dsum
             
             if debug:
-                print("****contribution from {pnt}: \n        DISTANCE: {dist}, \n        WEIGHT: {weight}, \n        VALUE: {val}".format(pnt = point.components, dist = d, weight = w, val = point.optimalinput.pathcost))
-        
-        intval = nsum/dsum
-        
-        if debug:
-            print("****FINISHED INTERPOLATING! interpolated value = {int}".format(int = intval ))
-        
-        return intval
-    
+                print("****FINISHED INTERPOLATING! interpolated value = {int}".format(int = intval ))
+            
+            return intval
+        elif self.dim == 1:
+            if debug:
+                print("****finding path cost value at {x} using linear interpolation".format(x = x))
+            
+            i = 0
+            li = 0
+            ui = len(self.grid)-1
+            while ui != li + 1:    
+                i = int((ui + li)/2)            
+                if x.values()[0] > self.grid[i].components.values()[0]:
+                    li = i
+                elif x.values()[0] < self.grid[i].components.values()[0]:
+                    ui = i
+                else:
+                    #x is a gridpoint
+                    return self.grid[int(i)].pathcost
+                    
+            upper = self.grid[ui]
+            lower = self.grid[li]
+            
+            #linear interpolation
+            intval = (upper.optimalinput.pathcost - lower.optimalinput.pathcost)/(upper.components.values()[0]-lower.components.values()[0])*(x.values()[0] - lower.components.values()[0]) + lower.optimalinput.pathcost
+            
+            if debug:
+                print("****FINISHED INTERPOLATING! interpolated value = {int}".format(int = intval ))
+                        
+            return intval    
+                
     def interpolatestate(self,x,debug = False):
         #use inverse distance weighting interpolation
         if debug:
