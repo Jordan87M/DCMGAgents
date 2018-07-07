@@ -100,21 +100,27 @@ class UtilityAgent(Agent):
         cursor.execute('DROP TABLE IF EXISTS resources')
         cursor.execute('DROP TABLE IF EXISTS appliances')
         cursor.execute('DROP TABLE IF EXISTS appstate')
+        cursor.execute('DROP TABLE IF EXISTS resstate')
         cursor.execute('DROP TABLE IF EXISTS plans')
         cursor.execute('DROP TABLE IF EXISTS efficiency')
+        cursor.execute('DROP TABLE IF EXISTS relayfaults')
+        cursor.execute('DROP TABLE IF EXISTS topology')
         
-        cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, signame TEXT, value DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, period INT, signame TEXT, value DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS customers(logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS bids(logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
-        cursor.execute('CREATE TABLE IF NOT EXISTS prices(logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS drevents(logtime TIMESTAMP, et DOUBLE, period INT, type TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS transactions(logtime TIMESTAMP, et DOUBLE, period INT, account_holder TEXT, transaction_type TEXT, amount DOUBLE, balance DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS customers (logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS bids (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
+        cursor.execute('CREATE TABLE IF NOT EXISTS prices (logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS drevents (logtime TIMESTAMP, et DOUBLE, period INT, type TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS transactions (logtime TIMESTAMP, et DOUBLE, period INT, account_holder TEXT, transaction_type TEXT, amount DOUBLE, balance DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS resources (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, location TEXT, max_power DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS appliances (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, max_power DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS appstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS resstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, connected BOOLEAN, inputV DOUBLE, inputI DOUBLE, outputV DOUBLE, outputI DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS plans (logtime TIMESTAMP, et DOUBLE, period INT, planning_time DOUBLE, planner TEXT, cost DOUBLE, action TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS efficiency(logtime TIMESTAMP, et DOUBLE, period INT, generation DOUBLE, consumption DOUBLE, loss DOUBLE, unaccounted DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS efficiency (logtime TIMESTAMP, et DOUBLE, period INT, generation DOUBLE, consumption DOUBLE, loss DOUBLE, unaccounted DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS relayfaults (logtime TIMESTAMP, et DOUBLE, period INT, location TEXT, measured TEXT, resistance DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS topology (logtime TIMESTAMP, et DOUBLE, period INT, topology TEXT)')
         
         cursor.close()
         
@@ -135,7 +141,7 @@ class UtilityAgent(Agent):
                        groups.Relay("CROSSTIE_1_User","infrastructure")
                        ]
         #create infrastructure nodes
-        self.nodes = [groups.Node("DC.MAIN.MAIN"),
+        self.infnodes = [groups.Node("DC.MAIN.MAIN"),
                         groups.Node("DC.BRANCH1.BUS1"),
                         groups.Node("DC.BRANCH1.BUS2"),
                         groups.Node("DC.BRANCH2.BUS1"),
@@ -145,6 +151,12 @@ class UtilityAgent(Agent):
                         groups.Node("DC.BRANCH2.INT1"),
                         groups.Node("DC.BRANCH2.INT2")
                         ]
+        
+        #create copy for general nodes list
+        self.nodes = []
+        for node in self.infnodes:
+            self.nodes.append(node)
+        
         #create fault detection zones containing nodes
         self.zones = [groups.Zone("DC.MAIN.MAINZONE", [self.nodes[0]]),
                       groups.Zone("DC.BRANCH1.ZONE1", [self.nodes[1], self.nodes[5]]),
@@ -154,6 +166,9 @@ class UtilityAgent(Agent):
                       ]
         
         self.Edges = []
+        
+        #global index for checking relay consistency
+        self.edgeindex = 0
         
         #join nodes with edges containing relays
         self.Edges.append(self.nodes[0].addEdge(self.nodes[1], "to", "BRANCH_1_BUS_1_Current", [self.relays[0]]))
@@ -335,7 +350,13 @@ class UtilityAgent(Agent):
                         #add customer to Node object
                         for node in self.nodes:
                             if cust.location.split(".")[0:3] == node.name.split("."):
-                                node.addCustomer(cust)
+                                newnode, newrelay, newedge = node.addCustomer(cust)
+                                
+                                #add new graph objects to lists - this causes problems because we can't measure voltage at loads
+                                #self.nodes.append(newnode)
+                                #self.relays.append(newrelay)
+                                #self.Edges.append(newedge)
+                                
                                 if node.group:
                                     node.group.customers.append(cust)
                         
@@ -428,12 +449,17 @@ class UtilityAgent(Agent):
                 power = cust.measurePower()
                 energy = power*settings.ACCOUNTING_INTERVAL
                 balanceAdjustment = -energy*group.rate*cust.rateAdjustment
-                cust.customerAccount.adjustBalance(balanceAdjustment)
+                if type(balanceAdjustment) is float or type(balanceAdjustment) is int:
+                    if abs(balanceAdjustment) < 450 and abs(balanceAdjustment) > .001:
+                        cust.customerAccount.adjustBalance(balanceAdjustment)
+                        #update database
+                        self.dbtransaction(cust,balanceAdjustment,"net home consumption",self.dbconn,self.t0)
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            print("The account of {holder} has been adjusted by {amt} units for net home consumption".format(holder = cust.name, amt = balanceAdjustment))
+                else:
+                    print("HOMEOWNER {me} RECEIVED NaN FOR POWER MEASUREMENT".format(me = self.name))
                 
-                #update database
-                self.dbtransaction(cust,balanceAdjustment,"net home consumption",self.dbconn,self.t0)
-                if settings.DEBUGGING_LEVEL >= 2:
-                    print("The account of {holder} has been adjusted by {amt} units for net home consumption".format(holder = cust.name, amt = balanceAdjustment))
+                
             
             for res in group.resources:
                 if res.owner != self.name:
@@ -446,10 +472,13 @@ class UtilityAgent(Agent):
                             power = res.getDischargePower() - res.getChargePower()
                             energy = power*settings.ACCOUNTING_INTERVAL
                             balanceAdjustment = energy*group.rate*cust.rateAdjustment
-                            cust.customerAccount.adjustBalance(balanceAdjustment)
                             
-                            #update database
-                            self.dbtransaction(cust,balanceAdjustment,"remote resource",self.dbconn,self.t0)
+                            if type(balanceAdjustment) is float or type(balanceAdjustment) is int:
+                                if abs(balanceAdjustment) < 450 and abs(balanceAdjustment) > .001:
+                                    cust.customerAccount.adjustBalance(balanceAdjustment)
+                            
+                                    #update database
+                                    self.dbtransaction(cust,balanceAdjustment,"remote resource",self.dbconn,self.t0)
                             
                         else:
                             print("TEMP DEBUG: resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
@@ -818,7 +847,8 @@ class UtilityAgent(Agent):
                     self.dbupdatebid(bid,self.dbconn,self.t0)
                     
                     #self.NextPeriod.plan.addBid(bid)
-                    self.NextPeriod.supplybidmanager.readybids.append(bid)
+                    self.NextPeriod.supplybidmanager.acceptedbids.append(bid)
+                    
                     
                     #give customer permission to connect if resource is co-located
                     res = listparse.lookUpByName(bid.resourceName,group.resources)
@@ -941,12 +971,15 @@ class UtilityAgent(Agent):
         #which resources are being used during this period? keep track with this list
         involvedResources = []
         #change setpoints
-        if self.CurrentPeriod.plans:
-            plan = self.CurrentPeriod.plans[0]
+        
+        #if self.CurrentPeriod.plans:
+        if self.CurrentPeriod.supplybidmanager.acceptedbids:
+            #plan = self.CurrentPeriod.plans[0]
             if settings.DEBUGGING_LEVEL >= 2:
                 print("UTILITY {me} IS ENACTING ITS PLAN FOR PERIOD {per}".format(me = self.name, per = self.CurrentPeriod.periodNumber))
-                
-            for bid in self.CurrentPeriod.supplybidmanager.readybids:
+            
+            self.CurrentPeriod.supplybidmanager.printInfo()    
+            for bid in self.CurrentPeriod.supplybidmanager.acceptedbids:
                 if bid.counterparty == self.name:                    
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} IS ACTUATING BID {bid}".format(me = self.name, bid = bid.uid))
@@ -1111,8 +1144,34 @@ class UtilityAgent(Agent):
         else:
             print("Error, unrecognized fault state in {id}: {state}".format(id = fault.uid, state = fault.state))
                 
-        
     
+#     #monitor sensor and transducer accuracy - test one at a time to limit network impact
+#     @Core.periodic(settings.SWITCH_FAULT_INTERVAL)  
+#     def switchStateDetector(self):
+#         #wrap when we reach the end
+#         if self.edgeindex > len(self.Edges)-1:
+#             self.edgeindex = 0
+#             
+#         edge = self.Edges[self.edgeindex]
+#         
+#         #if edge.startNode.faults or edge.endNode.faults:
+#         
+#         retdict = edge.checkConsistency()
+#         
+#         measurement = retdict["measured_state"]
+#         resistance = retdict["resistance"]
+#         
+#         if retdict["reliable"]:
+#             if retdict["discrepancy"]:
+#                 print("UTILITY {me} REPORTS DISCREPANCY BETWEEN MEASURED RELAY STATE {sta} and MODEL STATE {msta} ON {nam}".format(me = self.name, sta = measurement, msta = not measurement, nam = edge.name))
+#                 self.dbrelayfault(edge.name,measurement,resistance,self.dbconn,self.t0)
+#             else:
+#                 print("UTILITY {me} REPORTS MEASURED RELAY STATE {sta} ON {nam} IS CONSISTENT WITH MODEL".format(me = self.name, sta = measurement, nam = edge.name))        
+#         else:
+#             #can't use data, good resistance measurement couldn't be obtained
+#             print("UTILITY {me} REPORTS UNUSABLE RESISTANCE DATA FOR {loc}".format(me = self.name, loc = edge.name))
+#             
+
     '''monitor for and remediate fault conditions'''
     @Core.periodic(settings.FAULT_DETECTION_INTERVAL)
     def faultDetector(self):
@@ -1122,15 +1181,22 @@ class UtilityAgent(Agent):
         nominal = True        
         #look for brownouts
         for node in self.nodes:
-            voltage = node.getVoltage
-            if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
-                node.voltageLow = True
-                group.voltageLow = True
-                nominal = False
-                if settings.DEBUGGING_LEVEL >= 1:
-                    print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = group.name))
-            else:
-                node.voltageLow = False
+            try:
+                voltage = node.getVoltage()
+                if voltage < settings.VOLTAGE_LOW_EMERGENCY_THRESHOLD:
+                    node.voltageLow = True
+                    node.group.voltageLow = True
+                    nominal = False
+                    if settings.DEBUGGING_LEVEL >= 1:
+                        print("!{me} detected emergency low voltage at node {nod} belonging to {grp}".format(me = self.name, nod = node.name, grp = node.group.name))
+                else:
+                    node.voltageLow = False
+                    
+                self.dbinfmeas(node.voltageTag,voltage,self.dbconn,self.t0)
+            except AttributeError:
+                #can't do anything but we don't really care
+                pass
+                
                 
         for zone in self.zones:
             if abs(zone.sumCurrents()) > .1:
@@ -1154,7 +1220,24 @@ class UtilityAgent(Agent):
         for group in self.groupList:
             for node in group.nodes:
                 voltage = node.getVoltage()
+                print("measuring a voltage")
                 
+                self.dbinfmeas(node.voltageTag,voltage,self.dbconn,self.t0)
+    
+    @Core.periodic(settings.INF_CURRENT_MEASUREMENT_INTERVAL)
+    def currentMonitor(self):
+        taglist = []
+        for edge in self.Edges:
+            if edge.currentTag:
+                taglist.append(edge.currentTag)
+                
+        retdict = {}
+        if taglist:
+            retdict = tagClient.readTags(taglist)
+            
+        if retdict:
+            for key in retdict:
+                self.dbinfmeas(key,retdict[key],self.dbconn,self.t0)
     
     def groupEfficiencyAssessment(self,group):            
         loads = 0
@@ -1345,10 +1428,13 @@ class UtilityAgent(Agent):
                 #for concision
                 cGroup = self.groupList[index]
                 for node in sub:
-                    cNode = self.nodes[node]
+                    cNode = self.infnodes[node]
                     cGroup.addNode(cNode)
         else:
             print("got a weird number of disjoint subgraphs in utilityagent.getTopology()")
+            
+        self.dbtopo(str(subs),self.dbconn,self.t0)
+        
         return subs
     
     def announceTopology(self):
@@ -1377,11 +1463,11 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} REBUILDING CONNECTIVITY MATRIX".format(me = self.name))
         
-        for i,origin in enumerate(self.nodes):
+        for i,origin in enumerate(self.infnodes):
             #print(origin.name)
             for edge in origin.originatingedges:
                 #print("    " + edge.name)
-                for j, terminus in enumerate(self.nodes):
+                for j, terminus in enumerate(self.infnodes):
                     #print("        " + terminus.name)
                     if edge.endNode is terminus:
                         #print("            terminus match! {i},{j}".format(i = i, j = j))
@@ -1469,6 +1555,16 @@ class UtilityAgent(Agent):
                         if settings.DEBUGGING_LEVEL >= 1:
                             print("ENROLLMENT SUCCESSFUL! {me} enrolled {them} in DR scheme".format(me = self.name, them = messageSender))
     
+    @Core.periodic(settings.RESOURCE_MEASUREMENT_INTERVAL)
+    def resourceMeasurement(self):
+        for res in self.Resources:
+            self.dbupdateresource(res,self.dbconn,self.t0)
+            
+    def dbupdateresource(self,res,dbconn,t0):
+        ch = res.DischargeChannel
+        meas = tagClient.readTags([ch.unregVtag, ch.unregItag, ch.regVtag, ch.regItag])
+        command = 'INSERT INTO resstate (logtime, et, period, name, connected, inputV, inputI, outputV, outputI) VALUES ("{time}",{et},{per},"{name}",{conn},{inv},{ini},{outv},{outi})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = res.name, conn = int(res.connected), inv = meas[ch.unregVtag], ini = meas[ch.unregItag] , outv = meas[ch.regVtag], outi = meas[ch.regItag])
+        self.dbwrite(command,dbconn)
     
     def dbnewcustomer(self,newcust,dbconn,t0):
         cursor = dbconn.cursor()
@@ -1476,7 +1572,15 @@ class UtilityAgent(Agent):
         cursor.execute(command)
         dbconn.commit()
         cursor.close()
-    
+        
+    def dbinfmeas(self,signal,value,dbconn,t0):
+        command = 'INSERT INTO infmeas (logtime, et, period, signame, value) VALUES ("{time}",{et},{per},"{sig}",{val})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0,per = self.CurrentPeriod.periodNumber,sig = signal,val = value)
+        self.dbwrite(command,dbconn)
+        
+    def dbtopo(self,topo,dbconn,t0):
+        command = 'INSERT INTO topology (logtime, et, period, topology) VALUES("{time}",{et},{per},"{top}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0,per = self.CurrentPeriod.periodNumber, top = topo)
+        self.dbwrite(command,dbconn)
+        
     def dbnewbid(self,newbid,dbconn,t0):
         command = 'INSERT INTO bids (logtime, et, period, id, side, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
         self.dbwrite(command,dbconn)
@@ -1499,6 +1603,10 @@ class UtilityAgent(Agent):
     def dbnewefficiency(self,generation,consumption,losses,unaccounted,dbconn, t0):
         command = 'INSERT INTO efficiency VALUES("{time}",{et},{per},{gen},{con},{loss},{unacc})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, gen = generation, con = consumption, loss = losses, unacc = unaccounted)
         self.dbwrite(command,dbconn)
+        
+    def dbrelayfault(self,location,measurement,dbconn,t0):
+        command = 'INSERT INTO relayfaults VALUES("{time}",{et},{per},{loc},{meas},{res})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, loc = location, meas = measurement, res = resistance)
+        self.dbwrite(command,dbconn)
             
     def dbwrite(self,command,dbconn):
         try:
@@ -1507,7 +1615,8 @@ class UtilityAgent(Agent):
             dbconn.commit()
             cursor.close()
         except Exception as e:
-            print("dbase error - if it says the table doesn't exist, don't believe it")
+            print("dbase error")
+            print(command)
             print(e)
     
     '''prints information about the utility and its assets'''

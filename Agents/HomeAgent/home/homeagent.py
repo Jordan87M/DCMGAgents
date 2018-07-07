@@ -231,6 +231,10 @@ class HomeAgent(Agent):
             if settings.DEBUGGING_LEVEL >= 2:
                 print("HOMEOWNER {me} WAITING FOR SOLICITATION".format(me = self.name))
             
+    @Core.periodic(settings.RESOURCE_MEASUREMENT_INTERVAL)
+    def resourceMeasurement(self):
+        for res in self.Resources:
+            self.dbupdateresource(res,self.dbconn,self.t0)
         
     @Core.periodic(settings.SIMSTEP_INTERVAL)
     def simStep(self):
@@ -885,7 +889,11 @@ class HomeAgent(Agent):
         #initial lower bound for bid rate
         initprice = 0
         
+        
         bound = initprice
+        
+        upper = initprice
+        lower = initprice
         
         pstep = .1
         pstepinc = .2
@@ -912,8 +920,10 @@ class HomeAgent(Agent):
         itr = 0
         if rec.pathcost > 0:
             while rec.pathcost > 0:
+                upper = bound
                 itr += 1
                 bound -= pstep
+                
                 
                 if pstep < maxstep:
                     pstep += pstepinc
@@ -924,11 +934,14 @@ class HomeAgent(Agent):
                 
                 rec = self.getOptimalForPrice(bound,bidgroup,subdebug)
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
+            lower = bound 
                 
         elif rec.pathcost < 0:
             while rec.pathcost < 0:
+                lower = bound
                 itr += 1
                 bound += pstep
+                
                 
                 if pstep < maxstep:
                     pstep += pstepinc
@@ -939,21 +952,22 @@ class HomeAgent(Agent):
                 
                 rec = self.getOptimalForPrice(bound,bidgroup,subdebug)                
                 print("bracketing price - price: {pri}, costfn: {cos}".format(pri = bound, cos = rec.pathcost))
-                
+            upper = bound
         else:
             #got it right the first time
             return bound, rec
         
-        
+        if bound == initprice:
+            return
             
-        if bound < initprice:
-            lower = bound
-            upper = initprice
-        elif bound > initprice:
-            lower = initprice
-            upper = bound
-        else:
-            return 
+#         if bound < initprice:
+#             lower = bound
+#             upper = initprice
+#         elif bound > initprice:
+#             lower = initprice
+#             upper = bound
+#         else:
+#             return 
         
         print("bracketed price - upper: {upp}, lower: {low}".format(upp = upper, low = lower))
         
@@ -1023,6 +1037,11 @@ class HomeAgent(Agent):
             return price, rec
     
     def getOptimalForPrice(self,price,bidgroup,debug = False):
+        #to do list:
+        #the last period should not have a stategrid made, instead, just evaluate the costfn for the simulated terminal states in the penultimate period
+        #the first period does not need a stategrid either, just evaluate the actual state
+        #for the first state, consider using a finer discretization of the input space if applicable
+        
         
         if debug:
             print("HOMEOWNER {me} starting new iteration".format(me = self.name))
@@ -1532,6 +1551,12 @@ class HomeAgent(Agent):
         
     def dbupdateappliance(self, app, power, dbconn, t0):
         command = 'INSERT INTO appstate VALUES ("{time}",{et},{per},"{name}",{state},{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = app.name, state = app.getStateEng(), pow = power)
+        self.dbwrite(command,dbconn)
+        
+    def dbupdateresource(self,res,dbconn,t0):
+        ch = res.DischargeChannel
+        meas = tagClient.readTags([ch.unregVtag, ch.unregItag, ch.regVtag, ch.regItag])
+        command = 'INSERT INTO resstate (logtime, et, period, name, connected, inputV, inputI, outputV, outputI) VALUES ("{time}",{et},{per},"{name}",{conn},{inv},{ini},{outv},{outi})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = res.name, conn = int(res.connected), inv = meas[ch.unregVtag], ini = meas[ch.unregItag] , outv = meas[ch.regVtag], outi = meas[ch.regItag])
         self.dbwrite(command,dbconn)
     
     def dbnewplan(self, action, plantime, dbconn, t0):

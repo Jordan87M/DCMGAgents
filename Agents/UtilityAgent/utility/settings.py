@@ -11,6 +11,8 @@ ST_PLAN_INTERVAL = 45
 #interval between bid solicitation and auction
 BID_SUBMISSION_INTERVAL = 30
 
+#time between relay state evaluations in seconds
+SWITCH_FAULT_INTERVAL = 50
 
 #time between fault detection routine runs in seconds
 FAULT_DETECTION_INTERVAL = 5
@@ -27,11 +29,17 @@ ACCOUNTING_INTERVAL = 5
 #currently unused
 RESERVE_DISPATCH_INTERVAL = 5
 
+#interval in seconds between resource current and voltage measurements
+RESOURCE_MEASUREMENT_INTERVAL = 10
+
 #interval between announcements of next planning period begin/end times in seconds
 ANNOUNCE_PERIOD_INTERVAL = 10
 
 #interval between bus voltage correction function runs in seconds
 SECONDARY_VOLTAGE_INTERVAL = 5
+
+#interval between infrastructure current measurements for database
+INF_CURRENT_MEASUREMENT_INTERVAL = 5
 
 ##OTHER STUFF
 #upper and lower limits for acceptable voltage band

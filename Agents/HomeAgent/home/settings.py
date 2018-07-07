@@ -9,3 +9,5 @@ SIMSTEP_INTERVAL = 5
 
 ASSUMED_RATE = .1
 
+#interval in seconds between resource current and voltage measurements
+RESOURCE_MEASUREMENT_INTERVAL = 10

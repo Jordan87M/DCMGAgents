@@ -506,19 +506,19 @@ class Channel():
         self.powerSelectTag = "SOURCE_{d}_POWER_REG_SELECT".format(d = self.channelNumber)
 
         #tags for reading
-        self.regVTag = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)
-        self.unregVTag = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
+        self.regVtag = "SOURCE_{d}_RegVoltage".format(d = self.channelNumber)
+        self.unregVtag = "SOURCE_{d}_UnregVoltage".format(d = self.channelNumber)
         self.regItag =  "SOURCE_{d}_RegCurrent".format(d = self.channelNumber)
         self.unregItag = "SOURCE_{d}_UnregCurrent".format(d = self.channelNumber)
         
     def getRegV(self):
-        tagName = self.regVTag     
+        tagName = self.regVtag     
         #call to CIP wrapper
         value = tagClient.readTags([tagName])
         return value   
         
     def getUnregV(self):
-        tagName = self.unregVTag
+        tagName = self.unregVtag
         value = tagClient.readTags([tagName])
         return value
     

@@ -2,6 +2,7 @@ from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources import resource, customer
 
 import operator
+from __builtin__ import True
 
 class Group(object):
     def __init__(self,name,resources = [], nodes = [], customers = [], **kwargs):
@@ -202,22 +203,28 @@ class Node(BaseNode):
         self.loadprioritylist = []
         
         self.grid, self.branch, self.bus = self.name.split(".")
-        if self.branch != "MAIN":
-            self.branchNumber = self.branch[-1]
-            self.busNumber = self.bus[-1]
-            
+        if self.grid == "DC":
+            if self.branch != "MAIN":
+                self.branchNumber = self.branch[-1]
+                self.busNumber = self.bus[-1]
+                
+            if self.branch != "MAIN":
+                self.voltageTag = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
+            else:
+                self.voltageTag = "MAIN_BUS_Voltage"
+        elif self.grid == "AC":
+            pass
+        else:
+            pass
+                
     def rebuildpriorities(self):
         self.loadprioritylist = []
         self.loadprioritylist.extend(self.customers)
         self.loadprioritylist.sort(key = operator.attrgetter("priorityscore"))
         
     def getVoltage(self):
-        if self.branch != "MAIN":
-            signal = "BRANCH_{branch}_BUS_{bus}_Voltage".format(branch = self.branchNumber, bus = self.busNumber)
-        else:
-            signal = "MAIN_BUS_Voltage"
-            
-        return tagClient.readTags([signal])
+                    
+        return tagClient.readTags([self.voltageTag])
     
     def hasGroundFault(self):
         for fault in self.faults:
@@ -228,9 +235,12 @@ class Node(BaseNode):
     def addCustomer(self,cust):
         self.customers.append(cust)
         custnode = BaseNode(cust.name + "Node")
-        self.addEdge(custnode,"to",cust.currentTag, [Relay(cust.relayTag,"load")])
+        custrelay = Relay(cust.relayTag,"load")
+        custedge = self.addEdge(custnode,"to",cust.currentTag, [custrelay])
         self.priorityscore += cust.priorityscore
         self.rebuildpriorities()
+        
+        return custnode, custrelay, custedge
     
     def addResource(self,res):   
         self.resources.append(res)
@@ -327,22 +337,27 @@ class DirEdge(object):
     #checks the recorded state of the relays between two nodes against the resistance
     #measured between two nodes to assist in finding relay faults
     def checkConsistency(self):
-        statemodel = self.checkRelaysOpen()
+        statemodel = self.checkRelaysClosed()
         resistance,reliable = self.getResistance()
-        if reliable:
-            if resistance < 10:
-                statemeas = True
-            else:
-                statemeas = False
-            
-                
-            if statemeas or statemodel:
-                if statemeas and statemodel:
-                    return ("open", True)
-                else:
-                    return(statemeas, False)
-            if not statemeas and not statemodel:                
-                return ("closed", True)
+        outdict = {}
+        outdict["reliable"] = reliable
+        outdict["resistance"] = resistance
+        
+        if resistance < 10:
+            statemeas = True
+        else:
+            statemeas = False        
+        
+        outdict["measured_state"] = statemeas
+        
+        discrepancy = True
+        if statemeas == statemodel:
+            discrepancy = False
+        
+        outdict["discrepancy"] = discrepancy
+        
+        return outdict
+        
         
     def getCurrent(self):
         return tagClient.readTags([self.currentTag])
@@ -354,21 +369,30 @@ class DirEdge(object):
         v2 = self.endNode.getVoltage()
         vdiff = v1 - v2
         i = self.getCurrent()
-        if abs(i) < .0001:
-            i = .0001
+        if abs(i) < .0000001:
+            i = .0000001
         R = vdiff/i    
         
-        if v1 > .05 and v2 > .05:
-            if vdiff > .05:
-                return (R, True)
-            else:
-                if i < .05:
-                    return (R,False)
-                else:
-                    return (R,True)
+        #are measurements accurate enough?
+        if vdiff > .05 or i > .01:
+            return (R,True)
         else:
-            #unreliable
+            #data points are too close to the origin
             return (R,False)
+        
+#         if v1 > .05 and v2 > .05:
+#             if vdiff > .05:
+#                 return (R, True)
+#             else:
+#                 if i < .05:
+#                     return (R,False)
+#                 else:
+#                     return (R,True)
+#         elif v1> .05 or v2> .05:
+#             return (R,True)
+#         else:            
+#             #unreliable
+#             return (R,False)
     
     def checkRelaysClosed(self):
         for relay in self.relays:
