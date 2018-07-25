@@ -22,7 +22,7 @@ class Group(object):
         self.nodeprioritylist = []
         self.loadprioritylist = []
         self.nodeprioritylist.extend(self.nodes)
-        self.loadprioritylist.extend(self.nodes)
+        self.loadprioritylist.extend(self.customers)
         self.nodeprioritylist.sort(key = operator.attrgetter("priorityscore"))
         self.loadprioritylist.sort(key = operator.attrgetter("priorityscore"))
 
@@ -421,6 +421,9 @@ class DirEdge(object):
         spaces = "    "
         print(spaces*depth + "BEGIN EDGE CONNECTING {orig} to {term}".format(orig = self.startNode.name, term = self.endNode.name))
         print(spaces*(depth + 1) + "CURRENT TAG NAME: {tag}".format(tag = self.currentTag))
+        print(spaces*(depth + 1) + "RELAYS:")
+        for relay in self.relays:
+            relay.printInfo(depth + 1)
         
 class Relay(object):
     def __init__(self,tagname,type):
@@ -454,10 +457,16 @@ class Relay(object):
         self.closed = False
         
     def setFault(self):
-        self.owningNode.setFault("relayfault")
+        for node in self.owningNodes:
+            node.setFault("relayfault")
         self.faulted = True
         
     def clearFault(self):
-        self.owningNode.checkFault("relayfault")
+        for node in self.owningNodes:
+            node.checkFault("relayfault")
         self.faulted = False
-        
+    
+    def printInfo(self,depth = 1):
+        tab = "    "
+        print(depth*tab + "STATE: {sta}".format(sta = self.closed))
+        print(depth*tab + "FAULT: {fau}".format(fau = self.faulted))

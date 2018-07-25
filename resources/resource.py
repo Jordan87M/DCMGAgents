@@ -560,7 +560,16 @@ class Channel():
         tagClient.writeTags([self.relayTag],[True])
         #read tag to confirm write success
         self.connected = tagClient.readTags([self.relayTag])
+        #self.connected = True
         return self.connected
+    
+    def confirmrelaystate(self):
+        conncheck = tagClient.readTags([self.relayTag])
+        
+        if conncheck == self.connected:
+            return True
+        else:
+            print("relay state discrepancy found")
     
     '''calculates droop coefficient based on setpoint and writes to PLC before connecting
     the resource. includes an optional voltage offset argument to be used with reserves'''    

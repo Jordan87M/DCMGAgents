@@ -55,13 +55,15 @@ class StateGrid(object):
         
     def addGridPoint(self,point):
         self.grid.append(point)
-        
+    
+    #consider deletion    
     def getPoint(self,indices):
         a = self.grid
         for index in indices:
             a = a[index]
         return a
     
+    #consider deletion
     def setPoint(self,indices,value):
         a = self.grid
         for index in indices:

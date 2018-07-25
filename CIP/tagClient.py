@@ -3,14 +3,14 @@ import sys
 import subprocess
 from datetime import datetime
 
-#not used anymore
-def startTagServer():
-    try:
-        subprocess.call(["ServeTagsTemporarily&"])
-    except Exception as e:
-        print(e.args)
-        print("problem starting tag server")
-        
+# #not used anymore
+# def startTagServer():
+#     try:
+#         subprocess.call(["ServeTagsTemporarily&"])
+#     except Exception as e:
+#         print(e.args)
+#         print("problem starting tag server")
+#         
 
 '''writes multiple tags to a tag server. tag names and values must be provided as lists
 even if only a single tag value pair is being written'''

@@ -81,6 +81,7 @@ class UtilityAgent(Agent):
         self.outstandingDemandBids = []
         
         sys.path.append('/usr/lib/python2.7/dist-packages')
+        sys.path.append('/usr/local/lib/python2.7/dist-packages')
         print(sys.path)
         import mysql.connector
         
@@ -105,22 +106,24 @@ class UtilityAgent(Agent):
         cursor.execute('DROP TABLE IF EXISTS efficiency')
         cursor.execute('DROP TABLE IF EXISTS relayfaults')
         cursor.execute('DROP TABLE IF EXISTS topology')
+        cursor.execute('DROP TABLE IF EXISTS consumption')
         
         cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, period INT, signame TEXT, value DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS customers (logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS bids (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
+        cursor.execute('CREATE TABLE IF NOT EXISTS bids (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, service TEXT, aux_service TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, acc_for TEXT, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
         cursor.execute('CREATE TABLE IF NOT EXISTS prices (logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
         cursor.execute('CREATE TABLE IF NOT EXISTS drevents (logtime TIMESTAMP, et DOUBLE, period INT, type TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS transactions (logtime TIMESTAMP, et DOUBLE, period INT, account_holder TEXT, transaction_type TEXT, amount DOUBLE, balance DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS resources (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, location TEXT, max_power DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS appliances (logtime TIMESTAMP, et DOUBLE, name TEXT, type TEXT, owner TEXT, max_power DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS appstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, power DOUBLE)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS resstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, connected BOOLEAN, inputV DOUBLE, inputI DOUBLE, outputV DOUBLE, outputI DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS resstate (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, state DOUBLE, connected BOOLEAN, reference_voltage DOUBLE, setpoint DOUBLE, inputV DOUBLE, inputI DOUBLE, outputV DOUBLE, outputI DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS plans (logtime TIMESTAMP, et DOUBLE, period INT, planning_time DOUBLE, planner TEXT, cost DOUBLE, action TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS efficiency (logtime TIMESTAMP, et DOUBLE, period INT, generation DOUBLE, consumption DOUBLE, loss DOUBLE, unaccounted DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS relayfaults (logtime TIMESTAMP, et DOUBLE, period INT, location TEXT, measured TEXT, resistance DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS topology (logtime TIMESTAMP, et DOUBLE, period INT, topology TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS consumption (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, power DOUBLE)')
         
         cursor.close()
         
@@ -447,6 +450,9 @@ class UtilityAgent(Agent):
         for group in self.groupList:
             for cust in group.customers:
                 power = cust.measurePower()
+                
+                self.dbconsumption(cust,power,self.dbconn,self.t0)
+                
                 energy = power*settings.ACCOUNTING_INTERVAL
                 balanceAdjustment = -energy*group.rate*cust.rateAdjustment
                 if type(balanceAdjustment) is float or type(balanceAdjustment) is int:
@@ -905,6 +911,9 @@ class UtilityAgent(Agent):
                 if bid.accepted:
                     self.sendBidAcceptance(bid,group.rate)
                     
+                    #update bid's entry in database
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
+                    
                     #self.NextPeriod.plan.addBid(bid)
                     self.NextPeriod.supplybidmanager.readybids.append(bid)
                 else:
@@ -994,24 +1003,28 @@ class UtilityAgent(Agent):
                                 print(" Resource {rname} is already connected".format(rname = res.name))
                             if bid.service == "power":
                                 #res.DischargeChannel.ramp(bid.amount)
-                                res.DischargeChannel.changeSetpoint(bid.amount)
+                                #res.DischargeChannel.changeSetpoint(bid.amount)
+                                res.setDisposition(bid.amount, 0)
                                 if settings.DEBUGGING_LEVEL >= 2:
                                     print("Power resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
                             elif bid.service == "reserve":
                                 #res.DischargeChannel.ramp(.1)            
-                                res.DischargeChannel.changeReserve(bid.amount,-.2)
+                                #res.DischargeChannel.changeReserve(bid.amount,-.2)
+                                res.setDisposition(bid.amount,-0.2)
                                 if settings.DEBUGGING_LEVEL >= 2:
                                     print("Reserve resource {rname} setpoint to {amt}".format(rname = res.name, amt = bid.amount))
                         #if the resource isn't connected, connect it and ramp up power
                         else:
                             if bid.service == "power":
                                 #res.connectSourceSoft("Preg",bid.amount)
-                                res.DischargeChannel.connectWithSet(bid.amount,0)
+                                #res.DischargeChannel.connectWithSet(bid.amount,0)
+                                res.setDisposition(bid.amount,0)
                                 if settings.DEBUGGING_LEVEL >= 2:
                                     print("Connecting resource {rname} with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
                             elif bid.service == "reserve":
                                 #res.connectSourceSoft("Preg",.1)
-                                res.DischargeChannel.connectWithSet(bid.amount, -.2)
+                                #res.DischargeChannel.connectWithSet(bid.amount, -.2)
+                                res.setDisposition(bid.amount, -0.2)
                                 if settings.DEBUGGING_LEVEL >= 2:
                                     print("Committed resource {rname} as a reserve with setpoint: {amt}".format(rname = res.name, amt = bid.amount))
             #disconnect resources that aren't being used anymore
@@ -1527,7 +1540,11 @@ class UtilityAgent(Agent):
                     print("UTILITY {me} RECEIVED A {side} BID#{id} FROM {them}".format(me = self.name, side = side,id = uid, them = messageSender ))
                     if settings.DEBUGGING_LEVEL >= 2:
                         newbid.printInfo(0)
-
+            elif messageSubject == "bid_acceptance":
+                pass
+                #dbupdatebid()
+            else:
+                print("UTILITY {me} RECEIVED AN UNSUPPORTED MESSAGE TYPE: {msg} ON THE energymarket TOPIC".format(me = self.name, msg = messageSubject))
                 
     '''callback for demandresponse topic'''
     def DRfeed(self, peer, sender, bus, topic, headers, message):
@@ -1560,10 +1577,14 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             self.dbupdateresource(res,self.dbconn,self.t0)
             
+    def dbconsumption(self,cust,pow,dbconn,t0):
+        command = 'INSERT INTO consumption (logtime, et, period, name, power) VALUES ("{time}",{et},{per},"{name}",{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber,name = cust.name, pow = pow)
+        self.dbwrite(command,dbconn)
+                
     def dbupdateresource(self,res,dbconn,t0):
         ch = res.DischargeChannel
         meas = tagClient.readTags([ch.unregVtag, ch.unregItag, ch.regVtag, ch.regItag])
-        command = 'INSERT INTO resstate (logtime, et, period, name, connected, inputV, inputI, outputV, outputI) VALUES ("{time}",{et},{per},"{name}",{conn},{inv},{ini},{outv},{outi})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = res.name, conn = int(res.connected), inv = meas[ch.unregVtag], ini = meas[ch.unregItag] , outv = meas[ch.regVtag], outi = meas[ch.regItag])
+        command = 'INSERT INTO resstate (logtime, et, period, name, connected, reference_voltage, setpoint, inputV, inputI, outputV, outputI) VALUES ("{time}",{et},{per},"{name}",{conn},{refv},{setp},{inv},{ini},{outv},{outi})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = res.name, conn = int(res.connected), refv = ch.refVoltage, setp = ch.setpoint, inv = meas[ch.unregVtag], ini = meas[ch.unregItag] , outv = meas[ch.regVtag], outi = meas[ch.regItag])
         self.dbwrite(command,dbconn)
     
     def dbnewcustomer(self,newcust,dbconn,t0):
@@ -1582,12 +1603,21 @@ class UtilityAgent(Agent):
         self.dbwrite(command,dbconn)
         
     def dbnewbid(self,newbid,dbconn,t0):
-        command = 'INSERT INTO bids (logtime, et, period, id, side, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
+        if hasattr(newbid,"service"):
+            if hasattr(newbid,"auxilliary_service"):
+                command = 'INSERT INTO bids (logtime, et, period, id, side, service, aux_service, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{serv}","{aux}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, serv = newbid.service, aux = newbid.auxilliary_service, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
+            else:
+                command = 'INSERT INTO bids (logtime, et, period, id, side, service, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{serv}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, serv = newbid.service, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
+        else:
+            command = 'INSERT INTO bids (logtime, et, period, id, side, resource_name, counterparty_name, orig_rate, orig_amount) VALUES ("{time}",{et},{per},{id},"{side}","{resname}","{cntrname}",{rate},{amt})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = newbid.periodNumber,id = newbid.uid, side = newbid.side, resname = newbid.resourceName, cntrname = newbid.counterparty, rate = newbid.rate, amt = newbid.amount) 
         self.dbwrite(command,dbconn)
         
     def dbupdatebid(self,bid,dbconn,t0):
         if bid.accepted:
-            command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = int(bid.accepted), rate = bid.rate, amt = bid.amount, id = bid.uid)
+            if hasattr(bid,"service"):
+                command = 'UPDATE bids SET accepted="{acc}",acc_for="{accfor}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = int(bid.accepted), accfor = bid.service, rate = bid.rate, amt = bid.amount, id = bid.uid)
+            else:
+                command = 'UPDATE bids SET accepted="{acc}",settle_rate={rate},settle_amount={amt} WHERE id={id}'.format(acc = int(bid.accepted), rate = bid.rate, amt = bid.amount, id = bid.uid)
         else:
             command = 'UPDATE bids SET accepted={acc} WHERE id={id}'.format(acc = int(bid.accepted), id = bid.uid)
         self.dbwrite(command,dbconn)

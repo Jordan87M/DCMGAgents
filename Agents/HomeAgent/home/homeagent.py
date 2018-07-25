@@ -75,6 +75,7 @@ class HomeAgent(Agent):
         
         #add dist-packages to python path for mysql module
         sys.path.append('/usr/lib/python2.7/dist-packages')
+        sys.path.append('/usr/local/lib/python2.7/dist-packages')
         print(sys.path)
         import mysql.connector
         
@@ -1556,7 +1557,7 @@ class HomeAgent(Agent):
     def dbupdateresource(self,res,dbconn,t0):
         ch = res.DischargeChannel
         meas = tagClient.readTags([ch.unregVtag, ch.unregItag, ch.regVtag, ch.regItag])
-        command = 'INSERT INTO resstate (logtime, et, period, name, connected, inputV, inputI, outputV, outputI) VALUES ("{time}",{et},{per},"{name}",{conn},{inv},{ini},{outv},{outi})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = res.name, conn = int(res.connected), inv = meas[ch.unregVtag], ini = meas[ch.unregItag] , outv = meas[ch.regVtag], outi = meas[ch.regItag])
+        command = 'INSERT INTO resstate (logtime, et, period, name, connected, reference_voltage, setpoint, inputV, inputI, outputV, outputI) VALUES ("{time}",{et},{per},"{name}",{conn},{refv},{setp},{inv},{ini},{outv},{outi})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = res.name, conn = int(res.connected), refv = ch.refVoltage, setp = ch.setpoint, inv = meas[ch.unregVtag], ini = meas[ch.unregItag] , outv = meas[ch.regVtag], outi = meas[ch.regItag])
         self.dbwrite(command,dbconn)
     
     def dbnewplan(self, action, plantime, dbconn, t0):
