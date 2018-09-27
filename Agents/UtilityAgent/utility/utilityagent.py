@@ -107,6 +107,7 @@ class UtilityAgent(Agent):
         cursor.execute('DROP TABLE IF EXISTS relayfaults')
         cursor.execute('DROP TABLE IF EXISTS topology')
         cursor.execute('DROP TABLE IF EXISTS consumption')
+        cursor.execute('DROP TABLE IF EXISTS periods')
         
         cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, period INT, signame TEXT, value DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
@@ -124,6 +125,7 @@ class UtilityAgent(Agent):
         cursor.execute('CREATE TABLE IF NOT EXISTS relayfaults (logtime TIMESTAMP, et DOUBLE, period INT, location TEXT, measured TEXT, resistance DOUBLE)')
         cursor.execute('CREATE TABLE IF NOT EXISTS topology (logtime TIMESTAMP, et DOUBLE, period INT, topology TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS consumption (logtime TIMESTAMP, et DOUBLE, period INT, name TEXT, power DOUBLE)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS periods (number INT, start TIMESTAMP)')
         
         cursor.close()
         
@@ -220,6 +222,9 @@ class UtilityAgent(Agent):
         now = datetime.now()
         end = datetime.now() + timedelta(seconds = settings.ST_PLAN_INTERVAL)
         self.CurrentPeriod = control.Period(0,now,end,self)
+        
+        #put period zero in database
+        self.dbnewperiod(0,now,self.dbconn,self.t0)
         
         self.NextPeriod = control.Period(1,end,end + timedelta(seconds = settings.ST_PLAN_INTERVAL),self)
         
@@ -505,6 +510,9 @@ class UtilityAgent(Agent):
                    "start_time" : self.NextPeriod.startTime.isoformat(),
                    "end_time" : self.NextPeriod.endTime.isoformat()
                    }
+        
+        #record period in database
+        self.dbnewperiod(self.NextPeriod.periodNumber, self.NextPeriod.startTime.isoformat(), self.dbconn, self.t0)
         
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} ANNOUNCING period {pn} starting at {t}".format(me = self.name, pn = mesdict["period_number"], t = mesdict["start_time"]))
@@ -1031,8 +1039,9 @@ class UtilityAgent(Agent):
             for res in self.Resources:
                 if res not in involvedResources:
                     if res.connected == True:
-                        #res.disconnectSourceSoft()
-                        res.DischargeChannel.disconnect()
+                        #res.disconnectSourceSoft() -- deprecated
+                        #res.DischargeChannel.disconnect() -- doesn't propagate .connected state to resource
+                        res.setDisposition(0)
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
             
@@ -1602,6 +1611,10 @@ class UtilityAgent(Agent):
         command = 'INSERT INTO topology (logtime, et, period, topology) VALUES("{time}",{et},{per},"{top}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0,per = self.CurrentPeriod.periodNumber, top = topo)
         self.dbwrite(command,dbconn)
         
+    def dbnewprice(self,location,rate,dbconn,t0):
+        command = 'INSERT INTO prices (logtime, et, period, node, rate) VALUES {"{time}",{et},{per},"{loc}",{rat})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0,per = self.CurrentPeriod.periodNumber, loc = location, rat = rate)
+        self.dbwrite(command,dbconn)
+        
     def dbnewbid(self,newbid,dbconn,t0):
         if hasattr(newbid,"service"):
             if hasattr(newbid,"auxilliary_service"):
@@ -1636,6 +1649,10 @@ class UtilityAgent(Agent):
         
     def dbrelayfault(self,location,measurement,dbconn,t0):
         command = 'INSERT INTO relayfaults VALUES("{time}",{et},{per},{loc},{meas},{res})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, loc = location, meas = measurement, res = resistance)
+        self.dbwrite(command,dbconn)
+        
+    def dbnewperiod(self,number,start,dbconn,t0):
+        command = 'INSERT INTO periods VALUES({per},"{time}")'.format(per = number, time = start )
         self.dbwrite(command,dbconn)
             
     def dbwrite(self,command,dbconn):
