@@ -1,7 +1,0 @@
-{
-	"agentid": "utility",
-	"name": "ENERCON",
-	"message": "utility agent starting up",
-	"resources": [{"type":"solar","owner":"ENERCON", "location": "DC.BRANCH1.BUS1", "name":"Phaeton", "capCost": 90, "maxDischargePower":10,"dischargeChannel":2,"Voc":21,"Vmpp":18},
-			{"type":"generator", "owner":"ENERCON", "location": "DC.MAIN.MAIN", "name":"Devonian", "capCost":100, "amortization_period":10, "maxDischargePower":4,"dischargeChannel":1,"fuel_cost":0.05}]
-}
