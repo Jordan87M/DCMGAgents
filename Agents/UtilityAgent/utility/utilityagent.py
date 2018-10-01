@@ -888,7 +888,7 @@ class UtilityAgent(Agent):
                     self.dbupdatebid(bid,self.dbconn,self.t0)
                     
                     #self.NextPeriod.plan.addConsumption(bid)
-                    self.NextPeriod.demandbidmanager.readybids.append(bid)
+                    self.NextPeriod.demandbidmanager.acceptedbids.append(bid)
                     
                     #give customer permission to connect
                     cust.permission = True                    
@@ -923,7 +923,8 @@ class UtilityAgent(Agent):
                     self.dbupdatebid(bid,self.dbconn,self.t0)
                     
                     #self.NextPeriod.plan.addBid(bid)
-                    self.NextPeriod.supplybidmanager.readybids.append(bid)
+                    #self.NextPeriod.supplybidmanager.readybids.append(bid)
+                    self.NextPeriod.supplybidmanager.acceptedbids.append(bid)
                 else:
                     self.sendBidRejection(bid,group.rate)
                 #update bid's entry in database

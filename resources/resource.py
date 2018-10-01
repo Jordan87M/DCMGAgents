@@ -589,7 +589,7 @@ class Channel():
     def changeSetpoint(self,newPower):
         self.setpoint = newPower
         droopCoeff = self.setpoint/(self.noLoadVoltage - self.refVoltage)
-        tagClient.writeTags([self.droopCoeffTag],[droopCoeff])
+        tagClient.writeTags([self.droopCoeffTag, self.noLoadVoltageTag],[droopCoeff, self.noLoadVoltage])
     
     '''changes the droop coefficient by updating the power target at the reference voltage
     and writes it to the PLC. also takes a voltage offset argument. to be used with reserve
