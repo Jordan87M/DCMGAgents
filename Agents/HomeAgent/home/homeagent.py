@@ -862,7 +862,7 @@ class HomeAgent(Agent):
                     self.DR_participant = True    
                     
     #generate new bid for each planning group                    
-    def makeNewPlan(self,debug = True):
+    def makeNewPlan(self,debug = False):
         self.PlanningWindow.resetPlans(self.BidGroups,False)
         
         #associate cost functions with plans
@@ -910,8 +910,8 @@ class HomeAgent(Agent):
             maxitr = 6
             
         #turns debugging on or off for subroutines
-        subdebug = True
-        #subdebug = False
+        #subdebug = True
+        subdebug = False
         
         start = time.time()
         rec = self.getOptimalForPrice(bound,bidgroup,subdebug)

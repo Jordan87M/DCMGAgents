@@ -1,5 +1,6 @@
 from DCMGClasses.CIP import tagClient
 from DCMGClasses.resources import resource, customer
+from DCMGClasses.resources.misc import faults
 
 import operator
 from __builtin__ import True
@@ -17,6 +18,10 @@ class Group(object):
         
         self.nodeprioritylist = []
         self.loadprioritylist = []
+        
+        #self.demandBidList = []
+        #self.supplyBidList = []
+        #self.reserveBidList = [] 
         
     def rebuildpriorities(self):
         self.nodeprioritylist = []
@@ -90,7 +95,7 @@ class Zone(object):
         self.nodeprioritylist.sort(key = operator.attrgetter("priorityscore"))
             
     def newGroundFault(self):
-        newfault = GroundFault("suspected")
+        newfault = faults.GroundFault("suspected",self)
         self.faults.append(newfault)
         newfault.owners.append(self)
         for node in self.nodes:
@@ -110,16 +115,20 @@ class Zone(object):
         
         total = 0        
         for edge in self.interzonaledges:
-            if edge.startNode is self:
+            if edge.startNode in self.nodes:
                 total -= infcurrents.get(edge.currentTag)
-            elif edge.endNode is self:
+            elif edge.endNode in self.nodes:
                 total += infcurrents.get(edge.currentTag)
             else:
                 pass
+            
+            print "total: {tot} after {nam}".format(tot = total,nam=edge.name)
+            
         return total
     
     
     def isolateZone(self):
+        print("isolating zone {nam}".format(nam = self.name))
         for edge in self.interzonaledges:
             edge.openRelays()
     
@@ -128,12 +137,18 @@ class Zone(object):
         for node in self.nodes:
             for edge in node.originatingedges:
                 if edge.endNode not in self.nodes:
-                    self.interzonaloriginatingedges.append(edge)
+                    if edge not in self.interzonaloriginatingedges:
+                        self.interzonaloriginatingedges.append(edge)
+                    if edge not in self.interzonaledges:
+                        self.interzonaledges.append(edge)
             for edge in node.terminatingedges:
                 if edge.startNode not in self.nodes:
-                    self.interzonalterminatingedges.append(edge)
-                    
-    def printInfo(self,depth):
+                    if edge not in self. interzonalterminatingedges:
+                        self.interzonalterminatingedges.append(edge)
+                    if edge not in self.interzonaledges:
+                        self.interzonaledges.append(edge)
+                        
+    def printInfo(self,depth=0):
         spaces = '    '
         print(spaces*depth + "ZONE {me}:".format(me = self.name))
         for key in self.faults:
@@ -168,17 +183,39 @@ class BaseNode(object):
         self.terminatingedges = []
         
     def addEdge(self,otherNode,dir,currentTag,relays):
+        
+        print("adding new edge between {nam} and {oth}".format(nam = self.name, oth = otherNode.name))
         if dir == "to":
             newedge = DirEdge(self,otherNode,currentTag,relays)
             self.originatingedges.append(newedge)
             otherNode.terminatingedges.append(newedge)
+            
         elif dir == "from":
             newedge = DirEdge(otherNode,self,currentTag,relays)
             self.terminatingedges.append(newedge)
             otherNode.originatingedges.append(newedge)
         else:
             print("addEdge() didn't do anything. The dir parameter must be 'to' or 'from'. ")
+            return
         
+        #identify interzonal edges
+        if self.zone:
+            if otherNode not in self.zone.nodes:
+                self.zone.interzonaledges.append(newedge)
+                if dir =="to":
+                    self.zone.interzonaloriginatingedges.append(newedge)
+                elif dir == "from":
+                    self.zone.interzonalterminatingedges.append(newedge)
+        #for the other node too
+        if otherNode.zone:
+            if self not in otherNode.zone.nodes:
+                otherNode.zone.interzonaledges.append(newedge)
+                if dir == "to":
+                    otherNode.zone.interzonalterminatingedges.append(newedge)
+                elif dir == "from":
+                    otherNode.zone.interzonaloriginatingedges.append(newedge)
+            
+            
         for relay in relays:
             relay.owningEdge = newedge
                     
@@ -197,7 +234,7 @@ class BaseNode(object):
 class Node(BaseNode):
     def __init__(self, name, **kwargs):
         super(Node,self).__init__(name, **kwargs)
-        savedstate = {}
+        self.savedstate = {}
         
         self.priorityscore = 0
         self.loadprioritylist = []
@@ -216,6 +253,10 @@ class Node(BaseNode):
             pass
         else:
             pass
+        
+#         for edge in self.edges:
+#             for relay in edge.relays:
+#                 savedstate[relay] = None
                 
     def rebuildpriorities(self):
         self.loadprioritylist = []
@@ -250,16 +291,25 @@ class Node(BaseNode):
             self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,[Relay(res.ChargeChannel.relayTag,"source")])
     
     def isolateNode(self):
+        print("Isolating node {nam}".format(nam = self.name))
+        
         for edge in self.edges:
-            for relay in  edge.relays:
+            print("looking at edge {nam}".format(nam=edge.name))
+            for relay in edge.relays:
+                print("saving relay state: {nam} was {sta}".format(nam=relay.tagName, sta=relay.closed))
                 #first, record the state we were in before
                 self.savedstate[relay] = relay.closed
             #then, open the relays
             edge.openRelays()
-            
-    def restore(self):
+        
+        for key in self.savedstate:
+            print key
+                    
+    def restore(self):        
+        print("Restoring node {nam}".format(nam = self.name))
         for edge in self.edges:
             for relay in edge.relays:
+                print("closing relay {nam}".format(nam = relay.tagName))
                 if self.savedstate[relay]:
                     relay.closeRelay()
             
@@ -334,6 +384,13 @@ class DirEdge(object):
         
         self.relays = relays
         self.name = "from" + self.startNode.name + "to" + self.endNode.name
+        
+        #update the zones' lists of interzonal edges
+#         if self.startNode.zone:
+#             self.startNode.zone.findinterzonaledges()
+#         if self.endNode.zone:
+#             self.endNode.zone.findinterzonaledges()
+        
     #checks the recorded state of the relays between two nodes against the resistance
     #measured between two nodes to assist in finding relay faults
     def checkConsistency(self):
@@ -402,6 +459,7 @@ class DirEdge(object):
     
     def openRelays(self):
         for relay in self.relays:
+            print("opening relay {nam}".format(nam = relay.tagName))
             relay.openRelay()
     
     def closeRelays(self):

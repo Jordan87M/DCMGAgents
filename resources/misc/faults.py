@@ -1,5 +1,7 @@
 from volttron.platform.vip.agent import core
 
+import random
+
 class Fault(object):
     def __init__(self,state = "suspected"):
         self.state = state
@@ -25,7 +27,7 @@ class Fault(object):
                 
             self.owners.remove(owner)
         
-class GroundFault(object):
+class GroundFault(Fault):
     def __init__(self,state,zone):
         super(GroundFault,self).__init__(state)
         self.reclose = True
@@ -33,19 +35,23 @@ class GroundFault(object):
         self.faultednodes = []
         self.reclosecounter = 0
         self.reclosemax = 2
+        self.zone = zone
         
         
-    def isolatenode(self,node):
+    def isolateNode(self,node):
         if node in self.owners:
-            node.isolatenode()
+            node.isolateNode()
             self.isolatednodes.append(node)
     
     def restorenode(self,node):
         if node in self.owners:
             node.restore()
-            self.isolatednodes.remove(node)
             
-            self.faultednodes.remove(node)
+            if node in self.isolatednodes:
+                self.isolatednodes.remove(node)
+            
+            if node in self.faultednodes:
+                self.faultednodes.remove(node)
             
     def reclosenode(self,node):
         self.reclosecounter += 1
@@ -58,9 +64,9 @@ class GroundFault(object):
         self.reclosecounter = 0
         #send message to SG PLC
         
-    def printInfo(depth = 0):
+    def printInfo(self,depth = 0):
         tab = "    "
-        print(tab*depth + "FAULT: {state}".format(state = self.state))
+        print(tab*depth + "FAULT: {sta}".format(sta = self.state))
         print(tab*depth + "-RECLOSES LEFT: {amt} of {max}".format(amt = self.reclosemax-self.reclosecounter, max = self.reclosemax))
         print(tab*depth + "-AFFECTED NODES and ZONES")
         for owner in self.owners:

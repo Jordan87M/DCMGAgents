@@ -41,6 +41,9 @@ SECONDARY_VOLTAGE_INTERVAL = 5
 #interval between infrastructure current measurements for database
 INF_CURRENT_MEASUREMENT_INTERVAL = 5
 
+#interval between infrastructure efficiency measurements for database
+INF_EFF_MEASUREMENT_INTERVAL = 15
+
 ##OTHER STUFF
 #upper and lower limits for acceptable voltage band
 VOLTAGE_BAND_LOWER = 11.6
@@ -49,3 +52,4 @@ VOLTAGE_BAND_UPPER = 12.0
 #emergency voltage threshold
 VOLTAGE_LOW_EMERGENCY_THRESHOLD = 10.6
 
+UNACCOUNTED_CURRENT_THRESHOLD = 0.6

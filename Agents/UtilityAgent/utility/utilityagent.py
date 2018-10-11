@@ -13,9 +13,8 @@ from volttron.platform.vip.agent import Agent, BasicCore, core, Core, PubSub, co
 from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
-#from DCMGClasses.CIP import wrapper
 from DCMGClasses.CIP import tagClient
-from DCMGClasses.resources.misc import listparse
+from DCMGClasses.resources.misc import listparse, schedule
 from DCMGClasses.resources.mathtools import graph
 from DCMGClasses.resources import resource, groups, control, customer
 
@@ -110,7 +109,7 @@ class UtilityAgent(Agent):
         cursor.execute('DROP TABLE IF EXISTS periods')
         
         cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, period INT, signame TEXT, value DOUBLE)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, duration DOUBLE, node TEXT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, event TEXT, state TEXT, zone TEXT, current_sum DOUBLE, recloses INT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS customers (logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS bids (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, service TEXT, aux_service TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, acc_for TEXT, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
         cursor.execute('CREATE TABLE IF NOT EXISTS prices (logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
@@ -134,27 +133,27 @@ class UtilityAgent(Agent):
         
         #build grid model objects from the agent's a priori knowledge of system
         #infrastructure relays
-        self.relays = [groups.Relay("BRANCH_1_BUS_1_PROXIMAL_User","infrastructure"),
-                       groups.Relay("BRANCH_1_BUS_2_PROXIMAL_User","infrastructure"),
-                       groups.Relay("BRANCH_2_BUS_1_PROXIMAL_User","infrastructure"),
-                       groups.Relay("BRANCH_2_BUS_2_PROXIMAL_User","infrastructure"),
-                       groups.Relay("BRANCH_1_BUS_1_DISTAL_User","infrastructure"),
-                       groups.Relay("BRANCH_1_BUS_2_DISTAL_User","infrastructure"),
-                       groups.Relay("BRANCH_2_BUS_1_DISTAL_User","infrastructure"),
-                       groups.Relay("BRANCH_2_BUS_2_DISTAL_User","infrastructure"),
-                       groups.Relay("CROSSTIE_1_User","infrastructure"),
-                       groups.Relay("CROSSTIE_1_User","infrastructure")
+        self.relays = [groups.Relay("BRANCH_1_BUS_1_PROXIMAL_User","infrastructure"),       #0
+                       groups.Relay("BRANCH_1_BUS_2_PROXIMAL_User","infrastructure"),       #1
+                       groups.Relay("BRANCH_2_BUS_1_PROXIMAL_User","infrastructure"),       #2
+                       groups.Relay("BRANCH_2_BUS_2_PROXIMAL_User","infrastructure"),       #3
+                       groups.Relay("BRANCH_1_BUS_1_DISTAL_User","infrastructure"),         #4
+                       groups.Relay("BRANCH_1_BUS_2_DISTAL_User","infrastructure"),         #5
+                       groups.Relay("BRANCH_2_BUS_1_DISTAL_User","infrastructure"),         #6
+                       groups.Relay("BRANCH_2_BUS_2_DISTAL_User","infrastructure"),         #7
+                       groups.Relay("CROSSTIE_1_User","infrastructure"),                    #8
+                       groups.Relay("CROSSTIE_2_User","infrastructure")                     #9
                        ]
         #create infrastructure nodes
-        self.infnodes = [groups.Node("DC.MAIN.MAIN"),
-                        groups.Node("DC.BRANCH1.BUS1"),
-                        groups.Node("DC.BRANCH1.BUS2"),
-                        groups.Node("DC.BRANCH2.BUS1"),
-                        groups.Node("DC.BRANCH2.BUS2"),
-                        groups.Node("DC.BRANCH1.INT1"),
-                        groups.Node("DC.BRANCH1.INT2"),
-                        groups.Node("DC.BRANCH2.INT1"),
-                        groups.Node("DC.BRANCH2.INT2")
+        self.infnodes = [groups.Node("DC.MAIN.MAIN"),       #0
+                        groups.Node("DC.BRANCH1.BUS1"),     #1
+                        groups.Node("DC.BRANCH1.BUS2"),     #2
+                        groups.Node("DC.BRANCH2.BUS1"),     #3
+                        groups.Node("DC.BRANCH2.BUS2"),     #4
+                        groups.Node("DC.BRANCH1.INT1"),     #5
+                        groups.Node("DC.BRANCH1.INT2"),     #6
+                        groups.Node("DC.BRANCH2.INT1"),     #7
+                        groups.Node("DC.BRANCH2.INT2")      #8
                         ]
         
         #create copy for general nodes list
@@ -188,12 +187,15 @@ class UtilityAgent(Agent):
         
         self.Edges.append(self.nodes[6].addEdge(self.nodes[8], "to", "CROSSTIE_2_Current", [self.relays[9]]))
         
-        self.Edges.append(self.nodes[3].addEdge(self.nodes[7], "to", None, [self.relays[2]]))
+        self.Edges.append(self.nodes[3].addEdge(self.nodes[7], "to", None, [self.relays[6]]))
         
         self.Edges.append(self.nodes[7].addEdge(self.nodes[4], "to", "BRANCH_2_BUS_2_Current", [self.relays[3]]))
         
         self.Edges.append(self.nodes[4].addEdge(self.nodes[8], "to", None, [self.relays[7]]))
         
+        
+        for zone in self.zones:
+            zone.printInfo()
         
         self.connMatrix = [[0 for x in range(len(self.nodes))] for y in range(len(self.nodes))]
         
@@ -232,6 +234,14 @@ class UtilityAgent(Agent):
         
         self.CurrentPeriod.printInfo(0)
         self.NextPeriod.printInfo(0)
+        
+        #initialize infrastructure relay state
+        self.initinf()
+        
+    def initinf(self):
+        for relay in self.relays:
+            if relay.type == "infrastructure":
+                relay.closeRelay()
     
     def exit_handler(self,dbconn):
         print('UTILITY {me} exit handler'.format(me = self.name))
@@ -978,7 +988,7 @@ class UtilityAgent(Agent):
         self.announcePeriod()
         
         #determine distribution system efficiency
-        self.efficiencyAssessment()
+        #self.efficiencyAssessment()
         
         #reset customer permissions
         #for cust in self.customers:
@@ -1051,75 +1061,100 @@ class UtilityAgent(Agent):
         zone = argv[1]
         if fault is None:
             fault = zone.newGroundFault()
+            
+            self.dbgroundfaultevent(fault,"newly suspected fault",self.dbconn,self.t0)
+            
             if settings.DEBUGGING_LEVEL >= 2:
                 fault.printInfo()
             
         if fault.state == "suspected":
             iunaccounted = zone.sumCurrents()
-            if abs(iunaccounted) > .1:
+            if abs(iunaccounted) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
+                
+                
                 #pick a node to isolate first - lowest priority first
                 zone.rebuildpriorities()
                 selnode = zone.nodeprioritylist[0]
                 
-                fault.isolatenode(selnode)
+                fault.isolateNode(selnode)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print("FAULT: unaccounted current {cur} indicates ground fault({sta}). Isolating node {nod}".format(cur = iunaccounted, sta = fault.state, nod = selnode.name))
+                    print("FAULT {id}: unaccounted current {cur} indicates ground fault({sta}). Isolating node {nod}".format(id = fault.uid, cur = iunaccounted, sta = fault.state, nod = selnode.name))
+                                
                 
                 #update fault state
                 fault.state = "unlocated"
                 #reschedule ground fault handler
                 schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
+                
+                self.dbgroundfaultevent(fault,"suspected fault confirmed",self.dbconn,self.t0,iunaccounted)
             else:
                 #no problem
                  
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print("FAULT: suspected fault resolved")
+                    print("FAULT {id}: suspected fault resolved".format(id = fault.uid))
                 
                 fault.cleared()
+                
+                self.dbgroundfaultevent(fault,"suspected fault resolved",self.dbconn,self.t0,iunaccounted)
                
                             
         elif fault.state == "unlocated":
             #check zone to see if fault condition persists
             iunaccounted = zone.sumCurrents()
-            if abs(iunaccounted) > .1:
+            if abs(iunaccounted) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
                 zone.rebuildpriorities()
+                selnode = None
                 for node in zone.nodeprioritylist:
                     if node not in fault.isolatednodes:
                         selnode = node
                         break
-                if settings.DEBUGGING_LEVEL >= 1:
-                    print("FAULT: unaccounted current of {cur} indicates ground fault still unlocated. Isolating node {sel}".format(cur = iunaccounted, sel = selnode.name))
-                    if settings.DEBUGGING_LEVEL >= 2:
-                        fault.printInfo()
-                            
-                fault.isolatenode(selnode)
-                            
-                #reschedule ground fault handler
-                schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
-                
+                #there is another node to try in the zone
+                if selnode:
+                    if settings.DEBUGGING_LEVEL >= 1:
+                        print("FAULT {id}: unaccounted current of {cur} indicates ground fault still unlocated. Isolating node {sel}".format(id = fault.uid, cur = iunaccounted, sel = selnode.name))
+                        if settings.DEBUGGING_LEVEL >= 2:
+                            fault.printInfo()
+                                
+                    fault.isolateNode(selnode)
+                                
+                    #reschedule ground fault handler
+                    schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
+                    
+                    self.dbgroundfaultevent(fault,"attempting to locate",self.dbconn,self.t0,iunaccounted)
+                    
+                else:
+                    print("FAULT {id}: unaccounted current of {cur} and we are out of nodes.".format(cur=iunaccounted, id= fault.uid))
+                    fault.state == "unlocatable"
+                    schedule.msfromnow(self,5000,self.groundFaultHandler,fault,zone)
+                    
+                    self.dbgroundfaultevent(fault,"unable to locate",self.dbconn,self.t0,iunaccounted)
+                    
             else:
                 #the previously isolated node probably contained the fault
                 faultednode = fault.isolatednodes[-1]
                 fault.faultednodes.append(faultednode)
                 
-                fault.state == "located"
+                fault.state = "located"
                 #nodes in zone that are not marked faulted can be restored
                 for node in zone.nodes:
                     if node not in fault.faultednodes:
                         fault.restorenode(node)
                         
                 if settings.DEBUGGING_LEVEL >= 1:
-                    print("FAULT: located at {nod}. restoring other unfaulted nodes".format(nod = faultednode))
+                    print("FAULT: located at {nod}. restoring other unfaulted nodes".format(nod = faultednode.name))
                     if settings.DEBUGGING_LEVEL >= 2:
                         fault.printInfo()
                         
                 #reschedule
                 schedule.msfromnow(self,100,self.groundFaultHandler,fault,zone)
                 
+                self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
+                
         elif fault.state == "located":
             #at least one faulted node has been located and isolated but there may be others
-            if abs(zone.sumCurrents()) > .1:
+            iunaccounted = zone.sumCurrents()
+            if abs(iunaccounted) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
                 #there is another faulted node, go back and find it
                 fault.state = "unlocated"
                 
@@ -1128,14 +1163,21 @@ class UtilityAgent(Agent):
                     if settings.DEBUGGING_LEVEL >= 2:
                         fault.printInfo()
                 
+                self.dbgroundfaultevent(fault,"suspect multiple faults",self.dbconn,self.t0,iunaccounted)
+                
                 self.groundFaultHandler(fault,zone)
             else:
+                
+                self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
+                
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("FAULT: looks like we've isolated all faulted nodes and only faulted nodes.")
                 
                 #we seem to have isolated the faulted node(s)
                 if fault.reclose:
                     fault.state = "reclose"
+                    
+                    
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("FAULT: going to reclose. count: {rec}".format(rec = fault.reclosecounter))
                 else:
@@ -1146,22 +1188,46 @@ class UtilityAgent(Agent):
                 
                 #schedule next call
                 schedule.msfromnow(self,600,self.groundFaultHandler,fault,zone)
-        elif fault.state == "reclose":
-            if settings.DEBUGGING_LEVEL >= 1:
-                print("reclosing")
                 
-            for node in zone:
-                fault.reclosenode()
+                
+        elif fault.state == "reclose":
+            
+            if settings.DEBUGGING_LEVEL >= 1:
+                print("reclosing on fault {id}".format(id = fault.uid))
+                fault.printInfo()
+                
+            for node in zone.nodes:
+                fault.reclosenode(node)
+                
             fault.state = "suspected"
             schedule.msfromnow(self,100,self.groundFaultHandler,fault,zone)
+            self.dbgroundfaultevent(fault,"reclosing",self.dbconn,self.t0)
+            
+        elif fault.state == "unlocatable":
+            #fault can't be located because the current imbalance can't be eliminated for whatever reason
+            iunaccounted = zone.sumCurrents()
+            if abs(iunaccounted) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
+                print("fault {id} is still unclocatable".format(id = fault.id))
+                fault.printInfo()                
+                schedule.msfromnow(self,5000,self.groundFaultHandler,fault,zone)
+            else:
+                #maybe the fault has abated or maybe we just can't tell that it hasn't
+                fault.state = "located"
+                schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
+                
+                self.dbgroundfaultevent(fault,"unlocatable fault now isolated",self.dbconn,self.t0,iunaccounted)
+                
         elif fault.state == "persistent":
             #fault hasn't resolved on its own, need to send a crew to clear fault
-            pass
+            self.dbgroundfaultevent(fault,"fault deemed persistent",self.dbconn,self.t0)
         elif fault.state == "multiple":
             #this isn't used currently
             zone.isolateZone()
         elif fault.state == "cleared":
             fault.cleared()
+            
+            self.dbgroundfaultevent(fault,"fault cleared",self.dbconn,self.t0)
+            
             if settings.DEBUGGING_LEVEL >= 2:
                 print("GROUND FAULT {id} has been cleared".format(id = fault.uid))
         else:
@@ -1222,17 +1288,21 @@ class UtilityAgent(Agent):
                 
                 
         for zone in self.zones:
-            if abs(zone.sumCurrents()) > .1:
+            currentsum = zone.sumCurrents()
+            if abs(currentsum) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
                 zonenominal = False
                 #there is a mismatch and probably a line-ground fault
                 nominal = False
+                                
                 self.groundFaultHandler(None,zone)
+                
                 if settings.DEBUGGING_LEVEL >= 1:
                     if settings.DEBUGGING_LEVEL >= 2:
-                        print("unaccounted current of {tot}".format(tot = total))
-                    print("Probable line-ground Fault in Zone {zon} belonging to {grp}\n  Isolating node.".format(zon = zone.name, grp = group.name))
+                        print("unaccounted current of {tot}".format(tot = currentsum))
+                    print("Probable line-ground Fault in {zon}.  Isolating node.".format(zon = zone.name))
             else:
-                pass
+                if settings.DEBUGGING_LEVEL >=2:
+                    print("unaccounted current of {tot} in {zon}. Probably nothing wrong".format(tot = currentsum, zon = zone.name))
                 
         if nominal:
             if settings.DEBUGGING_LEVEL >= 2:
@@ -1294,7 +1364,7 @@ class UtilityAgent(Agent):
         
         return loads, sources, losses
         
-            
+    @Core.periodic(settings.INF_EFF_MEASUREMENT_INTERVAL)        
     def efficiencyAssessment(self):
         #net load power consumption
         loads = 0
@@ -1587,8 +1657,17 @@ class UtilityAgent(Agent):
         for res in self.Resources:
             self.dbupdateresource(res,self.dbconn,self.t0)
             
+    def dbgroundfaultevent(self,fault,event,dbconn,t0,currentsum=None):
+               
+        if currentsum:
+            command = 'INSERT INTO faults (logtime, et, period, id, event, state, zone, current_sum, recloses) VALUES ("{time}",{et},{per},{uid},"{eve}","{sta}","{zon}",{sum},{rec})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, uid = fault.uid, eve = event, sta=fault.state, zon=fault.zone.name, sum=currentsum, rec=fault.reclosecounter)
+        else:
+            command = 'INSERT INTO faults (logtime, et, period, id, event, state, zone, recloses) VALUES ("{time}",{et},{per},{uid},"{eve}","{sta}","{zon}",{rec})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, uid = fault.uid, eve = event, sta=fault.state, zon=fault.zone.name, rec=fault.reclosecounter)
+            
+        self.dbwrite(command,dbconn)
+            
     def dbconsumption(self,cust,pow,dbconn,t0):
-        command = 'INSERT INTO consumption (logtime, et, period, name, power) VALUES ("{time}",{et},{per},"{name}",{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber,name = cust.name, pow = pow)
+        command = 'INSERT INTO consumption (logtime, et, period, name, power) VALUES ("{time}",{et},{per},"{name}",{pow})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, name = cust.name, pow = pow)
         self.dbwrite(command,dbconn)
                 
     def dbupdateresource(self,res,dbconn,t0):
@@ -1598,11 +1677,8 @@ class UtilityAgent(Agent):
         self.dbwrite(command,dbconn)
     
     def dbnewcustomer(self,newcust,dbconn,t0):
-        cursor = dbconn.cursor()
         command = 'INSERT INTO customers VALUES ("{time}",{et},"{name}","{location}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, name = newcust.name, location = newcust.location)
-        cursor.execute(command)
-        dbconn.commit()
-        cursor.close()
+        self.dbwrite(command,dbconn)
         
     def dbinfmeas(self,signal,value,dbconn,t0):
         command = 'INSERT INTO infmeas (logtime, et, period, signame, value) VALUES ("{time}",{et},{per},"{sig}",{val})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0,per = self.CurrentPeriod.periodNumber,sig = signal,val = value)
