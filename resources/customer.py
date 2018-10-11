@@ -154,7 +154,7 @@ class ResourceProfile(object):
         
         self.dischargeVoltageTag = "SOURCE_{d}_RegVoltage".format(d = self.dischargeChannelNumber)
         self.dischargeCurrentTag =  "SOURCE_{d}_RegCurrent".format(d = self.dischargeChannelNumber)
-        
+        self.relayTag = "SOURCE_{d}_User".format(d = self.dischargeChannelNumber)
         
         
     def getDischargeCurrent(self):
@@ -179,7 +179,11 @@ class SourceProfile(ResourceProfile):
     def __init__(self,**res):
         super(SourceProfile,self).__init__(**res)
         self.maxDischargePower = res["maxDischargePower"]
-       
+        
+        self.issource = True
+        self.issink = False
+        self.isintermittent = False
+        
     def getChargePower(self):
         return 0
     
@@ -194,6 +198,7 @@ class StorageProfile(SourceProfile):
         self.chargeVoltageTag = "SOURCE_{d}_UnregVoltage".format(d = self.chargeChannelNumber)
         self.chargeCurrentTag = "SOURCE_{d}_UnregCurrent".format(d = self.chargeChannelNumber)
         
+        self.issink = True
 
     def getChargeCurrent(self):
         return tagClient.readTags([self.chargeCurrentTag])
@@ -208,12 +213,17 @@ class SolarProfile(SourceProfile):
     def __init__(self,**res):
         super(SolarProfile,self).__init__(**res)
         
+        self.isintermittent = True
+        
 class LeadAcidBatteryProfile(StorageProfile):
     def __init__(self,**res):
         super(LeadAcidBatteryProfile,self).__init__(**res)
         
+        
+        
 class GeneratorProfile(SourceProfile):
     def __init__(self,**res):
         super(GeneratorProfile,self).__init__(**res)
+      
         
         

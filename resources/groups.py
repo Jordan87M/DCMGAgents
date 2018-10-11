@@ -188,8 +188,7 @@ class BaseNode(object):
         if dir == "to":
             newedge = DirEdge(self,otherNode,currentTag,relays)
             self.originatingedges.append(newedge)
-            otherNode.terminatingedges.append(newedge)
-            
+            otherNode.terminatingedges.append(newedge)            
         elif dir == "from":
             newedge = DirEdge(otherNode,self,currentTag,relays)
             self.terminatingedges.append(newedge)
@@ -197,6 +196,11 @@ class BaseNode(object):
         else:
             print("addEdge() didn't do anything. The dir parameter must be 'to' or 'from'. ")
             return
+        
+        self.edges.append(newedge)
+        otherNode.edges.append(newedge)
+        
+        newedge.printInfo()
         
         #identify interzonal edges
         if self.zone:
@@ -218,10 +222,8 @@ class BaseNode(object):
             
         for relay in relays:
             relay.owningEdge = newedge
+            #self.relays.append(relay)
                     
-        self.edges.append(newedge)
-        otherNode.edges.append(newedge)
-        
         return newedge
         
     def removeEdge(self,otherNode):
@@ -285,10 +287,16 @@ class Node(BaseNode):
     
     def addResource(self,res):   
         self.resources.append(res)
-        if hasattr(res,"DischargeChannel"):
-            self.addEdge(BaseNode(res.name + "OutNode"),"from",res.DischargeChannel.regItag,[Relay(res.DischargeChannel.relayTag,"source")])
-        if hasattr(res,"ChargeChannel"):
-            self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,[Relay(res.ChargeChannel.relayTag,"source")])
+        if res.issource:
+            if hasattr(res,"DischargeChannel"):
+                self.addEdge(BaseNode(res.name + "OutNode"),"from",res.DischargeChannel.regItag,[Relay(res.DischargeChannel.relayTag,"source")])
+            else:
+                self.addEdge(BaseNode(res.name + "OutNode"),"from",res.dischargeCurrentTag,[Relay(res.relayTag,"source")])
+        if res.issink:
+            if hasattr(res,"ChargeChannel"):
+                self.addEdge(BaseNode(res.name+ "InNode"),"to",res.ChargeChannel.unregItag,[Relay(res.ChargeChannel.relayTag,"source")])
+            else:
+                self.addEdge(BaseNode(res.name+ "InNode"),"to",res.chargeCurrentTag,[Relay(res.relayTag,"source")])
     
     def isolateNode(self):
         print("Isolating node {nam}".format(nam = self.name))
@@ -526,5 +534,6 @@ class Relay(object):
     
     def printInfo(self,depth = 1):
         tab = "    "
+        print(depth*tab + "TAG: {tag}".format(tag = self.tagName))
         print(depth*tab + "STATE: {sta}".format(sta = self.closed))
         print(depth*tab + "FAULT: {fau}".format(fau = self.faulted))

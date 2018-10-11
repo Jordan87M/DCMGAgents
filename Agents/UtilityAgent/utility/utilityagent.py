@@ -484,7 +484,7 @@ class UtilityAgent(Agent):
             
             for res in group.resources:
                 if res.owner != self.name:
-                    cust = listparse.lookUpByName(res.owner.name,self.customers)
+                    cust = listparse.lookUpByName(res.owner,self.customers)
                     #cust will be None if the resource belongs to the utility
                     if cust:
                         if res.location != cust.location:
@@ -504,7 +504,7 @@ class UtilityAgent(Agent):
                         else:
                             print("TEMP DEBUG: resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
                     else:
-                        print("TEMP-DEBUG: can't find owner {own} for {res}".format(own = res.owner.name, res = res.name))
+                        print("TEMP-DEBUG: can't find owner {own} for {res}".format(own = res.owner, res = res.name))
         
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
@@ -1341,7 +1341,7 @@ class UtilityAgent(Agent):
             
         for res in group.resources:
             if res.owner != self.name:
-                cust = listparse.lookUpByName(res.owner.name,self.customers)
+                cust = listparse.lookUpByName(res.owner,self.customers)
                 #cust will be None if the resource belongs to the utility
                 if cust:
                     if res.location != cust.location:
