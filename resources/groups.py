@@ -232,6 +232,14 @@ class BaseNode(object):
                 otherNode.edges.remove(edge)
                 self.edges.remove(edge)
                 
+    def hasGroundFault(self):
+        for fault in self.faults:
+            if fault.__class__.__name__ == "GroundFault":
+                if self in fault.faultednodes:
+                    return True
+        return False
+                
+                
         
 class Node(BaseNode):
     def __init__(self, name, **kwargs):
@@ -269,11 +277,7 @@ class Node(BaseNode):
                     
         return tagClient.readTags([self.voltageTag])
     
-    def hasGroundFault(self):
-        for fault in self.faults:
-            if fault.__class__.__name__ == "GroundFault":
-                return True
-        return False
+    
     
     def addCustomer(self,cust):
         self.customers.append(cust)
@@ -313,13 +317,36 @@ class Node(BaseNode):
         for key in self.savedstate:
             print key
                     
-    def restore(self):        
-        print("Restoring node {nam}".format(nam = self.name))
+    def restorehard(self):        
+        print("Restoring node {nam} HARD".format(nam = self.name))
         for edge in self.edges:
             for relay in edge.relays:
                 print("closing relay {nam}".format(nam = relay.tagName))
                 if self.savedstate[relay]:
                     relay.closeRelay()
+                    
+    def restore(self):
+        print("Restoring node {nam} without impacting faulted nodes".format(nam = self.name))
+        for edge in self.originatingedges:
+            if edge.endNode.hasGroundFault:
+                for relay in edge.relays:
+                    print("won't close relay {nam} because it belongs to a faulted node".format(nam = relay.tagName))
+            else:
+                for relay in edge.relays:
+                    print("closing relay {nam}".format(nam = relay.tagName))
+                    if self.savedstate[relay]:
+                        relay.closeRelay()
+        
+        for edge in self.terminatingedges:
+            if edge.startNode.hasGroundFault:
+                for relay in edge.relays:
+                    print("won't close relay {nam} because it belongs to a faulted node".format(nam = relay.tagName))
+            else:
+                for relay in edge.relays:
+                    print("closing relay {nam}".format(nam = relay.tagName))
+                    if self.savedstate[relay]:
+                        relay.closeRelay()
+                    
             
     def sumCurrents(self):
         inftags = []

@@ -42,6 +42,16 @@ class GroundFault(Fault):
         if node in self.owners:
             node.isolateNode()
             self.isolatednodes.append(node)
+            
+    def forcerestorenode(self,node):
+        if node in self.owners:
+            node.restorehard()
+            
+            if node in self.isolatednodes:
+                self.isolatednodes.remove(node)
+                
+            if node in self.faultednodes:
+                self.faultednodes.remove(node)
     
     def restorenode(self,node):
         if node in self.owners:
@@ -52,12 +62,19 @@ class GroundFault(Fault):
             
             if node in self.faultednodes:
                 self.faultednodes.remove(node)
-            
-    def reclosenode(self,node):
+    
+    def reclosezone(self):        
         self.reclosecounter += 1
-        self.restorenode(node)
+        for node in self.zone.nodes:
+            self.reclosenode(node)
+            
         if self.reclosecounter == self.reclosemax:
             self.reclose = False
+    
+    def reclosenode(self,node):
+        #self.reclosecounter += 1 #now done in reclosezone()
+        self.forcerestorenode(node)
+        
     
     #initiate procedure to clear a persistent fault    
     def clearfault(self):
@@ -66,7 +83,8 @@ class GroundFault(Fault):
         
     def printInfo(self,depth = 0):
         tab = "    "
-        print(tab*depth + "FAULT: {sta}".format(sta = self.state))
+        print(tab*depth + "FAULT: {id}".format(id = self.uid))
+        print(tab*depth + "STATE: {sta}".format(sta = self.state))
         print(tab*depth + "-RECLOSES LEFT: {amt} of {max}".format(amt = self.reclosemax-self.reclosecounter, max = self.reclosemax))
         print(tab*depth + "-AFFECTED NODES and ZONES")
         for owner in self.owners:

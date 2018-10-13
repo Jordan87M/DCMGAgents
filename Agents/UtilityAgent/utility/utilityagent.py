@@ -1085,7 +1085,7 @@ class UtilityAgent(Agent):
                 #update fault state
                 fault.state = "unlocated"
                 #reschedule ground fault handler
-                schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,250,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"suspected fault confirmed",self.dbconn,self.t0,iunaccounted)
             else:
@@ -1119,7 +1119,7 @@ class UtilityAgent(Agent):
                     fault.isolateNode(selnode)
                                 
                     #reschedule ground fault handler
-                    schedule.msfromnow(self,60,self.groundFaultHandler,fault,zone)
+                    schedule.msfromnow(self,240,self.groundFaultHandler,fault,zone)
                     
                     self.dbgroundfaultevent(fault,"attempting to locate",self.dbconn,self.t0,iunaccounted)
                     
@@ -1147,7 +1147,7 @@ class UtilityAgent(Agent):
                         fault.printInfo()
                         
                 #reschedule
-                schedule.msfromnow(self,100,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,180,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
                 
@@ -1166,8 +1166,8 @@ class UtilityAgent(Agent):
                 self.dbgroundfaultevent(fault,"suspect multiple faults",self.dbconn,self.t0,iunaccounted)
                 
                 self.groundFaultHandler(fault,zone)
-            else:
                 
+            else:
                 self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
@@ -1196,11 +1196,12 @@ class UtilityAgent(Agent):
                 print("reclosing on fault {id}".format(id = fault.uid))
                 fault.printInfo()
                 
-            for node in zone.nodes:
-                fault.reclosenode(node)
+            fault.reclosezone()
+#             for node in zone.nodes:
+#                 fault.reclosenode(node)
                 
             fault.state = "suspected"
-            schedule.msfromnow(self,100,self.groundFaultHandler,fault,zone)
+            schedule.msfromnow(self,240,self.groundFaultHandler,fault,zone)
             self.dbgroundfaultevent(fault,"reclosing",self.dbconn,self.t0)
             
         elif fault.state == "unlocatable":
@@ -1288,6 +1289,19 @@ class UtilityAgent(Agent):
                 
                 
         for zone in self.zones:
+            skip = False
+            if zone.faults:
+                for fault in zone.faults:
+                    if fault.__class__.__name__ == "GroundFault":
+                        print("zone {nam} already has a ground fault")
+                        if fault.state != "persistent":
+                            print("fault is still in process")
+                            skip = True
+            
+            if skip:
+                print("Not checking zone {nam} because it is already known to be faulted".format(nam = zone.name))
+                continue
+            
             currentsum = zone.sumCurrents()
             if abs(currentsum) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
                 zonenominal = False
