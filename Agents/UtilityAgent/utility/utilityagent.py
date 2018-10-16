@@ -109,7 +109,7 @@ class UtilityAgent(Agent):
         cursor.execute('DROP TABLE IF EXISTS periods')
         
         cursor.execute('CREATE TABLE IF NOT EXISTS infmeas (logtime TIMESTAMP, et DOUBLE, period INT, signame TEXT, value DOUBLE)')
-        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, event TEXT, state TEXT, zone TEXT, current_sum DOUBLE, recloses INT)')
+        cursor.execute('CREATE TABLE IF NOT EXISTS faults (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, event TEXT, state TEXT, zone TEXT, current_sum DOUBLE, recloses INT, isolated_nodes TEXT, faulted_nodes TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS customers (logtime TIMESTAMP, et DOUBLE, customer_name TEXT, customer_location TEXT)')
         cursor.execute('CREATE TABLE IF NOT EXISTS bids (logtime TIMESTAMP, et DOUBLE, period INT, id BIGINT UNSIGNED, side TEXT, service TEXT, aux_service TEXT, resource_name TEXT, counterparty_name TEXT, accepted BOOLEAN, acc_for TEXT, orig_rate DOUBLE, settle_rate DOUBLE, orig_amount DOUBLE, settle_amount DOUBLE)') 
         cursor.execute('CREATE TABLE IF NOT EXISTS prices (logtime TIMESTAMP, et DOUBLE, period INT, node TEXT, rate REAL)')
@@ -1085,7 +1085,7 @@ class UtilityAgent(Agent):
                 #update fault state
                 fault.state = "unlocated"
                 #reschedule ground fault handler
-                schedule.msfromnow(self,250,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"suspected fault confirmed",self.dbconn,self.t0,iunaccounted)
             else:
@@ -1119,7 +1119,7 @@ class UtilityAgent(Agent):
                     fault.isolateNode(selnode)
                                 
                     #reschedule ground fault handler
-                    schedule.msfromnow(self,240,self.groundFaultHandler,fault,zone)
+                    schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
                     
                     self.dbgroundfaultevent(fault,"attempting to locate",self.dbconn,self.t0,iunaccounted)
                     
@@ -1147,7 +1147,7 @@ class UtilityAgent(Agent):
                         fault.printInfo()
                         
                 #reschedule
-                schedule.msfromnow(self,180,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
                 
@@ -1168,7 +1168,7 @@ class UtilityAgent(Agent):
                 self.groundFaultHandler(fault,zone)
                 
             else:
-                self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
+                self.dbgroundfaultevent(fault,"no other faults",self.dbconn,self.t0,iunaccounted)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("FAULT: looks like we've isolated all faulted nodes and only faulted nodes.")
@@ -1201,7 +1201,7 @@ class UtilityAgent(Agent):
 #                 fault.reclosenode(node)
                 
             fault.state = "suspected"
-            schedule.msfromnow(self,240,self.groundFaultHandler,fault,zone)
+            schedule.msfromnow(self,750,self.groundFaultHandler,fault,zone)
             self.dbgroundfaultevent(fault,"reclosing",self.dbconn,self.t0)
             
         elif fault.state == "unlocatable":
@@ -1214,7 +1214,7 @@ class UtilityAgent(Agent):
             else:
                 #maybe the fault has abated or maybe we just can't tell that it hasn't
                 fault.state = "located"
-                schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"unlocatable fault now isolated",self.dbconn,self.t0,iunaccounted)
                 
@@ -1672,11 +1672,20 @@ class UtilityAgent(Agent):
             self.dbupdateresource(res,self.dbconn,self.t0)
             
     def dbgroundfaultevent(self,fault,event,dbconn,t0,currentsum=None):
-               
+        isostring = " "
+        for node in fault.isolatednodes:
+            if node:
+                isostring += "{nam}, ".format(nam = node.name)     
+                
+        fstring = " "
+        for node in fault.faultednodes:
+            if node:
+                fstring += "{nam}, ".format(nam = node.name)    
+        
         if currentsum:
-            command = 'INSERT INTO faults (logtime, et, period, id, event, state, zone, current_sum, recloses) VALUES ("{time}",{et},{per},{uid},"{eve}","{sta}","{zon}",{sum},{rec})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, uid = fault.uid, eve = event, sta=fault.state, zon=fault.zone.name, sum=currentsum, rec=fault.reclosecounter)
+            command = 'INSERT INTO faults (logtime, et, period, id, event, state, zone, current_sum, recloses, isolated_nodes, faulted_nodes) VALUES ("{time}",{et},{per},{uid},"{eve}","{sta}","{zon}",{sum},{rec},"{iso}","{fnod}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, uid = fault.uid, eve = event, sta=fault.state, zon=fault.zone.name, sum=currentsum, rec=fault.reclosecounter, iso=isostring, fnod = fstring)
         else:
-            command = 'INSERT INTO faults (logtime, et, period, id, event, state, zone, recloses) VALUES ("{time}",{et},{per},{uid},"{eve}","{sta}","{zon}",{rec})'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, uid = fault.uid, eve = event, sta=fault.state, zon=fault.zone.name, rec=fault.reclosecounter)
+            command = 'INSERT INTO faults (logtime, et, period, id, event, state, zone, recloses, isolated_nodes, faulted_nodes) VALUES ("{time}",{et},{per},{uid},"{eve}","{sta}","{zon}",{rec},"{iso}","{fnod}")'.format(time = datetime.utcnow().isoformat(), et = time.time() - t0, per = self.CurrentPeriod.periodNumber, uid = fault.uid, eve = event, sta=fault.state, zon=fault.zone.name, rec=fault.reclosecounter, iso=isostring, fnod = fstring)
             
         self.dbwrite(command,dbconn)
             

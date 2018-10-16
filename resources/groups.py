@@ -236,6 +236,8 @@ class BaseNode(object):
         for fault in self.faults:
             if fault.__class__.__name__ == "GroundFault":
                 if self in fault.faultednodes:
+                    print("node {nam} has ground fault".format(nam = self.name))
+                    fault.printInfo()
                     return True
         return False
                 
@@ -328,9 +330,9 @@ class Node(BaseNode):
     def restore(self):
         print("Restoring node {nam} without impacting faulted nodes".format(nam = self.name))
         for edge in self.originatingedges:
-            if edge.endNode.hasGroundFault:
+            if edge.endNode.hasGroundFault():
                 for relay in edge.relays:
-                    print("won't close relay {nam} because it belongs to a faulted node".format(nam = relay.tagName))
+                    print("won't close relay {nam} because it belongs to a faulted node ({nod})".format(nam = relay.tagName, nod = edge.endNode.name))
             else:
                 for relay in edge.relays:
                     print("closing relay {nam}".format(nam = relay.tagName))
@@ -338,9 +340,9 @@ class Node(BaseNode):
                         relay.closeRelay()
         
         for edge in self.terminatingedges:
-            if edge.startNode.hasGroundFault:
+            if edge.startNode.hasGroundFault():
                 for relay in edge.relays:
-                    print("won't close relay {nam} because it belongs to a faulted node".format(nam = relay.tagName))
+                    print("won't close relay {nam} because it belongs to a faulted node ({nod})".format(nam = relay.tagName, nod = edge.endNode.name))
             else:
                 for relay in edge.relays:
                     print("closing relay {nam}".format(nam = relay.tagName))

@@ -54,6 +54,7 @@ class GroundFault(Fault):
                 self.faultednodes.remove(node)
     
     def restorenode(self,node):
+        print("restoring node {nam}".format(nam = node.name))
         if node in self.owners:
             node.restore()
             
