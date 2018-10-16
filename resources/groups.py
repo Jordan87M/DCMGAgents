@@ -19,9 +19,9 @@ class Group(object):
         self.nodeprioritylist = []
         self.loadprioritylist = []
         
-        #self.demandBidList = []
-        #self.supplyBidList = []
-        #self.reserveBidList = [] 
+        self.demandBidList = []
+        self.supplyBidList = []
+        self.reserveBidList = [] 
         
     def rebuildpriorities(self):
         self.nodeprioritylist = []
@@ -41,6 +41,11 @@ class Group(object):
         #...same for customers
         self.customers.extend(node.customers)
         
+    def hasGroundFault(self):
+        for node in self.nodes:
+            if node.hasGroundFault():
+                return True
+        return False
     
     def printInfo(self,depth = 0):
         spaces = "    "

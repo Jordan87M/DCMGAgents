@@ -24,6 +24,7 @@ from zmq.backend.cython.constants import RATE
 from __builtin__ import True
 from bacpypes.vlan import Node
 from twisted.application.service import Service
+from pickle import TRUE
 #from _pydev_imps._pydev_xmlrpclib import loads
 utils.setup_logging()
 _log = logging.getLogger(__name__)
@@ -622,6 +623,29 @@ class UtilityAgent(Agent):
                     if settings.DEBUGGING_LEVEL >= 2:
                         print("UTILITY {me} SOLICITING RESERVE POWER BIDS FROM {them}".format(me = self.name, them = cust.name))
         
+        
+    #determines whether the bid belongs in the auction for the group
+    def bidforgroup(self,bid,group):
+        if bid.resourceName:
+            #if the bid is for a specific device, we are interested in the location of the device
+            name = bid.resourceName
+                        
+            for res in group.resources:
+                if name == res.name:
+                    return True
+        
+        else:
+            #otherwise, we are interested in the membership of the home
+            name = bid.counterparty
+            
+            for cust in group.customers:
+                if name == cust.name:
+                    return True
+                
+        return False
+        
+        
+        
     def planShortTerm(self):
         if settings.DEBUGGING_LEVEL >= 2:
             print("\nUTILITY {me} IS FORMING A NEW SHORT TERM PLAN FOR PERIOD {per}".format(me = self.name,per = self.NextPeriod.periodNumber))
@@ -656,22 +680,56 @@ class UtilityAgent(Agent):
         for group in self.groupList:
             maxLoad = self.getMaxGroupLoad(group)    
             
+            for bid in self.supplyBidList:
+                if self.bidforgroup(bid,group):
+                    group.supplyBidList.append(bid)
+            
+            for bid in self.demandBidList:
+                if self.bidforgroup(bid,group):
+                    group.demandBidList.append(bid)
+            
+            for bid in self.reserveBidList:
+                if self.bidforgroup(bid,group):
+                    group.reserveBidList.append(bid)
+                    
+            #don't hold auction for group with faulted node
+            if group.hasGroundFault():
+                
+                #reject all bids
+                for bid in group.supplyBidList:
+                    bid.accepted = False
+                    self.sendBidRejection(bid,0)
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
+
+                for bid in group.demandBidList:
+                    bid.accepted = False
+                    self.sendBidRejection(bid,0)
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
+                
+                for bid in group.reserveBidList:
+                    bid.accepted = False
+                    self.sendBidRejection(bid,0)                
+                    self.dbupdatebid(bid,self.dbconn,self.t0)
+                
+                #move on to next group
+                continue
+            
                     
             #sort array of supplier bids by rate from low to high
-            self.supplyBidList.sort(key = operator.attrgetter("rate"))
+            group.supplyBidList.sort(key = operator.attrgetter("rate"))
             #sort array of consumer bids by rate from high to low
-            self.demandBidList.sort(key = operator.attrgetter("rate"),reverse = True)
+            group.demandBidList.sort(key = operator.attrgetter("rate"),reverse = True)
             
             if settings.DEBUGGING_LEVEL >= 2:
                 print("\n\nPLANNING for GROUP {group} for PERIOD {per}: worst case load is {max}".format(group = group.name, per = self.NextPeriod.periodNumber, max = maxLoad))
                 print(">>here are the supply bids:")
-                for bid in self.supplyBidList:                    
+                for bid in group.supplyBidList:                    
                     bid.printInfo(0)
                 print(">>here are the reserve bids:")
-                for bid in self.reserveBidList:                    
+                for bid in group.reserveBidList:                    
                     bid.printInfo(0)          
                 print(">>here are the demand bids:")          
-                for bid in self.demandBidList:                    
+                for bid in group.demandBidList:                    
                     bid.printInfo(0)
             
             qrem = 0                #leftover part of bid
@@ -679,13 +737,13 @@ class UtilityAgent(Agent):
             demandindex = 0
             partialsupply = False
             partialdemand = False
-            sblen = len(self.supplyBidList)
-            rblen = len(self.reserveBidList)
-            dblen = len(self.demandBidList)
+            sblen = len(group.supplyBidList)
+            rblen = len(group.reserveBidList)
+            dblen = len(group.demandBidList)
             
             while supplyindex < sblen and demandindex < dblen:
-                supbid = self.supplyBidList[supplyindex]
-                dembid = self.demandBidList[demandindex]
+                supbid = group.supplyBidList[supplyindex]
+                dembid = group.demandBidList[demandindex]
                 if settings.DEBUGGING_LEVEL >= 2:
                     print("\ndemand index: {di}".format(di = demandindex))
                     print("supply index: {si}".format(si = supplyindex))
@@ -818,7 +876,7 @@ class UtilityAgent(Agent):
                     demandindex += 1
             
             while supplyindex < sblen:
-                supbid = self.supplyBidList[supplyindex]
+                supbid = group.supplyBidList[supplyindex]
                 if settings.DEBUGGING_LEVEL >= 2:
                     print(" out of loop, still cleaning up supply bids {si}".format(si = supplyindex))
                 if partialsupply:
@@ -836,16 +894,16 @@ class UtilityAgent(Agent):
                                 print("UTILITY {me} placing rejected power bid {bid} in reserve list".format(me = self.name, bid = supbid.uid))
                                 
                             
-                            self.supplyBidList.remove(supbid)
-                            sblen = len(self.supplyBidList)
-                            self.reserveBidList.append(supbid)
+                            group.supplyBidList.remove(supbid)
+                            sblen = len(group.supplyBidList)
+                            group.reserveBidList.append(supbid)
                             supbid.service = "reserve"
                     else:
                         supbid.accepted = False
                 supplyindex += 1
                 
             while demandindex < dblen:
-                dembid = self.demandBidList[demandindex]
+                dembid = group.demandBidList[demandindex]
                 if settings.DEBUGGING_LEVEL >= 2:
                     print(" out of loop, still cleaning up demand bids {di}".format(di = demandindex))
                 if partialdemand:
@@ -862,7 +920,7 @@ class UtilityAgent(Agent):
             
             totalsupply = 0
             #notify the counterparties of the terms on which they will supply power
-            for bid in self.supplyBidList:
+            for bid in group.supplyBidList:
                 if bid.accepted:
                     totalsupply += bid.amount
                     bid.rate = group.rate
@@ -887,7 +945,7 @@ class UtilityAgent(Agent):
                     
             totaldemand = 0        
             #notify the counterparties of the terms on which they will consume power
-            for bid in self.demandBidList:
+            for bid in group.demandBidList:
                 #look up customer object corresponding to bid
                 cust = listparse.lookUpByName(bid.counterparty,self.customers)
                 if bid.accepted:
@@ -910,9 +968,9 @@ class UtilityAgent(Agent):
                     #customer does not have permission to connect
                     cust.permission = False
             
-            self.reserveBidList.sort(key = operator.attrgetter("rate"))
+            group.reserveBidList.sort(key = operator.attrgetter("rate"))
             totalreserve = 0
-            for bid in self.reserveBidList:
+            for bid in group.reserveBidList:
                 if totalreserve < (maxLoad - totaldemand):
                     totalreserve += bid.amount
                     if totalreserve > (maxLoad - totaldemand):
@@ -925,7 +983,7 @@ class UtilityAgent(Agent):
                 else: 
                     bid.accepted = False
                     
-            for bid in self.reserveBidList:
+            for bid in group.reserveBidList:
                 if bid.accepted:
                     self.sendBidAcceptance(bid,group.rate)
                     
@@ -1221,6 +1279,11 @@ class UtilityAgent(Agent):
         elif fault.state == "persistent":
             #fault hasn't resolved on its own, need to send a crew to clear fault
             self.dbgroundfaultevent(fault,"fault deemed persistent",self.dbconn,self.t0)
+            
+            #revoke permission for customers on faulted nodes to connect
+            for cust in fault.faultednodes.customers:
+                cust.permission = False
+                
         elif fault.state == "multiple":
             #this isn't used currently
             zone.isolateZone()
@@ -1420,8 +1483,6 @@ class UtilityAgent(Agent):
             mesdict["side"] = bid.side
         else:
             mesdict["side"] = "unspecified"
-            
-
             
             
         mesdict["rate"] = rate        
@@ -1792,6 +1853,23 @@ class UtilityAgent(Agent):
             print("--END GROUPS LIST----------------------")
         print("~~~END UTILITY SUMMARY~~~~~~")
         print("*************************************************************************")
+    
+    '''obtain node object from location string'''
+    def getNodeFromLocation(self,location):
+        loc = location.split(".")
+        branch = loc[1]
+        bus = loc[2]
+                
+        for node in self.infnodes:
+            nloc = location.split(".")            
+            nbranch = nloc[1]
+            nbus = nloc[2]
+            
+            if nloc==loc and nbranch==branch:          
+                return node
+        
+        print("Couldn't match node location {loc} in self.infnodes".format(loc = location))
+        return None
     
     
     '''get tag value by name, but use the tag client only if the locally cached
