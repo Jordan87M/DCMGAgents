@@ -239,10 +239,26 @@ class UtilityAgent(Agent):
         #initialize infrastructure relay state
         self.initinf()
         
+    #initialize
     def initinf(self):
-        for relay in self.relays:
-            if relay.type == "infrastructure":
-                relay.closeRelay()
+#         for relay in self.relays:
+#             if relay.type == "infrastructure":
+#                 relay.closeRelay()
+                
+        self.relays[0].closeRelay()
+        self.relays[1].closeRelay()
+        self.relays[2].closeRelay()
+        self.relays[3].closeRelay()
+        self.relays[4].closeRelay()
+        self.relays[5].closeRelay()
+        self.relays[6].closeRelay()
+        self.relays[7].closeRelay()
+        self.relays[8].openRelay()
+        self.relays[9].openRelay()
+        
+        #self.Relays[8].closeRelay()
+        #self.Relays[9].closeRelay()
+        
     
     def exit_handler(self,dbconn):
         print('UTILITY {me} exit handler'.format(me = self.name))
@@ -549,6 +565,17 @@ class UtilityAgent(Agent):
         self.printInfo(2)
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
+        
+        #if the grid has been split, see if we can repair the split
+        if len(subs) > 1:
+            if settings.DEBUGGING_LEVEL >= 1:
+                print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
+        
+            self.repairgrid()
+            
+            subs = self.getTopology()
+        
+        
         
         self.announceTopology()
         
@@ -1113,6 +1140,45 @@ class UtilityAgent(Agent):
                         res.setDisposition(0)
                         if settings.DEBUGGING_LEVEL >= 2:
                             print("Resource {rname} no longer required and is being disconnected".format(rname = res.name))
+    
+    def repairgrid(self):
+        print("Utility {nam} attempting to merge as many groups as possible".format(nam = self.name))
+        
+        #look for connections in between nodes of nonfaulted groups
+        for outergroup in self.groupList:
+            if outergroup.hasGroundFault():
+                pass
+            else:
+                for innergroup in self.groupList:
+                    #don't try to reconnect to faulted groups
+                    if innergroup.hasGroundFault():
+                        pass
+                    #dont' look for connections between nodes in same group
+                    elif innergroup == outergroup:
+                        
+                        pass
+                    #outer and inner groups are not the same and neither is faulted                    
+                    else:
+                        print("temp debug: looking at groups {og} and {ig}".format(og = outergroup.name, ig = innergroup.name))
+                        
+                        #look through all nodes in the group                        
+                        for node in outergroup.nodes:
+                            #are any nodes in the other group?
+                            for edge in node.terminatingedges:
+                                if edge.startNode in innergroup.nodes:
+                                    #found a pair of nodes
+                                    print("UTILITY {nam} found a connection between groups {og} and {ig} in edge {edg}".format(nam = self.name, og = outergroup.name, ig = innergroup.name, edg = edge.name))
+                                    edge.closeRelays()
+                                    return True
+                            
+                            for edge in node.originatingedges:
+                                if edge.endNode in innergroup.nodes:
+                                    #found a pair of nodes
+                                    print("UTILITY {nam} found a connection between groups {og} and {ig} in edge {edg}".format(nam = self.name, og = outergroup.name, ig = innergroup.name, edg = edge.name))
+                                    edge.closeRelays()
+                                    return True
+        return False
+                                    
             
     def groundFaultHandler(self,*argv):
         fault = argv[0]
@@ -1177,7 +1243,7 @@ class UtilityAgent(Agent):
                     fault.isolateNode(selnode)
                                 
                     #reschedule ground fault handler
-                    schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
+                    schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
                     
                     self.dbgroundfaultevent(fault,"attempting to locate",self.dbconn,self.t0,iunaccounted)
                     
@@ -1205,7 +1271,7 @@ class UtilityAgent(Agent):
                         fault.printInfo()
                         
                 #reschedule
-                schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
                 
@@ -1226,18 +1292,19 @@ class UtilityAgent(Agent):
                 self.groundFaultHandler(fault,zone)
                 
             else:
-                self.dbgroundfaultevent(fault,"no other faults",self.dbconn,self.t0,iunaccounted)
                 
                 if settings.DEBUGGING_LEVEL >= 1:
                     print("FAULT: looks like we've isolated all faulted nodes and only faulted nodes.")
                 
                 #we seem to have isolated the faulted node(s)
                 if fault.reclose:
-                    fault.state = "reclose"
-                    
+                    fault.state = "reclose"                    
                     
                     if settings.DEBUGGING_LEVEL >= 1:
                         print("FAULT: going to reclose. count: {rec}".format(rec = fault.reclosecounter))
+                        
+                    self.dbgroundfaultevent(fault,"no other faults",self.dbconn,self.t0,iunaccounted)
+                    
                 else:
                     #our reclose limit has been met
                     fault.state = "persistent"
@@ -1245,7 +1312,7 @@ class UtilityAgent(Agent):
                         print("FAULT: no more reclosing, fault is persistent.")
                 
                 #schedule next call
-                schedule.msfromnow(self,600,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
                 
                 
         elif fault.state == "reclose":
@@ -1259,7 +1326,7 @@ class UtilityAgent(Agent):
 #                 fault.reclosenode(node)
                 
             fault.state = "suspected"
-            schedule.msfromnow(self,750,self.groundFaultHandler,fault,zone)
+            schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
             self.dbgroundfaultevent(fault,"reclosing",self.dbconn,self.t0)
             
         elif fault.state == "unlocatable":
@@ -1272,7 +1339,7 @@ class UtilityAgent(Agent):
             else:
                 #maybe the fault has abated or maybe we just can't tell that it hasn't
                 fault.state = "located"
-                schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"unlocatable fault now isolated",self.dbconn,self.t0,iunaccounted)
                 
@@ -1281,8 +1348,13 @@ class UtilityAgent(Agent):
             self.dbgroundfaultevent(fault,"fault deemed persistent",self.dbconn,self.t0)
             
             #revoke permission for customers on faulted nodes to connect
-            for cust in fault.faultednodes.customers:
-                cust.permission = False
+            for node in fault.faultednodes:
+                for cust in node.customers:
+                    cust.permission = False
+                    
+            #detect topology and begin remediation for unfaulted isolated groups
+            self.getTopology()
+            self.repairgrid()
                 
         elif fault.state == "multiple":
             #this isn't used currently
