@@ -14,7 +14,7 @@ from volttron.platform.agent import utils
 from volttron.platform.messaging import headers as headers_mod
 
 from DCMGClasses.CIP import tagClient
-from DCMGClasses.resources.misc import listparse, schedule
+from DCMGClasses.resources.misc import listparse, schedule, faults
 from DCMGClasses.resources.mathtools import graph
 from DCMGClasses.resources import resource, groups, control, customer
 
@@ -25,6 +25,7 @@ from __builtin__ import True
 from bacpypes.vlan import Node
 from twisted.application.service import Service
 from pickle import TRUE
+from argparse import Action
 #from _pydev_imps._pydev_xmlrpclib import loads
 utils.setup_logging()
 _log = logging.getLogger(__name__)
@@ -519,9 +520,9 @@ class UtilityAgent(Agent):
                                     self.dbtransaction(cust,balanceAdjustment,"remote resource",self.dbconn,self.t0)
                             
                         else:
-                            print("TEMP DEBUG: resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
+                            print("resource {res} is co-located with {cust}".format(res = res.name, cust = cust.name))
                     else:
-                        print("TEMP-DEBUG: can't find owner {own} for {res}".format(own = res.owner, res = res.name))
+                        print("can't find owner {own} for {res}".format(own = res.owner, res = res.name))
         
     @Core.periodic(settings.LT_PLAN_INTERVAL)
     def planLongTerm(self):
@@ -1143,41 +1144,66 @@ class UtilityAgent(Agent):
     
     def repairgrid(self):
         print("Utility {nam} attempting to merge as many groups as possible".format(nam = self.name))
+        tookaction = False
         
         #look for connections in between nodes of nonfaulted groups
+        pastouters = []
         for outergroup in self.groupList:
+            pastouters.append(outergroup)
             if outergroup.hasGroundFault():
                 pass
             else:
                 for innergroup in self.groupList:
-                    #don't try to reconnect to faulted groups
-                    if innergroup.hasGroundFault():
-                        pass
-                    #dont' look for connections between nodes in same group
-                    elif innergroup == outergroup:
-                        
-                        pass
-                    #outer and inner groups are not the same and neither is faulted                    
-                    else:
-                        print("temp debug: looking at groups {og} and {ig}".format(og = outergroup.name, ig = innergroup.name))
-                        
-                        #look through all nodes in the group                        
-                        for node in outergroup.nodes:
-                            #are any nodes in the other group?
-                            for edge in node.terminatingedges:
-                                if edge.startNode in innergroup.nodes:
-                                    #found a pair of nodes
-                                    print("UTILITY {nam} found a connection between groups {og} and {ig} in edge {edg}".format(nam = self.name, og = outergroup.name, ig = innergroup.name, edg = edge.name))
-                                    edge.closeRelays()
-                                    return True
+                    #avoid treating reciprocal relationships as unique
+                    if innergroup not in pastouters:
+                        #don't try to reconnect to faulted groups
+                        if innergroup.hasGroundFault():
+                            pass
+                        #outer and inner groups are not the same and neither is faulted                    
+                        else:
+                            print("temp debug: looking at groups {og} and {ig}".format(og = outergroup.name, ig = innergroup.name))
+                            remedialactions = []
                             
-                            for edge in node.originatingedges:
-                                if edge.endNode in innergroup.nodes:
-                                    #found a pair of nodes
-                                    print("UTILITY {nam} found a connection between groups {og} and {ig} in edge {edg}".format(nam = self.name, og = outergroup.name, ig = innergroup.name, edg = edge.name))
-                                    edge.closeRelays()
-                                    return True
-        return False
+                            #look through all nodes in the group                        
+                            for node in outergroup.nodes:
+                                #are any nodes in the other group?
+                                for edge in node.terminatingedges:
+                                    if edge.startNode in innergroup.nodes:
+                                        #found a pair of nodes
+                                        print("UTILITY {nam} found a connection between groups {og} and {ig} in edge {edg}".format(nam = self.name, og = outergroup.name, ig = innergroup.name, edg = edge.name))
+                                        #edge.closeRelays()
+                                        #return True
+                                        
+                                        action = faults.GroupMerger(edge)
+                                        remedialactions.append(action)
+                                
+                                for edge in node.originatingedges:
+                                    if edge.endNode in innergroup.nodes:
+                                        #found a pair of nodes
+                                        print("UTILITY {nam} found a connection between groups {og} and {ig} in edge {edg}".format(nam = self.name, og = outergroup.name, ig = innergroup.name, edg = edge.name))
+                                        #edge.closeRelays()
+                                        #return True
+                                        
+                                        action = faults.GroupMerger(edge)
+                                        remedialactions.append(action)
+                            
+                                #if any edges may be closed to join innergroup and outergroup
+                                if remedialactions:
+                                    #determine which of the remedial actions is best
+                                    bestaction = None
+                                    for action in remedialactions:
+                                        if bestaction:
+                                            if action.utilafter > bestaction.utilafter:
+                                                bestaction = action
+                                        else:
+                                            bestaction = action
+                                            
+                                    print("UTILITY {nam} chose {edg} as best connection between {og} and {ig}".format(nam = self.name, edg = bestaction.edge.name, og = outergroup.name, ig = innergroup.name))
+                                                
+                                    bestaction.edge.closeRelays()
+                                    tookaction = True
+                                    
+        return tookaction
                                     
             
     def groundFaultHandler(self,*argv):
@@ -1209,7 +1235,7 @@ class UtilityAgent(Agent):
                 #update fault state
                 fault.state = "unlocated"
                 #reschedule ground fault handler
-                schedule.msfromnow(self,400,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"suspected fault confirmed",self.dbconn,self.t0,iunaccounted)
             else:
@@ -1258,6 +1284,7 @@ class UtilityAgent(Agent):
                 #the previously isolated node probably contained the fault
                 faultednode = fault.isolatednodes[-1]
                 fault.faultednodes.append(faultednode)
+                print("just added node {nam} to faulted nodes".format(nam = faultednode.name))
                 
                 fault.state = "located"
                 #nodes in zone that are not marked faulted can be restored
@@ -1527,7 +1554,7 @@ class UtilityAgent(Agent):
             loads += grouploads
             sources += groupsources
             losses += grouplosses
-            print('TEMP DEBUG: loads: {loads}, sources: {sources}, losses: {losses}'.format(loads = grouploads, sources = groupsources, losses = grouplosses))
+            #print('TEMP DEBUG: loads: {loads}, sources: {sources}, losses: {losses}'.format(loads = grouploads, sources = groupsources, losses = grouplosses))
         
         #difference
         waste = sources - loads

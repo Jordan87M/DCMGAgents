@@ -907,7 +907,7 @@ class HomeAgent(Agent):
         if len(bidgroup) >= 3:
             maxitr = 4
         else:
-            maxitr = 6
+            maxitr = 8
             
         #turns debugging on or off for subroutines
         #subdebug = True

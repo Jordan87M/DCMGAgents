@@ -347,7 +347,7 @@ class Node(BaseNode):
         for edge in self.terminatingedges:
             if edge.startNode.hasGroundFault():
                 for relay in edge.relays:
-                    print("won't close relay {nam} because it belongs to a faulted node ({nod})".format(nam = relay.tagName, nod = edge.endNode.name))
+                    print("won't close relay {nam} because it belongs to a faulted node ({nod})".format(nam = relay.tagName, nod = edge.startNode.name))
             else:
                 for relay in edge.relays:
                     print("closing relay {nam}".format(nam = relay.tagName))

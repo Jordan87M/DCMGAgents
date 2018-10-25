@@ -77,10 +77,6 @@ class GroundFault(Fault):
         self.forcerestorenode(node)
         
     
-    #initiate procedure to clear a persistent fault    
-    def clearfault(self):
-        self.reclosecounter = 0
-        #send message to SG PLC
         
     def printInfo(self,depth = 0):
         tab = "    "
@@ -95,4 +91,105 @@ class GroundFault(Fault):
             if owner in self.faultednodes:
                 print("!!! FAULT LOCATED HERE!!!")
                 
+                
+class RemedialAction(object):
+    def __init__(self):        
+        utilbefore = None
+        utilafter = None
+        
+        
+class GroupMerger(RemedialAction):
+    def __init__(self,edge):
+        super(GroupMerger,self).__init__()
+        
+        self.edge = edge
+        self.utilafter = self.getutilafter()
+        
+    def getutilbefore(self):
+        pass
+    
+    #ideally would use a model to determine consequences of action
+    #for now, find an edge that is closer to more nodes with more important stuff
+    def getutilafter(self):
+        score = 0.0
+        visitedlist = []
+        keepgoing = True
+        factor = 0.5
+        
+        expandstack = []
+        expandstack.append(self.edge.endNode)
+        visitedlist.append(self.edge.endNode)
+        
+        expandstack.append(self.edge.startNode)
+        visitedlist.append(self.edge.startNode)
+        
+        distance = 1        
+        #while expandstack is not empty
+        print("temp debug: beginning to work on {edg}".format(edg = self.edge.name))
+        while expandstack:           
+            print("temp debug: expandstack --")
+            for node in expandstack:
+                print("node: {nam}".format(nam=node.name))
+                
+            #new round of end nodes to be expanded
+            newnodes = []       
+            
+            #list of nodes to remove
+            remnodes = []     
+            
+            #for each node in expandstack add all unique neighboring nodes
+            for node in expandstack:         
+                
+                print("temp debug: expanding node {nam}".format(nam = node.name))
+                
+                #remove the node when it is investigated       
+                remnodes.append(node)
+                
+                #if the node has a priority score...
+                if hasattr(node,"priorityscore"):
+                    #add the priority score inversely weighted by its distance from the edge
+                    
+                    contrib = node.priorityscore*(factor**distance)
+                    score += contrib
+                    
+                    print("temp debug: node contribution: {con}".format(con=contrib))
+                    
+                    #add nodes to the the list of unexpanded nodes
+                    for edge in node.originatingedges:
+                        #if the node has not already been visited
+                        if edge.endNode not in visitedlist:
+                            #if the node does not have a ground fault
+                            if edge.endNode.hasGroundFault():
+                                pass
+                            else:
+                                #add to list of visited nodes so that it won't be expanded again
+                                visitedlist.append(edge.endNode)
+                                newnodes.append(edge.endNode)
+                    
+                    for edge in node.terminatingedges:
+                        if edge.startNode not in visitedlist:
+                            if edge.startNode.hasGroundFault():
+                                pass
+                            else:
+                                visitedlist.append(edge.startNode)
+                                newnodes.append(edge.startNode)
+                                
+            #remove expanded nodes from expand stack
+            for node in remnodes:
+                expandstack.remove(node)
+                
+            #add new nodes to expand stack
+            expandstack.extend(newnodes)
+            #all nodes are 1 step further from the edge
+            distance += 1
+            
+            print("temp debug: total score is {sco}".format(sco = score))            
+            for node in newnodes:
+                print("temp debug: add node {nam} to expand stack".format(nam=node.name ))
+        
+        print("temp debug: final score is {sco}".format(sco = score))
+        return score
+    
+    def getutils(self):
+        pass
             
