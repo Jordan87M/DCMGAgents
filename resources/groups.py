@@ -180,12 +180,16 @@ class BaseNode(object):
         self.zone = None
         self.group = None
         
+        #status
         self.faults = []
+        self.locked = False
         
         #connections to other nodes
         self.edges = []
         self.originatingedges = []
         self.terminatingedges = []
+        
+        
         
     def addEdge(self,otherNode,dir,currentTag,relays):
         
@@ -247,11 +251,17 @@ class BaseNode(object):
         return False
                 
                 
+    def locknode(self):
+        self.locked = True
+        for edge in self.edges:
+            for relay in edge.relays:
+                relay.lock()
+                
+        
         
 class Node(BaseNode):
     def __init__(self, name, **kwargs):
         super(Node,self).__init__(name, **kwargs)
-        self.savedstate = {}
         
         self.priorityscore = 0
         self.loadprioritylist = []
@@ -315,22 +325,27 @@ class Node(BaseNode):
         for edge in self.edges:
             print("looking at edge {nam}".format(nam=edge.name))
             for relay in edge.relays:
-                print("saving relay state: {nam} was {sta}".format(nam=relay.tagName, sta=relay.closed))
                 #first, record the state we were in before
-                self.savedstate[relay] = relay.closed
+                #but only if we haven't already saved it for another node
+                if relay.donotsave:
+                    print("not saving state for {nam}".format(nam=relay.tagName))
+                else:
+                    print("saving relay state: {nam} was {sta}".format(nam=relay.tagName, sta=relay.closed))
+                    relay.savestate()
+                    relay.donotsave = True
             #then, open the relays
             edge.openRelays()
         
-        for key in self.savedstate:
-            print key
                     
     def restorehard(self):        
         print("Restoring node {nam} HARD".format(nam = self.name))
         for edge in self.edges:
             for relay in edge.relays:
                 print("closing relay {nam}".format(nam = relay.tagName))
-                if self.savedstate[relay]:
+                relay.donotsave = False
+                if relay.savedstate:
                     relay.closeRelay()
+                    
                     
     def restore(self):
         print("Restoring node {nam} without impacting faulted nodes".format(nam = self.name))
@@ -341,8 +356,10 @@ class Node(BaseNode):
             else:
                 for relay in edge.relays:
                     print("closing relay {nam}".format(nam = relay.tagName))
-                    if self.savedstate[relay]:
+                    relay.donotsave = False
+                    if relay.savedstate:
                         relay.closeRelay()
+                        
         
         for edge in self.terminatingedges:
             if edge.startNode.hasGroundFault():
@@ -351,8 +368,10 @@ class Node(BaseNode):
             else:
                 for relay in edge.relays:
                     print("closing relay {nam}".format(nam = relay.tagName))
-                    if self.savedstate[relay]:
+                    relay.donotsave = False
+                    if relay.savedstate:
                         relay.closeRelay()
+                        
                     
             
     def sumCurrents(self):
@@ -378,6 +397,8 @@ class Node(BaseNode):
     
     def printInfo(self,depth = 0,verbosity = 1):
         spaces = '    '
+        if self.locked:
+            print(spaces*depth + "***!!!LOCKED!!!***")
         print(spaces*depth + "NODE {me} PROBLEMS:".format(me = self.name))
         for fault in self.faults:
             fault.printInfo(depth + 1)
@@ -534,6 +555,19 @@ class Relay(object):
         
         self.closed = None
         self.faulted = False
+        self.locked = False
+        
+        self.savedstate = None
+        self.donotsave = False
+        
+    def lock(self):
+        self.locked = True
+        
+    def unlock(self):
+        self.locked = False
+        
+    def savestate(self):
+        self.savedstate = self.closed
         
     def getClosed(self):
         #return self.closed
@@ -543,18 +577,28 @@ class Relay(object):
         return retval
     
     def closeRelay(self):
-        if self.type == "infrastructure":
-            tagClient.writeTags([self.tagName],[False])
-        elif self.type == "load" or self.type == "source":
-            tagClient.writeTags([self.tagName],[True])
-        self.closed = True
+        if self.locked:
+            print("TRIED TO CLOSE LOCKED RELAY {nam}".format(nam=self.tagName))
+            return False
+        else:
+            if self.type == "infrastructure":
+                tagClient.writeTags([self.tagName],[False])
+            elif self.type == "load" or self.type == "source":
+                tagClient.writeTags([self.tagName],[True])
+            self.closed = True
+            return True
     
     def openRelay(self):
-        if self.type == "infrastructure":
-            tagClient.writeTags([self.tagName],[True])
-        elif self.type == "load" or self.type == "source":
-            tagClient.writeTags([self.tagName],[False])
-        self.closed = False
+        if self.locked:
+            print("TRIED TO OPEN LOCKED RELAY {nam}".format(nam=self.tagName))
+            return False
+        else:
+            if self.type == "infrastructure":
+                tagClient.writeTags([self.tagName],[True])
+            elif self.type == "load" or self.type == "source":
+                tagClient.writeTags([self.tagName],[False])
+            self.closed = False
+            return True
         
     def setFault(self):
         for node in self.owningNodes:
@@ -571,3 +615,6 @@ class Relay(object):
         print(depth*tab + "TAG: {tag}".format(tag = self.tagName))
         print(depth*tab + "STATE: {sta}".format(sta = self.closed))
         print(depth*tab + "FAULT: {fau}".format(fau = self.faulted))
+        print(depth*tab + "LOCKED: {loc}".format(loc = self.locked))
+        if self.savedstate:
+            print(depth*tab + "SAVED STATE: {ssta}".format(ssta=self.savedstate))

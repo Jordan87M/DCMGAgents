@@ -124,7 +124,7 @@ class StateGrid(object):
                     ui = i
                 else:
                     #x is a gridpoint
-                    return self.grid[int(i)].pathcost
+                    return self.grid[int(i)].optimalinput.pathcost
                     
             upper = self.grid[ui]
             lower = self.grid[li]

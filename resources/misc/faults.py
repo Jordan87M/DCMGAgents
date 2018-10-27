@@ -33,6 +33,7 @@ class GroundFault(Fault):
         self.reclose = True
         self.isolatednodes = []
         self.faultednodes = []
+        self.persistentnodes = []
         self.reclosecounter = 0
         self.reclosemax = 2
         self.zone = zone
@@ -45,7 +46,9 @@ class GroundFault(Fault):
             
     def forcerestorenode(self,node):
         if node in self.owners:
-            node.restorehard()
+            
+            if node not in self.persistentnodes:
+                node.restorehard()
             
             if node in self.isolatednodes:
                 self.isolatednodes.remove(node)
@@ -66,16 +69,26 @@ class GroundFault(Fault):
     
     def reclosezone(self):        
         self.reclosecounter += 1
-        for node in self.zone.nodes:
+        
+        #make copy to so that we don't skip nodes when the reclosenode() shrinks the list
+        recloselist = []
+        for node in self.isolatednodes:
+            if node not in self.persistentnodes:
+                recloselist.append(node)
+        
+        for node in recloselist:
             self.reclosenode(node)
             
-        if self.reclosecounter == self.reclosemax:
+        if self.reclosecounter >= self.reclosemax:
             self.reclose = False
     
     def reclosenode(self,node):
         #self.reclosecounter += 1 #now done in reclosezone()
         self.forcerestorenode(node)
         
+    def locknode(self,node):
+        if node in self.faultednodes:
+            node.locknode()
     
         
     def printInfo(self,depth = 0):
@@ -192,4 +205,11 @@ class GroupMerger(RemedialAction):
     
     def getutils(self):
         pass
+    
+def Lockout(object):
+    def __init__(self,device,reason):
+        self.device = device
+        self.reason = reason
+        
+    
             

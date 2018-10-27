@@ -567,14 +567,14 @@ class UtilityAgent(Agent):
         if settings.DEBUGGING_LEVEL >= 2:
             print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
         
-        #if the grid has been split, see if we can repair the split
-        if len(subs) > 1:
-            if settings.DEBUGGING_LEVEL >= 1:
-                print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
-        
-            self.repairgrid()
-            
-            subs = self.getTopology()
+        #if the grid has been split, see if we can repair the split -- taken care of in fault handler
+#         if len(subs) > 1:
+#             if settings.DEBUGGING_LEVEL >= 1:
+#                 print("UTILITY {me} THINKS THE TOPOLOGY IS {top}".format(me = self.name, top = subs))
+#         
+#             self.repairgrid()
+#             
+#             subs = self.getTopology()
         
         
         
@@ -1214,13 +1214,31 @@ class UtilityAgent(Agent):
             
             self.dbgroundfaultevent(fault,"newly suspected fault",self.dbconn,self.t0)
             
+                            
+            #is an existing node in the zone already persistently faulted?
+            for node in zone.nodes:
+                for exfault in node.faults:
+                    if exfault is not fault:
+                        if exfault.__class__.__name__ == "GroundFault":
+                            print("utility agent looking up existing fault {id}".format(id=exfault.uid))
+                            if exfault.state == "persistent":
+                                if node in exfault.faultednodes:
+                                    
+                                    if node not in fault.isolatednodes:
+                                        fault.isolatednodes.append(node)
+                                        
+                                    if node not in fault.faultednodes:
+                                        fault.faultednodes.append(node)
+                                        
+                                    if node not in fault.persistentnodes:
+                                        fault.persistentnodes.append(node)
+                                    
             if settings.DEBUGGING_LEVEL >= 2:
                 fault.printInfo()
-            
+
         if fault.state == "suspected":
             iunaccounted = zone.sumCurrents()
-            if abs(iunaccounted) > settings.UNACCOUNTED_CURRENT_THRESHOLD:
-                
+            if abs(iunaccounted) > settings.UNACCOUNTED_CURRENT_THRESHOLD:                
                 
                 #pick a node to isolate first - lowest priority first
                 zone.rebuildpriorities()
@@ -1235,7 +1253,7 @@ class UtilityAgent(Agent):
                 #update fault state
                 fault.state = "unlocated"
                 #reschedule ground fault handler
-                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"suspected fault confirmed",self.dbconn,self.t0,iunaccounted)
             else:
@@ -1269,7 +1287,7 @@ class UtilityAgent(Agent):
                     fault.isolateNode(selnode)
                                 
                     #reschedule ground fault handler
-                    schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
+                    schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
                     
                     self.dbgroundfaultevent(fault,"attempting to locate",self.dbconn,self.t0,iunaccounted)
                     
@@ -1288,7 +1306,7 @@ class UtilityAgent(Agent):
                 
                 fault.state = "located"
                 #nodes in zone that are not marked faulted can be restored
-                for node in zone.nodes:
+                for node in fault.isolatednodes:
                     if node not in fault.faultednodes:
                         fault.restorenode(node)
                         
@@ -1298,7 +1316,7 @@ class UtilityAgent(Agent):
                         fault.printInfo()
                         
                 #reschedule
-                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"fault located",self.dbconn,self.t0,iunaccounted)
                 
@@ -1339,7 +1357,7 @@ class UtilityAgent(Agent):
                         print("FAULT: no more reclosing, fault is persistent.")
                 
                 #schedule next call
-                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
                 
                 
         elif fault.state == "reclose":
@@ -1353,7 +1371,7 @@ class UtilityAgent(Agent):
 #                 fault.reclosenode(node)
                 
             fault.state = "suspected"
-            schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
+            schedule.msfromnow(self,1200,self.groundFaultHandler,fault,zone)
             self.dbgroundfaultevent(fault,"reclosing",self.dbconn,self.t0)
             
         elif fault.state == "unlocatable":
@@ -1366,7 +1384,7 @@ class UtilityAgent(Agent):
             else:
                 #maybe the fault has abated or maybe we just can't tell that it hasn't
                 fault.state = "located"
-                schedule.msfromnow(self,800,self.groundFaultHandler,fault,zone)
+                schedule.msfromnow(self,1000,self.groundFaultHandler,fault,zone)
                 
                 self.dbgroundfaultevent(fault,"unlocatable fault now isolated",self.dbconn,self.t0,iunaccounted)
                 
@@ -1376,6 +1394,8 @@ class UtilityAgent(Agent):
             
             #revoke permission for customers on faulted nodes to connect
             for node in fault.faultednodes:
+                #lock node
+                node.locknode()
                 for cust in node.customers:
                     cust.permission = False
                     
@@ -1455,7 +1475,7 @@ class UtilityAgent(Agent):
             if zone.faults:
                 for fault in zone.faults:
                     if fault.__class__.__name__ == "GroundFault":
-                        print("zone {nam} already has a ground fault")
+                        print("zone {nam} already has a ground fault".format(nam=zone.name))
                         if fault.state != "persistent":
                             print("fault is still in process")
                             skip = True
